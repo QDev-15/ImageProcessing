@@ -1,0 +1,18 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);1591</NoWarn>
+    <PackageId>ImageProcessing</PackageId>
+    <Description>Thu vien xu ly anh dung chung: lam net, nen, doc/ghi anh, do PSNR/SSIM. Tuong thich .NET Framework, .NET Core/5+, UWP (netstandard2.0).</Description>
+    <Authors>ImageProcessing</Authors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="SixLabors.ImageSharp" Version="2.1.13" />
+  </ItemGroup>
+
+</Project>
