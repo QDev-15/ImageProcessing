@@ -48,3 +48,39 @@
      hoặc barcode.
    - 6.6 Hạ tầng: xử lý + xuất file trên luồng nền có thanh tiến trình; lưu cài đặt, ghi
      log; bộ cài (MSIX/WiX) kèm DLL native x64; rà soát license và bằng sáng chế.
+
+## Báo cáo đợt 2026-09-25 (03:50 → 04:40, branch `feature/document-scanner`)
+
+### Đã xong (build OK, SmokeTests ALL PASS, veraPDF PDF/A-2b compliant)
+
+| # | Việc | Quyết định chính |
+|---|---|---|
+| 0 | README | Cập nhật trước khi làm, viết lại khi xong. |
+| 1 | Trắng đen | **Sauvola** mặc định (chịu được nền ngả màu / sáng không đều), Otsu là tuỳ chọn. Tự cài đặt từ bài báo gốc: không phụ thuộc thư viện ngoài, không có vấn đề license / bằng sáng chế. |
+| 2 | DPI | Bỏ hạ 200 DPI. Thiếu DPI (0, hoặc 96/72 trên ảnh cỡ trang scan) thì suy ra từ pixel theo A4 / Letter / Legal. |
+| 3 | Nén 2 lần | Scan lưu PNG / TIFF G4 (không mất dữ liệu); mọi chỉnh sửa lưu PNG; JPEG gốc nhúng nguyên byte. |
+| 4 | Cài đặt | Menu Cài đặt + form (checkbox JBIG2 / JPEG2000 + PropertyGrid cho mọi option); XML ở `%LocalAppData%\ImageOptimizerTool\settings.xml`, lần đầu lấy từ `Config\settings.default.xml`. |
+| 5 | Mặc định codec | Không tích → CCITT G4 / JPEG. Codec chọn **từng trang** theo nhận dạng màu. |
+| 6.1 | Chụp | WIA dự phòng (COM late-bound), profile máy scan, huỷ scan (F6 / link Huỷ), báo kẹt giấy / double feed / hết giấy, tự bỏ trang trắng. |
+| 6.2 | Xử lý ảnh | Deskew, cắt viền đen, tự xoay (Tesseract OSD), khử đốm, Sauvola, phân loại trắng đen / xám / màu. **Không dùng OpenCvSharp**: thuật toán tự viết đủ tốt và tránh ~60 MB native + ffmpeg LGPL. |
+| 6.3 | Quản lý trang | Thumbnail, kéo thả, xoay, xoá, chèn, undo / redo, lưu / mở dự án, tự lưu phiên + khôi phục khi crash. |
+| 6.4 | OCR | Tesseract 5 (vie + eng), lớp chữ ẩn GlyphLessFont. Không chọn Windows.Media.Ocr vì cần gói ngôn ngữ tiếng Việt cài trên từng máy. |
+| 6.5 | Đầu ra | PDF/A-2b (XMP qua incremental update), metadata, mẫu tên file, tách theo trang trắng / barcode. |
+| 6.6 | Hạ tầng | Chạy nền + tiến trình + huỷ, log theo ngày, MSI WiX v5 self-contained x64 (kèm VC++ runtime), THIRD-PARTY-NOTICES.md. Chọn WiX thay vì MSIX vì MSIX bắt buộc chứng chỉ ký. |
+
+### Owner cần kiểm tra tay (không có máy scan / môi trường để tự test)
+
+1. **Scan với máy scan thật**, cả TWAIN lẫn WIA: ADF, duplex, huỷ giữa chừng, kẹt giấy (rút giấy
+   khi đang scan), hết giấy. Code TWAIN / WIA chỉ mới được build, chưa chạy với thiết bị.
+2. Cài MSI trên máy sạch (chưa có .NET / VC++): mở app, OCR, xuất JBIG2 / JPEG2000.
+3. Thử ngưỡng trang trắng (0.03%) và Sauvola k (0.34) trên bản scan thật của công ty.
+4. App đang mở từ `bin\Debug` (PID lúc 04:20 là 20648) giữ khoá DLL. Đóng nó trước khi build trong VS.
+
+### Chưa làm / đề xuất đợt sau
+
+- Ký số exe / MSI (cần chứng chỉ code signing).
+- Tự build jbig2enc từ source (bản Windows hiện tại do bên thứ ba build), thay PdfiumViewer đã
+  ngừng phát triển, cân nhắc NTwain bản ổn định.
+- OCR song song nhiều trang (hiện ~2-3 s/trang, chạy tuần tự).
+- Form Cài đặt dạng tab "đẹp" thay cho PropertyGrid, nếu cần cho người dùng cuối.
+- Unit test chuẩn (xUnit) thay cho SmokeTests dạng console, và chạy trên CI.
