@@ -34,6 +34,7 @@ public sealed class PdfBuilder
 {
     private readonly PdfDocument _doc = new();
     private PdfDictionary? _ocrFont;
+    private string? _pendingXmp;
 
     public int PageCount { get; private set; }
 
@@ -119,6 +120,7 @@ public sealed class PdfBuilder
         ApplyMetadata();
         string tmp = destPath + ".partial";
         _doc.Save(tmp);
+        if (_pendingXmp != null) PdfIncrementalXmp.Attach(tmp, Encoding.UTF8.GetBytes(_pendingXmp));
         File.Move(tmp, destPath, overwrite: true);
     }
 
@@ -316,13 +318,10 @@ public sealed class PdfBuilder
         // packet agrees with the Info dictionary (a PDF/A requirement).
         string producer = PdfSharpProducer.Value;
 
-        string xmp = BuildXmp(Metadata, producer, now);
-        var metadata = new PdfDictionary(_doc);
-        metadata.CreateStream(Encoding.UTF8.GetBytes(xmp));
-        metadata.Elements.SetName("/Type", "/Metadata");
-        metadata.Elements.SetName("/Subtype", "/XML");
-        _doc.Internals.AddObject(metadata);
-        _doc.Internals.Catalog.Elements["/Metadata"] = metadata.Reference;
+        // PDFsharp always (re)generates its own XMP on save (claiming PDF/A-1A when its
+        // PDF/A flag is set), so ours is attached afterwards as an incremental update --
+        // see Save / PdfIncrementalXmp.
+        _pendingXmp = BuildXmp(Metadata, producer, now);
 
         byte[] icc = SrgbProfile.Value;
         var iccStream = new PdfDictionary(_doc);

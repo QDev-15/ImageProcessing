@@ -189,6 +189,10 @@ Run("export", () =>
     Check("JBIG2 text pages smaller than G4", new FileInfo(jb2Only).Length < new FileInfo(g4Only).Length,
         $"{new FileInfo(jb2Only).Length / 1024} KB vs {new FileInfo(g4Only).Length / 1024} KB");
 
+    string meta = Path.Combine(outDir, "out_meta.pdf");
+    DocumentExporter.ExportPdf(new[] { textPng }, new ExportOptions { Ocr = true, Metadata = new PdfMetadata { Title = "Hợp đồng số 1", Author = "Nguyễn Văn A", Subject = "Mua bán & <test>", Keywords = "hợp đồng, 2026" } }, meta);
+    VerifyPdf(meta, 1, "HỢP");
+
     string tif = Path.Combine(outDir, "out.tif");
     DocumentExporter.ExportTiff(pages, new ExportOptions(), tif);
     using var t = BitMiracle.LibTiff.Classic.Tiff.Open(tif, "r");
