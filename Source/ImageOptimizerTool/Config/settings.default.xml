@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AppSettings xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+  <UseJBig2>false</UseJBig2>
+  <UseJpeg2000>false</UseJpeg2000>
+  <WorkFolder />
+  <OutputFolder />
+  <ThumbnailSize>120</ThumbnailSize>
+  <MaxUndoSteps>50</MaxUndoSteps>
+  <ScanDriver>Auto</ScanDriver>
+  <DefaultProfileName>Mặc định</DefaultProfileName>
+  <ScanProfiles>
+    <ScanProfile>
+      <Name>Mặc định</Name>
+      <SourceName />
+      <Driver>Auto</Driver>
+      <Dpi>300</Dpi>
+      <ColorMode>Color</ColorMode>
+      <Duplex>false</Duplex>
+      <UseFeeder>true</UseFeeder>
+      <ShowDriverUi>false</ShowDriverUi>
+    </ScanProfile>
+  </ScanProfiles>
+  <AutoProcessOnImport>true</AutoProcessOnImport>
+  <Deskew>true</Deskew>
+  <CropBlackBorders>true</CropBlackBorders>
+  <AutoOrient>true</AutoOrient>
+  <RemoveBlankPages>true</RemoveBlankPages>
+  <BlankPageInkPercent>0.03</BlankPageInkPercent>
+  <Despeckle>true</Despeckle>
+  <Binarization>Sauvola</Binarization>
+  <SauvolaK>0.34</SauvolaK>
+  <ColorMode>Auto</ColorMode>
+  <JpegQuality>90</JpegQuality>
+  <PassThroughOriginalJpeg>true</PassThroughOriginalJpeg>
+  <Jpeg2000Ratio>20</Jpeg2000Ratio>
+  <JBig2Mode>Symbol</JBig2Mode>
+  <JBig2Threshold>0.92</JBig2Threshold>
+  <PdfA>true</PdfA>
+  <Ocr>true</Ocr>
+  <OcrLanguages>vie+eng</OcrLanguages>
+  <FileNamePattern>Scan_{date}_{time}_{counter}</FileNamePattern>
+  <SplitMode>None</SplitMode>
+  <SeparatorBarcodePrefix />
+  <RemoveSeparatorPages>true</RemoveSeparatorPages>
+  <MetaAuthor />
+  <MetaTitle />
+  <MetaSubject />
+  <MetaKeywords />
+</AppSettings>

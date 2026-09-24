@@ -1,21 +1,35 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
+    <OutputType>WinExe</OutputType>
     <TargetFramework>net9.0-windows</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <UseWindowsForms>true</UseWindowsForms>
     <AssemblyName>ImageOptimizerTool</AssemblyName>
     <RootNamespace>ImageOptimizerTool</RootNamespace>
+    <!-- All shipped native dependencies are x64 (see ImageCoreService.csproj). -->
+    <PlatformTarget>x64</PlatformTarget>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-x64</RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
+    <Version>1.0.0</Version>
+    <Product>Image Optimizer Tool</Product>
+    <Company>IMIP</Company>
+    <ApplicationHighDpiMode>SystemAware</ApplicationHighDpiMode>
   </PropertyGroup>
 
-  <!-- All codecs, PDF/TIFF packing, PDF splitting and TWAIN scanning live in
+  <!-- All codecs, PDF/TIFF packing, image cleanup, OCR and scanning live in
        ImageCoreService (shared with other projects); this project is just the WinForms
-       front end. NuGet dependencies and the vendored tools\ encoders flow in through
-       this reference. -->
+       front end. NuGet dependencies, native DLLs, tessdata and the vendored tools\
+       encoders flow in through this reference. -->
   <ItemGroup>
     <ProjectReference Include="..\ImageCoreService\ImageCoreService.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Seed for the per-user settings file on first run (see SettingsStore). -->
+    <None Include="Config\settings.default.xml" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\THIRD-PARTY-NOTICES.md" Link="THIRD-PARTY-NOTICES.md" CopyToOutputDirectory="PreserveNewest" Condition="Exists('..\..\THIRD-PARTY-NOTICES.md')" />
   </ItemGroup>
 
 </Project>
