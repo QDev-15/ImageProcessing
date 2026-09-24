@@ -1,69 +1,60 @@
-# Image Optimizer Tool -- visual test bench
+# Image Optimizer Tool
 
-Standalone .NET 9 WinForms app, **not referenced by or wired into** `UniversalScanClient` /
-`ScanClient-FileOptics`. Open `ImageOptimizerTool.sln` in VS2022 to run/edit `MainForm`
-in the designer.
+App WinForms (.NET 9, Windows) để scan / import tài liệu, xử lý ảnh và xuất PDF/TIFF.
+Ban đầu là test bench so sánh codec (JBIG2 / OpenJPEG vs CCITT G4 / JPEG), đang được
+nâng cấp thành app scan tài liệu thương mại (xem **Lộ trình** bên dưới và `CLAUDE.md`
+ở gốc repo).
 
-## What it's for
+Mở `Source/ImageProcessing.sln` (hoặc `ImageOptimizerTool.sln`) bằng Visual Studio 2022+.
 
-Testing whether **JBIG2** (bitonal) and **OpenJPEG's rate-distortion JPEG2000** (color)
-are worth integrating into the main app's export pipeline, which currently uses CCITT
-G4 and CoreJ2K respectively -- see `Goal.md` 2026-09-23/24 for the full background
-(GdPicture comparison, CoreJ2K's rate-control bug, JBIG2's symbol-dictionary advantage).
+## Cấu trúc
 
-## Using the form
+| Project | Vai trò |
+|---|---|
+| `ImageCoreService` (class library) | Toàn bộ logic không có UI: codec, ghi PDF/TIFF, tách PDF, scan TWAIN. Dùng lại được cho project khác (service, CLI...). |
+| `ImageOptimizerTool` (WinForms exe) | Chỉ là giao diện, gọi vào `ImageCoreService`. |
 
-1. **Temp folder** (default `C:\imageTool\Temp`, editable): where imported pages are saved.
-2. **Import Images...** -- pick one or more image files; each is copied into the temp
-   folder and added to the page list.
-3. **Import PDF...** -- pick a PDF; it's split into one PNG per page (via PdfiumViewer,
-   the same library the main app uses for PDF import), saved into the temp folder, and
-   added to the list, in the same order as the source PDF.
-4. Click a page in the list to preview it on the right.
-5. **Export type** (B&W / Color, default B&W) decides which codec **Export PDF...**
-   and **Export TIFF...** use:
-   - **PDF, B&W** -> JBIG2, symbol/text-region mode, one shared symbol dictionary
-     across every page in the document (glyphs repeated across pages are recognized
-     once, not per page).
-   - **PDF, Color** -> JPEG2000 via OpenJPEG (`-r 20`, i.e. targets roughly 1/20th of
-     the raw size -- edit `MainForm.ExportPdfColor` to change the ratio).
-   - **TIFF, B&W** -> CCITT G4 (same codec the main app already uses for TIFF export --
-     TIFF export isn't part of what this tool is evaluating).
-   - **TIFF, Color** -> LZW (lossless, standard TIFF compression).
-6. **Remove Selected** / **Clear All** only affect the in-memory list, not files already
-   written to the temp folder.
+`ImageOptimizerTool` tham chiếu `ImageCoreService` qua `ProjectReference`, nên NuGet,
+`x64\pdfium.dll` và các tool trong `ImageCoreService\tools\` được copy cạnh exe tự động.
 
-## Command-line options (bypass the GUI)
+### ImageCoreService (trạng thái hiện tại, trước đợt nâng cấp)
 
-- `ImageOptimizerTool.exe --benchmark` -- the original headless comparison bench:
-  generates synthetic bitonal/color test pages, runs CCITT G4 vs JBIG2 and OpenJPEG at
-  a few compression ratios, writes result PDFs to `Desktop\usc_advanced_codec_compare\`.
-- `ImageOptimizerTool.exe --smoketest` -- exercises every non-UI code path the form's
-  buttons use (multi-page JBIG2 with shared globals, OpenJPEG, PdfBuilder, TiffExporter,
-  and a PDF round-trip through PdfiumViewer) end to end and prints PASS/FAIL. Useful
-  after editing any of the encoder/export classes, without clicking through the UI.
+- `DocumentExporter.cs` -- xuất PDF/TIFF nhiều trang với `ExportCodec`
+  (CCITT G4 / JBIG2 / JPEG / JPEG2000). Hiện vẫn **hạ ảnh xuống 200 DPI** trước khi xuất.
+- `JBig2Encoder.cs` / `OpenJpegEncoder.cs` -- gọi `tools\jbig2enc\jbig2.exe` và
+  `tools\openjpeg\opj_compress.exe` (nguồn gốc / license: `tools/README.md`).
+- `G4Encoder.cs` / `JpegEncoderSimple.cs` -- CCITT G4 và JPEG qua GDI+.
+- `PdfPagePacker.cs` (`PdfBuilder`) -- ghi PDF nhiều trang, nhúng nguyên byte đã nén (không nén lại).
+- `TiffPagePacker.cs` / `JpegSofReader.cs` -- ghi TIFF nhiều trang bằng raw strip.
+- `PdfSplitter.cs` -- tách PDF thành ảnh từng trang (PdfiumViewer).
+- `TwainScanner.cs` -- scan TWAIN qua NTwain 4 (beta).
+- `ImageUtils.cs` -- helper: hạ DPI, chuyển trắng đen (**ngưỡng cố định 128**), đọc DPI.
 
-## Files
+### ImageOptimizerTool
 
-This project is only the WinForms front end:
+- `MainForm.cs` / `.Designer.cs` -- form chính: import ảnh/PDF, scan, xem trước, xuất PDF/TIFF.
+- `ScanOptionsForm.cs` / `.Designer.cs` -- chọn máy scan / DPI / màu / duplex.
 
-- `MainForm.cs` / `.Designer.cs` -- the GUI.
-- `ScanOptionsForm.cs` / `.Designer.cs` -- scan source/DPI/color/duplex dialog.
+Lưu ý: app **chưa có** tham số dòng lệnh `--benchmark` / `--smoketest` (README cũ ghi
+nhầm) và không có `TiffExporter.cs` (đã thay bằng `TiffPagePacker.cs`).
 
-All core logic lives in the sibling **`..\ImageCoreService\`** class library
-(namespace `ImageCoreService`), referenced via `ProjectReference` so other projects can
-reuse it too. Referencing it also brings in its NuGet packages, `x64\pdfium.dll`, and
-the vendored `tools\` encoders (copied next to the consuming exe automatically):
+## Hạn chế đã biết (sẽ sửa trong đợt nâng cấp)
 
-- `DocumentExporter.cs` -- multi-page PDF/TIFF export of a list of page files with any
-  `ExportCodec` (CCITT G4 / JBIG2 / JPEG / JPEG2000), including the 200dpi cap.
-- `JBig2Encoder.cs` / `OpenJpegEncoder.cs` / `G4Encoder.cs` / `JpegEncoderSimple.cs` --
-  codec wrappers (the first two shell out to the vendored tools in
-  `ImageCoreService\tools\`, see `tools/README.md` for their provenance).
-- `PdfPagePacker.cs` (`PdfBuilder` class) -- low-level multi-page PDF writer, embeds
-  each codec's bytes verbatim (no re-encoding), same principle as the main app's
-  `PdfSharpPdfAArchiver`.
-- `TiffPagePacker.cs` / `JpegSofReader.cs` -- multi-page TIFF writer (raw strips).
-- `PdfSplitter.cs` -- PDF -> page images via PdfiumViewer.
-- `TwainScanner.cs` -- TWAIN scanning via NTwain.
-- `ImageUtils.cs` -- shared bitmap helpers (DPI cap, bitonal threshold, DPI resolution).
+1. Chuyển trắng đen dùng ngưỡng cố định 128 -> kém với giấy ngả màu / mực nhạt.
+2. Ảnh bị hạ xuống 200 DPI khi xuất (kể cả ảnh trắng đen) -> giảm độ nét, giảm chất lượng OCR.
+3. Ảnh màu từ máy scan bị lưu JPEG rồi nén lại lần nữa khi xuất (mất dữ liệu 2 lần).
+4. JBIG2 / JPEG2000 đang là mặc định cứng, chưa có cài đặt; không có file cấu hình.
+5. Xuất file chạy trên luồng UI (treo giao diện), danh sách trang chỉ nằm trong bộ nhớ.
+
+## Lộ trình (đợt nâng cấp 2026-09-25)
+
+1. Trắng đen thích nghi (Sauvola / Otsu), tự cài đặt, không phụ thuộc thư viện ngoài.
+2. Giữ nguyên độ phân giải gốc; ảnh thiếu DPI thì suy ra từ kích thước pixel.
+3. Ảnh màu từ máy scan lưu không mất dữ liệu (PNG), chỉ nén 1 lần khi xuất.
+4. Form + menu Cài đặt, lưu cấu hình XML (có file mặc định cho lần chạy đầu).
+5. JBIG2 / JPEG2000 là tuỳ chọn; tắt thì dùng CCITT G4 / JPEG.
+6. Tính năng app thật: WIA dự phòng, profile máy scan, huỷ scan, xử lý kẹt giấy, bỏ trang
+   trắng; deskew / cắt viền / xoay chiều / khử đốm / nhận biết màu; quản lý trang
+   (thumbnail, kéo thả, xoay, xoá, chèn, undo, lưu dự án); OCR + PDF tìm kiếm được;
+   PDF/A-2b, metadata, đặt tên file, tách tài liệu; chạy nền + tiến trình, log, bộ cài,
+   rà soát license.
