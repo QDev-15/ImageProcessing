@@ -2,7 +2,7 @@ using System.Drawing;
 using System.Drawing.Imaging;
 using System.Linq;
 
-namespace ImageOptimizerTool;
+namespace ImageCoreService;
 
 /// <summary>
 /// Plain baseline JPEG via GDI+'s own encoder (no external tool/library needed --
@@ -11,7 +11,7 @@ namespace ImageOptimizerTool;
 /// JPEG path (IMIP.OpenImaging.Internal.JpegEncoder), not ported here since GDI+'s
 /// output is what most tooling "just has available" without vendoring anything extra.
 /// </summary>
-internal static class JpegEncoderSimple
+public static class JpegEncoderSimple
 {
     public static byte[] Encode(Bitmap rgb24, int quality = 85)
     {

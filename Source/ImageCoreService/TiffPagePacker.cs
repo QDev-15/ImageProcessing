@@ -1,6 +1,6 @@
 using BitMiracle.LibTiff.Classic;
 
-namespace ImageOptimizerTool;
+namespace ImageCoreService;
 
 /// <summary>
 /// Multi-page TIFF export via BitMiracle, embedding each page's ALREADY-ENCODED bytes
@@ -15,7 +15,7 @@ namespace ImageOptimizerTool;
 /// for size/comparison testing, not as something to hand to an arbitrary TIFF viewer
 /// and expect it to open.
 /// </summary>
-internal static class TiffPagePacker
+public static class TiffPagePacker
 {
     private const Compression Jbig2Compression = (Compression)34661;
     private const Compression Jp2Compression = (Compression)34712;

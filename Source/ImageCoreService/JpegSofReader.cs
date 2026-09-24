@@ -1,4 +1,4 @@
-namespace ImageOptimizerTool;
+namespace ImageCoreService;
 
 /// <summary>
 /// Minimal JPEG SOF0 parser: just the first component's H/V sampling factors,
@@ -9,7 +9,7 @@ namespace ImageOptimizerTool;
 /// 4:4:4 instead of the "obvious" 4:2:0 default -- so this reads the real bytes
 /// rather than assuming any particular sampling).
 /// </summary>
-internal static class JpegSofReader
+public static class JpegSofReader
 {
     public static (int H, int V) ReadComponent0Sampling(byte[] jpeg)
     {

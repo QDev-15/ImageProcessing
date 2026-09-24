@@ -3,7 +3,7 @@ using System.Drawing.Imaging;
 using System.Linq;
 using BitMiracle.LibTiff.Classic;
 
-namespace ImageOptimizerTool;
+namespace ImageCoreService;
 
 /// <summary>
 /// Baseline for comparison: encodes exactly like the main app's ArchivePageFactory
@@ -14,7 +14,7 @@ namespace ImageOptimizerTool;
 /// comparison against JBIG2 is apples-to-apples, not inflated by TIFF container
 /// overhead.
 /// </summary>
-internal static class G4Encoder
+public static class G4Encoder
 {
     public static byte[] EncodeToG4(Bitmap bitonal1Bpp)
     {

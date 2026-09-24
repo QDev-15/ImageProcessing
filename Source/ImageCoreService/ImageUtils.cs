@@ -2,9 +2,9 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 
-namespace ImageOptimizerTool;
+namespace ImageCoreService;
 
-internal static class ImageUtils
+public static class ImageUtils
 {
     /// <summary>
     /// Matches the main app's ArchivePageFactory.MaxColorExportDpi: color/gray pages

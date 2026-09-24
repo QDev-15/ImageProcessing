@@ -3,7 +3,7 @@ using System.Drawing.Imaging;
 using PdfiumDocument = PdfiumViewer.PdfDocument;
 using PdfSharpDocument = PdfSharp.Pdf.PdfDocument;
 
-namespace ImageOptimizerTool;
+namespace ImageCoreService;
 
 /// <summary>
 /// Splits a PDF into one image file per page, the same way the main app imports a
@@ -13,7 +13,7 @@ namespace ImageOptimizerTool;
 /// fixed request, then tag the saved file with a DPI our own code derives (see
 /// EstimateSaneDpi), not whatever pdfium's render happens to imply.
 /// </summary>
-internal static class PdfSplitter
+public static class PdfSplitter
 {
     /// <summary>
     /// Common paper sizes in inches (portrait), used to reconstruct a sane DPI for a

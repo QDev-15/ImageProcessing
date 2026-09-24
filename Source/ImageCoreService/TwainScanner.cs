@@ -4,9 +4,9 @@ using NTwain;
 using NTwain.Data;
 using NTwain.Events;
 
-namespace ImageOptimizerTool;
+namespace ImageCoreService;
 
-internal enum ScanColorMode { BlackAndWhite, Gray, Color }
+public enum ScanColorMode { BlackAndWhite, Gray, Color }
 
 /// <summary>
 /// Thin wrapper around NTwain (v4 branch -- the same underlying TWAIN library the main
@@ -23,7 +23,7 @@ internal enum ScanColorMode { BlackAndWhite, Gray, Color }
 /// GDI+ happens to auto-detect from the native transfer buffer (which may or may not
 /// carry a resolution tag depending on the driver).
 /// </summary>
-internal sealed class TwainScanner : IDisposable
+public sealed class TwainScanner : IDisposable
 {
     private readonly TwainAppSession _twain;
     private string _destFolder = "";

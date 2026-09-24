@@ -1,6 +1,6 @@
 using System.Diagnostics;
 
-namespace ImageOptimizerTool;
+namespace ImageCoreService;
 
 /// <summary>
 /// Wraps opj_compress.exe (see tools/README.md for provenance). Unlike CoreJ2K (the
@@ -10,7 +10,7 @@ namespace ImageOptimizerTool;
 /// in the main OpenImaging project). This lets you target a size directly instead of
 /// hunting for a quantization step size that happens to land near it.
 /// </summary>
-internal static class OpenJpegEncoder
+public static class OpenJpegEncoder
 {
     private static readonly string ExePath = Path.Combine(AppContext.BaseDirectory, "tools", "openjpeg", "opj_compress.exe");
 

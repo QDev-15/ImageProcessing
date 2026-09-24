@@ -2,7 +2,7 @@ using System.Globalization;
 using System.Text;
 using PdfSharp.Pdf;
 
-namespace ImageOptimizerTool;
+namespace ImageCoreService;
 
 /// <summary>
 /// Builds a multi-page PDF, embedding each candidate codec's bytes verbatim (same
@@ -11,7 +11,7 @@ namespace ImageOptimizerTool;
 /// something PdfSharp re-touched. One instance = one output document; call
 /// AddCcittG4Page/AddJBig2Page/AddJpxPage per page in order, then Save.
 /// </summary>
-internal sealed class PdfBuilder
+public sealed class PdfBuilder
 {
     private readonly PdfDocument _doc = new();
 

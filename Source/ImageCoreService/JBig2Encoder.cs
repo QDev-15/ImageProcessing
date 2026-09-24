@@ -1,6 +1,6 @@
 using System.Diagnostics;
 
-namespace ImageOptimizerTool;
+namespace ImageCoreService;
 
 /// <summary>
 /// Wraps jbig2.exe (see tools/README.md for provenance). Two coding modes:
@@ -10,7 +10,7 @@ namespace ImageOptimizerTool;
 ///     advantage over CCITT G4 for scanned text. Produces two streams (globals + page),
 ///     which map directly onto PDF's /JBIG2Decode + /DecodeParms/JBIG2Globals convention.
 /// </summary>
-internal static class JBig2Encoder
+public static class JBig2Encoder
 {
     private static readonly string ExePath = Path.Combine(AppContext.BaseDirectory, "tools", "jbig2enc", "jbig2.exe");
 

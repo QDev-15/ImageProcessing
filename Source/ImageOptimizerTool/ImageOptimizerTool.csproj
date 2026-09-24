@@ -6,31 +6,16 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <UseWindowsForms>true</UseWindowsForms>
-    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <AssemblyName>ImageOptimizerTool</AssemblyName>
     <RootNamespace>ImageOptimizerTool</RootNamespace>
   </PropertyGroup>
 
+  <!-- All codecs, PDF/TIFF packing, PDF splitting and TWAIN scanning live in
+       ImageCoreService (shared with other projects); this project is just the WinForms
+       front end. NuGet dependencies and the vendored tools\ encoders flow in through
+       this reference. -->
   <ItemGroup>
-    <PackageReference Include="System.Drawing.Common" Version="9.0.0" />
-    <!-- Same versions already used by the main app (UniversalScanClient/USC/OpenImaging),
-         so size/behavior comparisons below are apples-to-apples. -->
-    <PackageReference Include="BitMiracle.LibTiff.NET" Version="2.4.649" />
-    <PackageReference Include="PdfSharp" Version="6.2.4" />
-    <!-- PDF -> page images, same library the main app uses for PDF import (PdfUtils.RenderPages). -->
-    <PackageReference Include="PdfiumViewer" Version="2.13.0" />
-    <PackageReference Include="PdfiumViewer.Native.x86_64.v8-xfa" Version="2018.4.8.256" />
-    <!-- Real TWAIN scanning, the same underlying wrapper library the main app's
-         IMIP.Imaging.Capture.dll is itself built on. -->
-    <PackageReference Include="NTwain" Version="4.0.0-beta.4" />
-  </ItemGroup>
-
-  <!-- Vendored external encoders (see tools/README.md for exact source/version/license
-       of each). Copied next to the built exe so Process.Start can find them without
-       needing them on PATH. -->
-  <ItemGroup>
-    <None Include="tools\openjpeg\**" CopyToOutputDirectory="PreserveNewest" LinkBase="tools\openjpeg" />
-    <None Include="tools\jbig2enc\**" CopyToOutputDirectory="PreserveNewest" LinkBase="tools\jbig2enc" />
+    <ProjectReference Include="..\ImageCoreService\ImageCoreService.csproj" />
   </ItemGroup>
 
 </Project>

@@ -1,3 +1,4 @@
+using ImageCoreService;
 using NTwain.Data;
 using System.Windows.Forms;
 

@@ -45,12 +45,25 @@ G4 and CoreJ2K respectively -- see `Goal.md` 2026-09-23/24 for the full backgrou
 
 ## Files
 
+This project is only the WinForms front end:
+
 - `MainForm.cs` / `.Designer.cs` -- the GUI.
-- `JBig2Encoder.cs` / `OpenJpegEncoder.cs` / `G4Encoder.cs` -- external-process wrappers
-  around the vendored tools in `tools/` (see `tools/README.md` for their provenance).
+- `ScanOptionsForm.cs` / `.Designer.cs` -- scan source/DPI/color/duplex dialog.
+
+All core logic lives in the sibling **`..\ImageCoreService\`** class library
+(namespace `ImageCoreService`), referenced via `ProjectReference` so other projects can
+reuse it too. Referencing it also brings in its NuGet packages, `x64\pdfium.dll`, and
+the vendored `tools\` encoders (copied next to the consuming exe automatically):
+
+- `DocumentExporter.cs` -- multi-page PDF/TIFF export of a list of page files with any
+  `ExportCodec` (CCITT G4 / JBIG2 / JPEG / JPEG2000), including the 200dpi cap.
+- `JBig2Encoder.cs` / `OpenJpegEncoder.cs` / `G4Encoder.cs` / `JpegEncoderSimple.cs` --
+  codec wrappers (the first two shell out to the vendored tools in
+  `ImageCoreService\tools\`, see `tools/README.md` for their provenance).
 - `PdfPagePacker.cs` (`PdfBuilder` class) -- low-level multi-page PDF writer, embeds
   each codec's bytes verbatim (no re-encoding), same principle as the main app's
   `PdfSharpPdfAArchiver`.
+- `TiffPagePacker.cs` / `JpegSofReader.cs` -- multi-page TIFF writer (raw strips).
 - `PdfSplitter.cs` -- PDF -> page images via PdfiumViewer.
-- `TiffExporter.cs` -- multi-page TIFF export via GDI+.
-- `ImageUtils.cs` -- shared bitmap helpers (bitonal threshold, DPI resolution).
+- `TwainScanner.cs` -- TWAIN scanning via NTwain.
+- `ImageUtils.cs` -- shared bitmap helpers (DPI cap, bitonal threshold, DPI resolution).
