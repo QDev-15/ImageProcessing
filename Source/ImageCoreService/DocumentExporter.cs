@@ -3,200 +3,287 @@ using System.Drawing.Imaging;
 
 namespace ImageCoreService;
 
-/// <summary>
-/// Page codec for export. CCITT G4 / JBIG2 are bitonal (B&amp;W) codecs; JPEG /
-/// JPEG2000 are color codecs -- mirrors the main app's own codec split.
-/// </summary>
-public enum ExportCodec { CcittG4, JBig2, Jpeg, Jpeg2000 }
+/// <summary>Everything that shapes an export. Build from settings with <see cref="FromSettings"/>.</summary>
+public sealed class ExportOptions
+{
+    /// <summary>false -> CCITT G4 for bitonal pages.</summary>
+    public bool UseJBig2 { get; set; }
+    /// <summary>false -> JPEG for gray / color pages.</summary>
+    public bool UseJpeg2000 { get; set; }
+    public JBig2Mode JBig2Mode { get; set; } = JBig2Mode.Symbol;
+    public double JBig2Threshold { get; set; } = 0.92;
+    public int JpegQuality { get; set; } = 90;
+    /// <summary>0 = lossless.</summary>
+    public double Jpeg2000Ratio { get; set; } = 20;
+    public bool PassThroughOriginalJpeg { get; set; } = true;
+
+    public ColorOutputMode ColorMode { get; set; } = ColorOutputMode.Auto;
+    public BinarizationMethod Binarization { get; set; } = BinarizationMethod.Sauvola;
+    public double SauvolaK { get; set; } = Binarizer.DefaultSauvolaK;
+    public bool Despeckle { get; set; } = true;
+
+    public bool PdfA { get; set; } = true;
+    public bool Ocr { get; set; }
+    public string OcrLanguages { get; set; } = "vie+eng";
+    public PdfMetadata Metadata { get; set; } = new();
+
+    public static ExportOptions FromSettings(AppSettings s) => new()
+    {
+        UseJBig2 = s.UseJBig2,
+        UseJpeg2000 = s.UseJpeg2000,
+        JBig2Mode = s.JBig2Mode,
+        JBig2Threshold = s.JBig2Threshold,
+        JpegQuality = s.JpegQuality,
+        Jpeg2000Ratio = s.Jpeg2000Ratio,
+        PassThroughOriginalJpeg = s.PassThroughOriginalJpeg,
+        ColorMode = s.ColorMode,
+        Binarization = s.Binarization,
+        SauvolaK = s.SauvolaK,
+        Despeckle = s.Despeckle,
+        PdfA = s.PdfA,
+        Ocr = s.Ocr,
+        OcrLanguages = s.OcrLanguages,
+        Metadata = new PdfMetadata
+        {
+            Title = s.MetaTitle,
+            Author = s.MetaAuthor,
+            Subject = s.MetaSubject,
+            Keywords = s.MetaKeywords,
+        },
+    };
+}
+
+/// <summary>Progress report: page <see cref="Current"/> of <see cref="Total"/> (1-based).</summary>
+public readonly record struct WorkProgress(int Current, int Total, string Message);
 
 /// <summary>
-/// Multi-page PDF/TIFF export of a list of page image files, using any of the four
-/// codecs. UI-free, so any front end (ImageOptimizerTool's form, a service, a CLI)
-/// gets the exact same pipeline.
+/// Multi-page PDF / TIFF export of a list of page image files. UI-free, so any front end
+/// (the WinForms app, a service, a CLI) gets the same pipeline.
+///
+/// Per page: keep the native resolution (no resampling -- the DPI only sets the physical
+/// page size), decide bitonal / gray / color (auto-detected or forced), then encode once:
+///   bitonal     -> CCITT G4, or JBIG2 when enabled (adaptive Sauvola/Otsu binarization + despeckle)
+///   gray/color  -> JPEG, or JPEG2000 (OpenJPEG) when enabled; an original JPEG file is
+///                  embedded byte-for-byte when possible (no second lossy generation).
 /// </summary>
 public static class DocumentExporter
 {
-    public const double DefaultJpeg2000Ratio = 20.0;
-    public const int DefaultJpegQuality = 85;
+    private sealed class Prepared
+    {
+        public PageColorKind Kind;
+        public int Width, Height, DpiX, DpiY;
+        public byte[]? Bytes;
+        public bool IsJpx, IsJBig2;
+        public byte[]? JBig2Globals;
+        public string? TempBitonalPath; // for batched JBIG2 symbol coding
+        public int HSampling = 2, VSampling = 2, Components = 3;
+        public IReadOnlyList<OcrWord>? Words;
+    }
 
-    public static bool IsBitonal(ExportCodec codec) => codec is ExportCodec.CcittG4 or ExportCodec.JBig2;
-
-    public static void ExportPdf(IReadOnlyList<string> pageFiles, ExportCodec codec, string destPath,
-        double jpeg2000Ratio = DefaultJpeg2000Ratio, int jpegQuality = DefaultJpegQuality)
+    public static void ExportPdf(IReadOnlyList<string> pageFiles, ExportOptions options, string destPath,
+        IProgress<WorkProgress>? progress = null, CancellationToken cancel = default)
     {
         if (pageFiles.Count == 0) throw new ArgumentException("No pages to export.", nameof(pageFiles));
 
-        // Cap to 200dpi first, for B&W too (explicitly requested, unlike the main app
-        // where bitonal is left untouched). External tools (jbig2.exe, opj_compress.exe)
-        // read whichever file path we hand them, so a downsampled page needs to be
-        // materialized to a temp file first.
-        var (sourcePaths, cappedInfo, tempFiles) = PrepareCappedSources(pageFiles);
+        var temps = new List<string>();
+        OcrEngine? ocr = null;
         try
         {
-            var builder = new PdfBuilder();
-            if (codec == ExportCodec.JBig2)
+            if (options.Ocr)
             {
-                // One jbig2.exe invocation over every page: repeated glyphs are
-                // recognized and shared ACROSS pages via a single globals dictionary,
-                // not just within each page -- the real advantage of batching a whole
-                // document together, vs. G4 where every page stands alone regardless.
-                JBig2Encoder.Result[] results = JBig2Encoder.EncodeSymbolMultiPage(sourcePaths);
-                for (int i = 0; i < sourcePaths.Count; i++)
+                if (OcrEngine.IsLanguageAvailable(options.OcrLanguages))
+                    ocr = new OcrEngine(options.OcrLanguages);
+                else
+                    Log.Warn($"OCR skipped: language data '{options.OcrLanguages}' not found in {OcrEngine.TessDataPath}");
+            }
+
+            var prepared = new List<Prepared>(pageFiles.Count);
+            for (int i = 0; i < pageFiles.Count; i++)
+            {
+                cancel.ThrowIfCancellationRequested();
+                progress?.Report(new WorkProgress(i + 1, pageFiles.Count, $"Mã hoá trang {i + 1}/{pageFiles.Count}"));
+                prepared.Add(PreparePage(pageFiles[i], options, forPdf: true, ocr, temps));
+            }
+
+            // JBIG2 symbol mode: one jbig2.exe run over every bitonal page so glyphs repeated
+            // ACROSS pages share one dictionary (embedded once, referenced by every page).
+            var symbolPages = prepared.Where(p => p.TempBitonalPath != null).ToList();
+            if (symbolPages.Count > 0)
+            {
+                cancel.ThrowIfCancellationRequested();
+                progress?.Report(new WorkProgress(pageFiles.Count, pageFiles.Count, "JBIG2: mã hoá từ điển ký tự..."));
+                JBig2Encoder.Result[] results = JBig2Encoder.EncodeSymbolMultiPage(
+                    symbolPages.Select(p => p.TempBitonalPath!).ToList(), options.JBig2Threshold);
+                for (int i = 0; i < symbolPages.Count; i++)
                 {
-                    (int width, int height, int dpi) = cappedInfo[i];
-                    builder.AddJBig2Page(results[i].PageStream, results[i].GlobalsStream, width, height, dpi);
+                    symbolPages[i].Bytes = results[i].PageStream;
+                    symbolPages[i].JBig2Globals = results[i].GlobalsStream;
                 }
+            }
+
+            cancel.ThrowIfCancellationRequested();
+            progress?.Report(new WorkProgress(pageFiles.Count, pageFiles.Count, "Ghi file PDF..."));
+            var builder = new PdfBuilder { PdfA = options.PdfA, Metadata = options.Metadata };
+            if (string.IsNullOrEmpty(builder.Metadata.Title))
+                builder.Metadata = CloneWithTitle(options.Metadata, Path.GetFileNameWithoutExtension(destPath));
+
+            foreach (Prepared p in prepared)
+            {
+                if (p.IsJBig2)
+                    builder.AddJBig2Page(p.Bytes!, p.JBig2Globals, p.Width, p.Height, p.DpiX, p.DpiY, p.Words);
+                else if (p.Kind == PageColorKind.Bitonal)
+                    builder.AddCcittG4Page(p.Bytes!, p.Width, p.Height, p.DpiX, p.DpiY, p.Words);
+                else if (p.IsJpx)
+                    builder.AddJpxPage(p.Bytes!, p.Width, p.Height, p.DpiX, p.DpiY, p.Words);
+                else
+                    builder.AddJpegPage(p.Bytes!, p.Width, p.Height, p.DpiX, p.DpiY, p.Words);
+            }
+            builder.Save(destPath);
+            Log.Info($"Exported PDF {destPath}: {pageFiles.Count} page(s), JBIG2={options.UseJBig2}, JP2={options.UseJpeg2000}, PDF/A={options.PdfA}, OCR={ocr != null}");
+        }
+        finally
+        {
+            ocr?.Dispose();
+            DeleteTempFiles(temps);
+        }
+    }
+
+    public static void ExportTiff(IReadOnlyList<string> pageFiles, ExportOptions options, string destPath,
+        IProgress<WorkProgress>? progress = null, CancellationToken cancel = default)
+    {
+        if (pageFiles.Count == 0) throw new ArgumentException("No pages to export.", nameof(pageFiles));
+
+        var temps = new List<string>();
+        try
+        {
+            var pages = new List<TiffPage>(pageFiles.Count);
+            for (int i = 0; i < pageFiles.Count; i++)
+            {
+                cancel.ThrowIfCancellationRequested();
+                progress?.Report(new WorkProgress(i + 1, pageFiles.Count, $"Mã hoá trang {i + 1}/{pageFiles.Count}"));
+                Prepared p = PreparePage(pageFiles[i], options, forPdf: false, null, temps);
+                TiffPageCodec codec = p.Kind == PageColorKind.Bitonal
+                    ? (p.IsJBig2 ? TiffPageCodec.JBig2 : TiffPageCodec.CcittG4)
+                    : (p.IsJpx ? TiffPageCodec.Jpeg2000 : TiffPageCodec.Jpeg);
+                pages.Add(new TiffPage(codec, p.Bytes!, p.Width, p.Height, p.DpiX, p.DpiY, p.HSampling, p.VSampling, p.Components));
+            }
+            progress?.Report(new WorkProgress(pageFiles.Count, pageFiles.Count, "Ghi file TIFF..."));
+            TiffPagePacker.Save(pages, destPath);
+            Log.Info($"Exported TIFF {destPath}: {pageFiles.Count} page(s)");
+        }
+        finally
+        {
+            DeleteTempFiles(temps);
+        }
+    }
+
+    /// <summary>Kind the exporter will use for this page (forced mode or auto-detection).</summary>
+    public static PageColorKind DecideKind(Bitmap bmp, ColorOutputMode mode, int dpi) => mode switch
+    {
+        ColorOutputMode.BlackAndWhite => PageColorKind.Bitonal,
+        ColorOutputMode.Gray => PageColorKind.Gray,
+        ColorOutputMode.Color => PageColorKind.Color,
+        _ => PageAnalyzer.Classify(bmp, dpi),
+    };
+
+    private static Prepared PreparePage(string file, ExportOptions o, bool forPdf, OcrEngine? ocr, List<string> temps)
+    {
+        using Bitmap src = ImageUtils.Load(file);
+        (int dpiX, int dpiY) = ImageUtils.ResolveDpiXY(src);
+        var p = new Prepared
+        {
+            Width = src.Width,
+            Height = src.Height,
+            DpiX = dpiX,
+            DpiY = dpiY,
+            Kind = DecideKind(src, o.ColorMode, dpiX),
+        };
+
+        if (p.Kind == PageColorKind.Bitonal)
+        {
+            GrayImage bin = ImageUtils.ToBinaryGray(src, o.Binarization, o.Despeckle, o.SauvolaK);
+            using Bitmap bitonal = bin.ToBitmap1bpp(dpiX, dpiY);
+            if (ocr != null) p.Words = ocr.Recognize(bitonal);
+
+            if (o.UseJBig2)
+            {
+                p.IsJBig2 = true;
+                string tmp = Path.Combine(Path.GetTempPath(), "ioc_" + Guid.NewGuid().ToString("N") + ".png");
+                bitonal.Save(tmp, ImageFormat.Png);
+                temps.Add(tmp);
+                // TIFF has no /JBIG2Globals equivalent, so each TIFF strip must be a
+                // self-contained generic-region stream; PDF can use shared symbols.
+                if (forPdf && o.JBig2Mode == JBig2Mode.Symbol)
+                    p.TempBitonalPath = tmp;
+                else
+                    p.Bytes = JBig2Encoder.EncodeGeneric(tmp).PageStream;
             }
             else
             {
-                for (int i = 0; i < sourcePaths.Count; i++)
-                {
-                    (int width, int height, int dpi) = cappedInfo[i];
-                    switch (codec)
-                    {
-                        case ExportCodec.CcittG4:
-                        {
-                            using var src = new Bitmap(sourcePaths[i]);
-                            using Bitmap bitonal = ImageUtils.ToBitonal(src);
-                            builder.AddCcittG4Page(G4Encoder.EncodeToG4(bitonal), width, height, dpi);
-                            break;
-                        }
-                        case ExportCodec.Jpeg2000:
-                            builder.AddJpxPage(OpenJpegEncoder.Encode(sourcePaths[i], jpeg2000Ratio), width, height, dpi);
-                            break;
-                        case ExportCodec.Jpeg:
-                        {
-                            using var src = new Bitmap(sourcePaths[i]);
-                            using Bitmap rgb = ImageUtils.To24bpp(src);
-                            builder.AddJpegPage(JpegEncoderSimple.Encode(rgb, jpegQuality), width, height, dpi);
-                            break;
-                        }
-                        default:
-                            throw new ArgumentOutOfRangeException(nameof(codec), codec, null);
-                    }
-                }
+                p.Bytes = G4Encoder.EncodeToG4(bitonal);
             }
-            builder.Save(destPath);
+            return p;
         }
-        finally
+
+        // Gray / color.
+        if (ocr != null) p.Words = ocr.Recognize(src);
+
+        bool isJpegFile = IsJpegFile(file);
+        if (o.UseJpeg2000)
         {
-            DeleteTempFiles(tempFiles);
+            p.IsJpx = true;
+            // Always hand opj_compress a normalized PNG (8-bit gray or 24-bit RGB): it cannot
+            // read JPEG and mishandles 1bpp / palette / alpha inputs.
+            string input;
+            {
+                input = Path.Combine(Path.GetTempPath(), "ioc_" + Guid.NewGuid().ToString("N") + ".png");
+                using Bitmap prepared = p.Kind == PageColorKind.Gray
+                    ? GrayImage.FromBitmap(src).ToBitmap8bpp(dpiX, dpiY)
+                    : ImageUtils.To24bpp(src);
+                prepared.Save(input, ImageFormat.Png);
+                temps.Add(input);
+            }
+            p.Bytes = OpenJpegEncoder.Encode(input, o.Jpeg2000Ratio > 0 ? o.Jpeg2000Ratio : null);
+            p.Components = p.Kind == PageColorKind.Gray ? 1 : 3;
+            return p;
         }
+
+        if (isJpegFile && o.PassThroughOriginalJpeg)
+        {
+            // Original JPEG (camera / scanner output / imported file never edited -- every
+            // edit in this app writes a lossless PNG instead): embed it untouched.
+            p.Bytes = File.ReadAllBytes(file);
+        }
+        else if (p.Kind == PageColorKind.Gray)
+        {
+            using Bitmap gray = GrayImage.FromBitmap(src).ToBitmap8bpp(dpiX, dpiY);
+            using Bitmap rgb = ImageUtils.To24bpp(gray);
+            p.Bytes = JpegEncoderSimple.Encode(rgb, o.JpegQuality);
+        }
+        else
+        {
+            using Bitmap rgb = ImageUtils.To24bpp(src);
+            p.Bytes = JpegEncoderSimple.Encode(rgb, o.JpegQuality);
+        }
+        p.Components = JpegSofReader.ReadComponentCount(p.Bytes);
+        (p.HSampling, p.VSampling) = JpegSofReader.ReadComponent0Sampling(p.Bytes);
+        return p;
     }
 
-    public static void ExportTiff(IReadOnlyList<string> pageFiles, ExportCodec codec, string destPath,
-        double jpeg2000Ratio = DefaultJpeg2000Ratio, int jpegQuality = DefaultJpegQuality)
+    private static bool IsJpegFile(string path)
     {
-        if (pageFiles.Count == 0) throw new ArgumentException("No pages to export.", nameof(pageFiles));
-
-        var (sourcePaths, cappedInfo, tempFiles) = PrepareCappedSources(pageFiles);
-        try
-        {
-            switch (codec)
-            {
-                case ExportCodec.JBig2:
-                {
-                    // Per-page generic-region coding (NOT the symbol/shared-globals mode
-                    // used for PDF): TIFF has no equivalent of PDF's /JBIG2Globals indirect
-                    // reference, so each strip must be a fully self-contained stream.
-                    var pages = new List<(byte[] Bytes, int Width, int Height, int Dpi)>(sourcePaths.Count);
-                    foreach (string path in sourcePaths)
-                    {
-                        JBig2Encoder.Result r = JBig2Encoder.EncodeGeneric(path);
-                        using var src = new Bitmap(path);
-                        pages.Add((r.PageStream, src.Width, src.Height, ImageUtils.ResolveDpi(src)));
-                    }
-                    TiffPagePacker.SaveJbig2(pages, destPath);
-                    break;
-                }
-                case ExportCodec.CcittG4:
-                {
-                    var pages = new List<(byte[] Bytes, int Width, int Height, int Dpi)>(sourcePaths.Count);
-                    for (int i = 0; i < sourcePaths.Count; i++)
-                    {
-                        (int width, int height, int dpi) = cappedInfo[i];
-                        using var src = new Bitmap(sourcePaths[i]);
-                        using Bitmap bitonal = ImageUtils.ToBitonal(src);
-                        pages.Add((G4Encoder.EncodeToG4(bitonal), width, height, dpi));
-                    }
-                    TiffPagePacker.SaveCcittG4(pages, destPath);
-                    break;
-                }
-                case ExportCodec.Jpeg2000:
-                {
-                    var pages = new List<(byte[] Bytes, int Width, int Height, int Dpi)>(sourcePaths.Count);
-                    for (int i = 0; i < sourcePaths.Count; i++)
-                    {
-                        (int width, int height, int dpi) = cappedInfo[i];
-                        pages.Add((OpenJpegEncoder.Encode(sourcePaths[i], jpeg2000Ratio), width, height, dpi));
-                    }
-                    TiffPagePacker.SaveJpeg2000(pages, destPath);
-                    break;
-                }
-                case ExportCodec.Jpeg:
-                {
-                    var pages = new List<(byte[] Bytes, int Width, int Height, int Dpi, int HSampling, int VSampling)>(sourcePaths.Count);
-                    for (int i = 0; i < sourcePaths.Count; i++)
-                    {
-                        (int width, int height, int dpi) = cappedInfo[i];
-                        using var src = new Bitmap(sourcePaths[i]);
-                        using Bitmap rgb = ImageUtils.To24bpp(src);
-                        byte[] jpeg = JpegEncoderSimple.Encode(rgb, jpegQuality);
-                        (int h, int v) = JpegSofReader.ReadComponent0Sampling(jpeg);
-                        pages.Add((jpeg, width, height, dpi, h, v));
-                    }
-                    TiffPagePacker.SaveJpeg(pages, destPath);
-                    break;
-                }
-                default:
-                    throw new ArgumentOutOfRangeException(nameof(codec), codec, null);
-            }
-        }
-        finally
-        {
-            DeleteTempFiles(tempFiles);
-        }
+        string ext = Path.GetExtension(path).ToLowerInvariant();
+        return ext is ".jpg" or ".jpeg" or ".jpe";
     }
 
-    /// <summary>
-    /// For each input file, applies ImageUtils.CapDpi and, if that actually
-    /// downsampled the page, saves the result to a new temp PNG (returned in
-    /// sourcePaths in place of the original) so external tools that only take a file
-    /// path (jbig2.exe) see the capped pixels. Returns per-page (width, height, dpi)
-    /// for PDF page sizing, and the list of temp files the caller must delete.
-    /// </summary>
-    public static (List<string> sourcePaths, List<(int, int, int)> info, List<string> tempFiles) PrepareCappedSources(IReadOnlyList<string> files)
+    private static PdfMetadata CloneWithTitle(PdfMetadata m, string title) => new()
     {
-        var sourcePaths = new List<string>(files.Count);
-        var info = new List<(int, int, int)>(files.Count);
-        var tempFiles = new List<string>();
-
-        foreach (string file in files)
-        {
-            using var original = new Bitmap(file);
-            Bitmap capped = ImageUtils.CapDpi(original);
-            try
-            {
-                if (ReferenceEquals(capped, original))
-                {
-                    sourcePaths.Add(file);
-                }
-                else
-                {
-                    string tempPng = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".png");
-                    capped.Save(tempPng, ImageFormat.Png);
-                    sourcePaths.Add(tempPng);
-                    tempFiles.Add(tempPng);
-                }
-                info.Add((capped.Width, capped.Height, ImageUtils.ResolveDpi(capped)));
-            }
-            finally
-            {
-                if (!ReferenceEquals(capped, original)) capped.Dispose();
-            }
-        }
-        return (sourcePaths, info, tempFiles);
-    }
+        Title = title,
+        Author = m.Author,
+        Subject = m.Subject,
+        Keywords = m.Keywords,
+        Creator = m.Creator,
+    };
 
     private static void DeleteTempFiles(IEnumerable<string> tempFiles)
     {

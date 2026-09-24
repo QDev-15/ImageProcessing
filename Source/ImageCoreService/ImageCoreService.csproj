@@ -8,6 +8,9 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <AssemblyName>ImageCoreService</AssemblyName>
     <RootNamespace>ImageCoreService</RootNamespace>
+    <!-- Every native dependency shipped (pdfium, tesseract/leptonica, openjpeg, jbig2enc
+         runtime) is used as x64; pin it so AnyCPU never picks the wrong bitness. -->
+    <PlatformTarget>x64</PlatformTarget>
   </PropertyGroup>
 
   <ItemGroup>
@@ -25,6 +28,11 @@
     <!-- Real TWAIN scanning, the same underlying wrapper library the main app's
          IMIP.Imaging.Capture.dll is itself built on. -->
     <PackageReference Include="NTwain" Version="4.0.0-beta.4" />
+    <!-- OCR (Apache-2.0). PrivateAssets=none for the same reason as pdfium: the native
+         x64\tesseract50.dll / leptonica are copied by the package's build targets. -->
+    <PackageReference Include="Tesseract" Version="5.2.0" PrivateAssets="none" />
+    <!-- Barcode reading for document separation (Apache-2.0). -->
+    <PackageReference Include="ZXing.Net" Version="0.16.10" />
   </ItemGroup>
 
   <!-- Vendored external encoders (see tools/README.md for exact source/version/license
@@ -34,6 +42,13 @@
   <ItemGroup>
     <None Include="tools\openjpeg\**" CopyToOutputDirectory="PreserveNewest" LinkBase="tools\openjpeg" />
     <None Include="tools\jbig2enc\**" CopyToOutputDirectory="PreserveNewest" LinkBase="tools\jbig2enc" />
+    <!-- Tesseract language data (tessdata_fast vie/eng + tessdata osd, Apache-2.0). -->
+    <None Include="tessdata\**" CopyToOutputDirectory="PreserveNewest" LinkBase="tessdata" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Tesseract's "GlyphLessFont" (Apache-2.0): invisible-text font for the OCR layer. -->
+    <EmbeddedResource Include="Resources\pdf.ttf" LogicalName="ImageCoreService.GlyphLessFont.ttf" />
   </ItemGroup>
 
 </Project>

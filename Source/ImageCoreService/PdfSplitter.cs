@@ -15,24 +15,6 @@ namespace ImageCoreService;
 /// </summary>
 public static class PdfSplitter
 {
-    /// <summary>
-    /// Common paper sizes in inches (portrait), used to reconstruct a sane DPI for a
-    /// split page independently of the source PDF's own declared MediaBox. Deliberately
-    /// excludes other ISO A-series sizes (A3, A5, ...): the ENTIRE ISO 216 series shares
-    /// the exact same aspect ratio (1:root2 =~ 0.707) by design, so aspect-ratio matching
-    /// cannot distinguish "A4" from "A5" or "A3" at all -- including them just lets tiny
-    /// pixel-rounding noise flip the match between pages of the SAME document (observed:
-    /// page 1 of NoneGD2.pdf matched A4, pages 2-3 matched A5, giving wildly inconsistent
-    /// per-page DPI -- 941 vs 1327 -- for what should obviously be one uniform scan job).
-    /// A4 stands in for the whole ISO series; Letter/Legal have genuinely distinct ratios.
-    /// </summary>
-    private static readonly (double WidthIn, double HeightIn)[] StandardPageSizesIn =
-    {
-        (8.27, 11.69), // A4 (and every other ISO A-series size, aspect-ratio-wise)
-        (8.5, 11.0),   // US Letter
-        (8.5, 14.0),   // US Legal
-    };
-
     public static List<string> SplitToImages(string pdfPath, string destFolder, int dpi = 300)
     {
         Directory.CreateDirectory(destFolder);
@@ -81,7 +63,7 @@ public static class PdfSplitter
             // that the corrupted MediaBox lost. For a page whose MediaBox already IS a
             // standard size, this reconstructs the same DPI that was actually
             // requested, so correctly-sized PDFs are unaffected.
-            int saneDpi = EstimateSaneDpi(bmp.Width, bmp.Height);
+            int saneDpi = ImageUtils.EstimateDpiFromPixels(bmp.Width, bmp.Height);
             bmp.SetResolution(saneDpi, saneDpi);
 
             string path = Path.Combine(destFolder, $"{Path.GetFileNameWithoutExtension(pdfPath)}_p{i + 1:000}.png");
@@ -158,7 +140,7 @@ public static class PdfSplitter
         // trusting it, same as the main app's PdfUtils.GetDominantImageDpi.
         const double maxPlausiblePageInches = 20.0;
         if (Math.Max(pageWidthIn, pageHeightIn) > maxPlausiblePageInches)
-            return EstimateSaneDpi(bestWidth, bestHeight);
+            return ImageUtils.EstimateDpiFromPixels(bestWidth, bestHeight);
 
         // Conservative: use the axis with LESS native detail, so we never upsample
         // either dimension beyond what the source actually has.
@@ -167,29 +149,4 @@ public static class PdfSplitter
         return Math.Min(dpiX, dpiY);
     }
 
-    private static int EstimateSaneDpi(int pixelWidth, int pixelHeight)
-    {
-        if (pixelWidth <= 0 || pixelHeight <= 0) return 200;
-
-        double aspect = (double)pixelWidth / pixelHeight;
-        double bestDiff = double.MaxValue;
-        double bestWidthIn = 8.27; // fallback: A4 portrait width
-
-        foreach ((double w, double h) in StandardPageSizesIn)
-        {
-            // Check both orientations of each standard size.
-            foreach ((double widthIn, double heightIn) in new[] { (w, h), (h, w) })
-            {
-                double diff = Math.Abs(widthIn / heightIn - aspect);
-                if (diff < bestDiff)
-                {
-                    bestDiff = diff;
-                    bestWidthIn = widthIn;
-                }
-            }
-        }
-
-        int dpi = (int)Math.Round(pixelWidth / bestWidthIn);
-        return dpi > 0 ? dpi : 200;
-    }
 }
