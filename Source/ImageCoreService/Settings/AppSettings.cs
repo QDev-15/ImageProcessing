@@ -3,6 +3,7 @@ using System.Xml.Serialization;
 
 namespace ImageCoreService;
 
+[TypeConverter(typeof(EnumDescriptionConverter))]
 public enum ScanDriverPreference
 {
     [Description("Tự động (TWAIN, không có thì WIA)")] Auto,
@@ -10,32 +11,35 @@ public enum ScanDriverPreference
     [Description("Chỉ WIA")] Wia,
 }
 
+[TypeConverter(typeof(EnumDescriptionConverter))]
 public enum ColorOutputMode
 {
     /// <summary>Per page: detect bitonal / gray / color and pick the codec for each.</summary>
-    Auto,
-    BlackAndWhite,
-    Gray,
-    Color,
+    [Description("Tự động từng trang")] Auto,
+    [Description("Trắng đen")] BlackAndWhite,
+    [Description("Xám")] Gray,
+    [Description("Màu")] Color,
 }
 
+[TypeConverter(typeof(EnumDescriptionConverter))]
 public enum JBig2Mode
 {
     /// <summary>Symbol dictionary (text-region) coding: 3-10x smaller than G4, but a
     /// pattern-matching codec -- a very similar glyph CAN be substituted (the 2013 Xerox
     /// "6 vs 8" problem). Threshold 0.92+ keeps that risk low.</summary>
-    Symbol,
+    [Description("Symbol (nhỏ nhất)")] Symbol,
     /// <summary>Generic region coding: lossless, no substitution risk, still smaller than G4.</summary>
-    Lossless,
+    [Description("Lossless (an toàn tuyệt đối)")] Lossless,
 }
 
+[TypeConverter(typeof(EnumDescriptionConverter))]
 public enum DocumentSplitMode
 {
-    None,
+    [Description("Không tách")] None,
     /// <summary>A blank page starts a new document (the blank page itself is dropped).</summary>
-    BlankPage,
+    [Description("Theo trang trắng")] BlankPage,
     /// <summary>A page carrying a barcode (optionally matching a prefix) starts a new document.</summary>
-    Barcode,
+    [Description("Theo barcode")] Barcode,
 }
 
 /// <summary>

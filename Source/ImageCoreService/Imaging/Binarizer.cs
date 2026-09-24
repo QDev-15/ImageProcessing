@@ -1,12 +1,13 @@
 namespace ImageCoreService;
 
+[System.ComponentModel.TypeConverter(typeof(EnumDescriptionConverter))]
 public enum BinarizationMethod
 {
     /// <summary>Local adaptive threshold (Sauvola &amp; Pietikäinen, 2000). Default:
     /// handles yellowed paper, uneven scanner lighting, shadows and faint ink.</summary>
-    Sauvola,
+    [System.ComponentModel.Description("Sauvola (thích nghi)")] Sauvola,
     /// <summary>Single global threshold (Otsu, 1979). Faster; fine for clean, evenly lit pages.</summary>
-    Otsu,
+    [System.ComponentModel.Description("Otsu (toàn trang)")] Otsu,
 }
 
 /// <summary>

@@ -5,7 +5,13 @@ using NTwain.Events;
 
 namespace ImageCoreService;
 
-public enum ScanColorMode { BlackAndWhite, Gray, Color }
+[System.ComponentModel.TypeConverter(typeof(EnumDescriptionConverter))]
+public enum ScanColorMode
+{
+    [System.ComponentModel.Description("Trắng đen")] BlackAndWhite,
+    [System.ComponentModel.Description("Xám")] Gray,
+    [System.ComponentModel.Description("Màu")] Color,
+}
 
 public enum ScanErrorKind { Other, PaperJam, DoubleFeed, NoPaper, CoverOpen, DeviceBusy, DeviceOffline }
 

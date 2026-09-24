@@ -66,7 +66,10 @@ public sealed class OcrEngine : IDisposable
         try
         {
             _osd ??= new TesseractEngine(TessDataPath, "osd", EngineMode.TesseractOnly);
-            using Pix pix = ToPix(page);
+            // OSD only needs to see text-line shapes: ~150 dpi is plenty and several times
+            // faster than full scan resolution.
+            using Bitmap small = DownscaleForOsd(page);
+            using Pix pix = ToPix(small);
             using Tesseract.Page result = _osd.Process(pix, PageSegMode.OsdOnly);
             result.DetectBestOrientation(out int orientationDeg, out float confidence);
             if (confidence < minConfidence) return 0;
@@ -79,6 +82,15 @@ public sealed class OcrEngine : IDisposable
             Log.Warn("OSD orientation detection failed; leaving page as is.", ex);
             return 0;
         }
+    }
+
+    private static Bitmap DownscaleForOsd(Bitmap page)
+    {
+        int dpi = ImageUtils.ResolveDpi(page);
+        int factor = Math.Max(1, dpi / 150);
+        GrayImage gray = GrayImage.FromBitmap(page);
+        if (factor > 1) gray = gray.Downscale(factor);
+        return gray.ToBitmap8bpp(dpi / (float)factor, dpi / (float)factor);
     }
 
     private static Pix ToPix(Bitmap bmp)

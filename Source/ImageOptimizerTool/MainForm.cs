@@ -155,13 +155,22 @@ public partial class MainForm : Form
                     Log.Warn("Thumbnail failed: " + f, ex);
                     continue;
                 }
-                BeginInvoke(() =>
+                if (IsDisposed || !IsHandleCreated) { thumb.Dispose(); return; }
+                try
                 {
-                    if (cts.IsCancellationRequested || _thumbCache.ContainsKey(f) || imlThumbs.ImageSize != box) { thumb.Dispose(); return; }
-                    _thumbCache[f] = thumb;
-                    imlThumbs.Images.Add(f, thumb);
-                    lvPages.Invalidate();
-                });
+                    BeginInvoke(() =>
+                    {
+                        if (cts.IsCancellationRequested || _thumbCache.ContainsKey(f) || imlThumbs.ImageSize != box) { thumb.Dispose(); return; }
+                        _thumbCache[f] = thumb;
+                        imlThumbs.Images.Add(f, thumb);
+                        lvPages.Invalidate();
+                    });
+                }
+                catch (InvalidOperationException)
+                {
+                    thumb.Dispose(); // form closed meanwhile
+                    return;
+                }
             }
         });
     }
