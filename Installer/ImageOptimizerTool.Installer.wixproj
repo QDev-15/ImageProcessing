@@ -1,0 +1,17 @@
+<Project Sdk="WixToolset.Sdk/5.0.2">
+
+  <!-- MSI installer (WiX Toolset v5, MS-RL; the generated MSI carries no WiX license
+       obligation). Build with build-installer.ps1, which publishes the app self-contained
+       win-x64 into ..\artifacts\publish first and passes that folder as PublishDir. -->
+  <PropertyGroup>
+    <OutputType>Package</OutputType>
+    <Platform>x64</Platform>
+    <InstallerPlatform>x64</InstallerPlatform>
+    <OutputName>ImageOptimizerTool-$(ProductVersion)-x64</OutputName>
+    <ProductVersion Condition="'$(ProductVersion)' == ''">1.0.0</ProductVersion>
+    <PublishDir Condition="'$(PublishDir)' == ''">..\artifacts\publish\</PublishDir>
+    <DefineConstants>PublishDir=$(PublishDir);ProductVersion=$(ProductVersion)</DefineConstants>
+    <SuppressIces>ICE61</SuppressIces>
+  </PropertyGroup>
+
+</Project>

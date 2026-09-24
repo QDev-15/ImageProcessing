@@ -42,3 +42,12 @@ whether to integrate.
   line-differential coding. Typically 3-10x smaller than G4 on real scanned
   text at comparable legibility.
 - Files: `jbig2.exe`, `leptonica-1.76.0.dll` (its only runtime dependency).
+
+## Runtime DLL đi kèm (thêm 2026-09-25)
+
+- `tools/jbig2enc/msvcr120.dll` (x86, VC++ 2013): `leptonica-1.76.0.dll` phụ thuộc file này.
+  Nếu thiếu, JBIG2 lỗi trên máy chưa cài VC++ 2013 Redistributable. Được phép phân phối
+  kèm app (Visual Studio Redistributable Code).
+- VC++ 2015-2022 x64 (`vcruntime140.dll`, `vcruntime140_1.dll`, `msvcp140.dll`) cho
+  Tesseract nằm trong `ImageCoreService/native/vcruntime-x64/` và được copy cạnh exe.
+- Chi tiết license / bằng sáng chế: `THIRD-PARTY-NOTICES.md` ở gốc repo.

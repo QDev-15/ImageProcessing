@@ -44,6 +44,10 @@
     <None Include="tools\jbig2enc\**" CopyToOutputDirectory="PreserveNewest" LinkBase="tools\jbig2enc" />
     <!-- Tesseract language data (tessdata_fast vie/eng + tessdata osd, Apache-2.0). -->
     <None Include="tessdata\**" CopyToOutputDirectory="PreserveNewest" LinkBase="tessdata" />
+    <!-- App-local Microsoft VC++ 2015-2022 x64 runtime (redistributable) for tesseract50.dll /
+         leptonica, next to the exe so OCR works on machines without the VC++ redist.
+         (tools\jbig2enc carries its own x86 msvcr120.dll for the same reason.) -->
+    <None Include="native\vcruntime-x64\*.dll" CopyToOutputDirectory="PreserveNewest" Link="%(Filename)%(Extension)" />
   </ItemGroup>
 
   <ItemGroup>
