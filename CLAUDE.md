@@ -129,6 +129,6 @@
 - Màn hình Trang chủ hiển thị dòng "Lõi xử lý ảnh: Sauvola k = 0.34" để xác nhận ImageCore.Shared chạy được trên máy.
 - Chạy trên máy: bật Tuỳ chọn nhà phát triển + Gỡ lỗi USB, cắm cáp, `adb devices` phải thấy máy, rồi
   `dotnet build Source/DocScanner/DocScanner.csproj -f net10.0-android -t:Run`
-  (adb: `C:\Program Files (x86)\Androidndroid-sdk\platform-tools`).
+  (adb: `C:/Program Files (x86)/Android/android-sdk/platform-tools`).
 - Cần owner kiểm tra tay: mở app trên Note 10+, bấm "Chụp ảnh" (hộp thoại xin quyền camera hiện đúng, từ chối 2 lần
   thì có nút mở Cài đặt), bấm 3 nút chuyển màn hình, thấy dòng "Lõi xử lý ảnh".
