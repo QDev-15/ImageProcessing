@@ -354,7 +354,7 @@ public static class DocumentExporter
                 // read JPEG and mishandles 1bpp / palette / alpha inputs.
                 string input = Path.Combine(Path.GetTempPath(), "ioc_" + Guid.NewGuid().ToString("N") + ".png");
                 using (Bitmap prepared = p.Kind == PageColorKind.Gray
-                    ? GrayImage.FromBitmap(src).ToBitmap8bpp(dpiX, dpiY)
+                    ? GdiGray.FromBitmap(src).ToBitmap8bpp(dpiX, dpiY)
                     : ImageUtils.To24bpp(src))
                 {
                     addTemp(input);
@@ -383,7 +383,7 @@ public static class DocumentExporter
         }
         else if (p.Kind == PageColorKind.Gray)
         {
-            using Bitmap gray = GrayImage.FromBitmap(src).ToBitmap8bpp(dpiX, dpiY);
+            using Bitmap gray = GdiGray.FromBitmap(src).ToBitmap8bpp(dpiX, dpiY);
             using Bitmap rgb = ImageUtils.To24bpp(gray);
             p.Bytes = JpegEncoderSimple.Encode(rgb, o.JpegQuality);
         }

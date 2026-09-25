@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Pure managed image algorithms (grayscale buffer, Sauvola / Otsu, deskew, border
+       detection, despeckle). No System.Drawing.Common, no native code: shared by the
+       Windows app (ImageCoreService) and the MAUI mobile app. Keep it that way: the
+       only System.Drawing types allowed here are the primitives (Rectangle, Point) that
+       ship in the base framework and exist on Android / iOS too. -->
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AssemblyName>ImageCore.Shared</AssemblyName>
+    <RootNamespace>ImageCoreService</RootNamespace>
+  </PropertyGroup>
+
+</Project>

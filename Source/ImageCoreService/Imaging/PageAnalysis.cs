@@ -19,7 +19,7 @@ public static class PageAnalysis
     {
         using Bitmap proxy = cache.GetProxy(source);
         (int dpi, _) = ImageUtils.ResolveDpiXY(proxy);
-        GrayImage gray = GrayImage.FromBitmap(proxy);
+        GrayImage gray = GdiGray.FromBitmap(proxy);
 
         if (o.DetectBlank && Perf.Measure("proc.blank", () => PageAnalyzer.IsBlank(gray, dpi, o.BlankInkPercent)))
             return new AnalysisResult(true, PageOps.None, "trang trắng");
@@ -38,8 +38,8 @@ public static class PageAnalysis
                 {
                     crop = new RectangleF((float)r.X / proxy.Width, (float)r.Y / proxy.Height,
                         (float)r.Width / proxy.Width, (float)r.Height / proxy.Height);
-                    current = DocumentCleanup.Crop(current, r);
-                    gray = GrayImage.FromBitmap(current);
+                    current = BitmapTransforms.Crop(current, r);
+                    gray = GdiGray.FromBitmap(current);
                     notes.Add("cắt viền");
                 }
             }
@@ -51,7 +51,7 @@ public static class PageAnalysis
                 if (angle != 0)
                 {
                     skew = angle;
-                    Bitmap straight = DocumentCleanup.RotateArbitrary(current, -angle);
+                    Bitmap straight = BitmapTransforms.RotateArbitrary(current, -angle);
                     if (!ReferenceEquals(current, proxy)) current.Dispose();
                     current = straight;
                     notes.Add($"chỉnh nghiêng {angle:0.0}°");

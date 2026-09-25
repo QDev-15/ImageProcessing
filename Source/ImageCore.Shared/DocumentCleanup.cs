@@ -1,11 +1,10 @@
 using System.Drawing;
-using System.Drawing.Drawing2D;
-using System.Drawing.Imaging;
 
 namespace ImageCoreService;
 
 /// <summary>
-/// Scanned-document cleanup: deskew, black-border crop, despeckle, rotation. Pure managed
+/// Scanned-document cleanup analysis: deskew angle, black-border bounds, despeckle. Bitmap
+/// rotation / crop (GDI+) lives in ImageCoreService.BitmapTransforms. Pure managed
 /// code (see THIRD-PARTY-NOTICES.md for why no OpenCV): the algorithms are standard and
 /// small, and this keeps the app free of a ~60 MB native dependency.
 /// </summary>
@@ -85,39 +84,6 @@ public static class DocumentCleanup
         return Math.Abs(best) < 0.1 ? 0 : best;
     }
 
-    /// <summary>Rotates by <paramref name="angleDeg"/> (positive = clockwise) about the
-    /// center, same canvas size, white background, bicubic. Output 24bpp.</summary>
-    public static Bitmap RotateArbitrary(Bitmap src, double angleDeg)
-    {
-        var dst = new Bitmap(src.Width, src.Height, PixelFormat.Format24bppRgb);
-        dst.SetResolution(src.HorizontalResolution, src.VerticalResolution);
-        using Graphics g = Graphics.FromImage(dst);
-        g.Clear(Color.White);
-        g.InterpolationMode = InterpolationMode.HighQualityBicubic;
-        g.PixelOffsetMode = PixelOffsetMode.HighQuality;
-        g.SmoothingMode = SmoothingMode.HighQuality;
-        g.TranslateTransform(src.Width / 2f, src.Height / 2f);
-        g.RotateTransform((float)angleDeg);
-        g.TranslateTransform(-src.Width / 2f, -src.Height / 2f);
-        g.DrawImage(src, new Rectangle(0, 0, src.Width, src.Height));
-        return dst;
-    }
-
-    /// <summary>Lossless 90/180/270 rotation (clockwise). Keeps pixel format and DPI
-    /// (swapped for 90/270).</summary>
-    public static Bitmap RotateRight(Bitmap src, int degreesClockwise)
-    {
-        var copy = (Bitmap)src.Clone();
-        float dx = src.HorizontalResolution, dy = src.VerticalResolution;
-        switch (((degreesClockwise % 360) + 360) % 360)
-        {
-            case 90: copy.RotateFlip(RotateFlipType.Rotate90FlipNone); copy.SetResolution(dy, dx); break;
-            case 180: copy.RotateFlip(RotateFlipType.Rotate180FlipNone); break;
-            case 270: copy.RotateFlip(RotateFlipType.Rotate270FlipNone); copy.SetResolution(dy, dx); break;
-        }
-        return copy;
-    }
-
     #endregion
 
     #region Black border crop
@@ -155,17 +121,6 @@ public static class DocumentCleanup
         int x1 = r == w ? gray.Width : Math.Max(x0 + 1, (r - 1) * f);
         int y1 = b == h ? gray.Height : Math.Max(y0 + 1, (b - 1) * f);
         return Rectangle.FromLTRB(x0, y0, x1, y1);
-    }
-
-    public static Bitmap Crop(Bitmap src, Rectangle r)
-    {
-        var dst = new Bitmap(r.Width, r.Height, src.PixelFormat == PixelFormat.Format1bppIndexed ? PixelFormat.Format24bppRgb : PixelFormat.Format24bppRgb);
-        dst.SetResolution(src.HorizontalResolution, src.VerticalResolution);
-        using Graphics g = Graphics.FromImage(dst);
-        g.InterpolationMode = InterpolationMode.NearestNeighbor;
-        g.PixelOffsetMode = PixelOffsetMode.Half;
-        g.DrawImage(src, new Rectangle(0, 0, r.Width, r.Height), r, GraphicsUnit.Pixel);
-        return dst;
     }
 
     #endregion
@@ -232,7 +187,7 @@ public static class DocumentCleanup
 
     #endregion
 
-    internal static int Percentile(GrayImage img, double p)
+    public static int Percentile(GrayImage img, double p)
     {
         var hist = new long[256];
         foreach (byte v in img.Data) hist[v]++;

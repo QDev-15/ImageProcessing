@@ -18,6 +18,9 @@
 
 - `Source/ImageCoreService` -- thư viện lõi không UI (codec, PDF/TIFF, scan, xử lý ảnh, OCR).
 - `Source/ImageOptimizerTool` -- app WinForms .NET 9, chỉ là giao diện.
+- `Source/ImageCore.Shared` -- thuật toán ảnh thuần managed (net9.0, KHÔNG System.Drawing.Common,
+  KHÔNG native; chỉ được dùng Rectangle/Point). Dùng chung với app mobile. Phần GDI+ nằm ở
+  `ImageCoreService` (`GdiGray`, `BitmapTransforms`).
 - Solution: `Source/ImageProcessing.sln`.
 - Build kiểm tra khi app đang chạy (file DLL bị khoá): build ra thư mục khác bằng
   `dotnet build Source/ImageOptimizerTool/ImageOptimizerTool.csproj -p:OutDir=<thư mục tạm>/`.
@@ -84,3 +87,31 @@
 - OCR song song nhiều trang (hiện ~2-3 s/trang, chạy tuần tự).
 - Form Cài đặt dạng tab "đẹp" thay cho PropertyGrid, nếu cần cho người dùng cuối.
 - Unit test chuẩn (xUnit) thay cho SmokeTests dạng console, và chạy trên CI.
+
+## App mobile (đợt 2026-09-25, kế hoạch đã chốt với owner)
+
+- Framework: **.NET MAUI**, làm **Android trước** (owner không có Mac, iOS để sau).
+- Bản đầu: nhập ảnh từ thư viện / chụp camera -> tự dò mép giấy hoặc kéo 4 điểm -> cắt phối cảnh
+  -> đen trắng (Sauvola) -> **nhiều trang + xuất PDF**. **Chưa có OCR.**
+- Dò mép giấy tự viết bằng C# sau interface `IEdgeDetector` (không OpenCV / Emgu vì license).
+
+| Bước | Nội dung | Trạng thái |
+|---|---|---|
+| 1 | Tách `ImageCore.Shared` khỏi System.Drawing, xUnit | **xong** (SmokeTests ALL PASS, 10 unit test PASS) |
+| 2 | Khung app MAUI, quyền camera / thư viện | chưa |
+| 3 | Nhập ảnh (thư viện, camera, EXIF, giảm ảnh lớn) | chưa |
+| 4 | Tự dò mép giấy | chưa |
+| 5 | Kéo 4 điểm + kính lúp | chưa |
+| 6 | Cắt phối cảnh (homography) | chưa |
+| 7 | Đen trắng (Sauvola / Otsu), giới hạn RAM | chưa |
+| 8 | Nhiều trang, sắp xếp, xuất PDF, chia sẻ | chưa |
+| 9-10 | Hoàn thiện, test máy thật, phát hành Google Play | chưa |
+
+### Bước 1: ghi chú
+- Đã chuyển sang Shared: `GrayImage`, `Binarizer`, `EnumDescriptionConverter`, phần phân tích của
+  `DocumentCleanup` (DetectSkew, DetectContentBounds, Despeckle, Percentile).
+- Ở lại `ImageCoreService`: `GdiGray` (FromBitmap, ToBitmap8bpp / 1bpp) và `BitmapTransforms`
+  (RotateArbitrary, RotateRight, Crop). Call site cũ chỉ đổi tên lớp; namespace vẫn `ImageCoreService`.
+- `PageAnalyzer` (IsBlank / Classify) chưa chuyển vì `Classify` còn dùng Bitmap; chuyển khi mobile cần.
+- Cần lưu ý cho bước 7: Sauvola dùng 2 integral image kiểu `long` (~16 byte/pixel). Ảnh 8,7 MP tốn
+  ~140 MB, phải xử lý theo dải hoặc dùng bản tiết kiệm RAM trước khi chạy trên máy 3 GB.

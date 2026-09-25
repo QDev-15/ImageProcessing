@@ -14,7 +14,7 @@ public static class BarcodeDetector
     public static string? Find(Bitmap page)
     {
         int dpi = ImageUtils.ResolveDpi(page);
-        GrayImage gray = GrayImage.FromBitmap(page);
+        GrayImage gray = GdiGray.FromBitmap(page);
         // ~150-200 dpi is plenty for separator sheets and much faster than full resolution.
         if (dpi >= 300) gray = gray.Downscale(2);
 
@@ -70,7 +70,7 @@ public static class DocumentSplitter
             string? code = null;
             if (mode == DocumentSplitMode.BlankPage)
             {
-                isSeparator = PageAnalyzer.IsBlank(GrayImage.FromBitmap(bmp), ImageUtils.ResolveDpi(bmp), blankInkPercent);
+                isSeparator = PageAnalyzer.IsBlank(GdiGray.FromBitmap(bmp), ImageUtils.ResolveDpi(bmp), blankInkPercent);
             }
             else
             {

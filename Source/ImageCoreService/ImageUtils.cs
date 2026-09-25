@@ -114,7 +114,7 @@ public static class ImageUtils
     public static GrayImage ToBinaryGray(Bitmap src, BinarizationMethod method, bool despeckle, double sauvolaK = Binarizer.DefaultSauvolaK)
     {
         int dpi = ResolveDpi(src);
-        GrayImage gray = GrayImage.FromBitmap(src);
+        GrayImage gray = GdiGray.FromBitmap(src);
         GrayImage bin = src.PixelFormat == PixelFormat.Format1bppIndexed
             ? Binarizer.Threshold(gray, 127) // already binary: keep exactly
             : Binarizer.Binarize(gray, method, dpi, sauvolaK);

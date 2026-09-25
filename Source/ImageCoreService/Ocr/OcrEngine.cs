@@ -88,7 +88,7 @@ public sealed class OcrEngine : IDisposable
     {
         int dpi = ImageUtils.ResolveDpi(page);
         int factor = Math.Max(1, dpi / 150);
-        GrayImage gray = GrayImage.FromBitmap(page);
+        GrayImage gray = GdiGray.FromBitmap(page);
         if (factor > 1) gray = gray.Downscale(factor);
         return gray.ToBitmap8bpp(dpi / (float)factor, dpi / (float)factor);
     }

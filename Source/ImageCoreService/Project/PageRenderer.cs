@@ -46,7 +46,7 @@ public static class PageRenderer
                     Math.Max(1, (int)Math.Round(c.Width * current.Width)), Math.Max(1, (int)Math.Round(c.Height * current.Height))));
                 if (r.Width > 0 && r.Height > 0 && (r.Width < current.Width || r.Height < current.Height))
                 {
-                    Replace(ref current, DocumentCleanup.Crop(current, r));
+                    Replace(ref current, BitmapTransforms.Crop(current, r));
                     modified = true;
                 }
             }
@@ -59,13 +59,13 @@ public static class PageRenderer
 
             if (ops.Deskew != 0)
             {
-                Replace(ref current, DocumentCleanup.RotateArbitrary(current, -ops.Deskew));
+                Replace(ref current, BitmapTransforms.RotateArbitrary(current, -ops.Deskew));
                 modified = true;
             }
 
             if (ops.Rotate % 360 != 0)
             {
-                Replace(ref current, DocumentCleanup.RotateRight(current, ops.Rotate));
+                Replace(ref current, BitmapTransforms.RotateRight(current, ops.Rotate));
                 modified = true;
             }
 
@@ -74,7 +74,7 @@ public static class PageRenderer
             if (modified && compact && current.PixelFormat is not (PixelFormat.Format8bppIndexed or PixelFormat.Format1bppIndexed))
             {
                 (int nx, int ny) = ImageUtils.ResolveDpiXY(current);
-                Replace(ref current, GrayImage.FromBitmap(current).ToBitmap8bpp(nx, ny));
+                Replace(ref current, GdiGray.FromBitmap(current).ToBitmap8bpp(nx, ny));
             }
             return current;
         }

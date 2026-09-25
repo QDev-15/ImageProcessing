@@ -68,7 +68,7 @@ string Save(Bitmap bmp, string name)
 Run("binarize", () =>
 {
     using Bitmap page = TextPage(Color.White, gradient: true);
-    GrayImage gray = GrayImage.FromBitmap(page);
+    GrayImage gray = GdiGray.FromBitmap(page);
     // Region with no text on the dim right side.
     var blank = new Rectangle(page.Width - 300, page.Height - 400, 200, 200);
     int InkIn(GrayImage b) { int n = 0; for (int y = blank.Top; y < blank.Bottom; y++) for (int x = blank.Left; x < blank.Right; x++) if (b[x, y] == 0) n++; return n; }
@@ -84,13 +84,13 @@ Run("binarize", () =>
 Run("deskew", () =>
 {
     using Bitmap page = TextPage(Color.White);
-    using Bitmap skewed = DocumentCleanup.RotateArbitrary(page, 3.0);
-    double a = DocumentCleanup.DetectSkew(GrayImage.FromBitmap(skewed), Dpi);
+    using Bitmap skewed = BitmapTransforms.RotateArbitrary(page, 3.0);
+    double a = DocumentCleanup.DetectSkew(GdiGray.FromBitmap(skewed), Dpi);
     Check("DetectSkew finds +3 deg", Math.Abs(a - 3.0) < 0.3, $"angle={a:0.00}");
-    using Bitmap fixedImg = DocumentCleanup.RotateArbitrary(skewed, -a);
-    double after = DocumentCleanup.DetectSkew(GrayImage.FromBitmap(fixedImg), Dpi);
+    using Bitmap fixedImg = BitmapTransforms.RotateArbitrary(skewed, -a);
+    double after = DocumentCleanup.DetectSkew(GdiGray.FromBitmap(fixedImg), Dpi);
     Check("after correction ~0", Math.Abs(after) < 0.3, $"angle={after:0.00}");
-    double none = DocumentCleanup.DetectSkew(GrayImage.FromBitmap(page), Dpi);
+    double none = DocumentCleanup.DetectSkew(GdiGray.FromBitmap(page), Dpi);
     Check("straight page -> 0", Math.Abs(none) < 0.2, $"angle={none:0.00}");
 });
 
@@ -101,10 +101,10 @@ Run("crop", () =>
     using var framed = new Bitmap(page.Width + 200, page.Height + 160, PixelFormat.Format24bppRgb);
     framed.SetResolution(Dpi, Dpi);
     using (Graphics g = Graphics.FromImage(framed)) { g.Clear(Color.FromArgb(15, 15, 15)); g.DrawImage(page, 100, 80, page.Width, page.Height); }
-    Rectangle r = DocumentCleanup.DetectContentBounds(GrayImage.FromBitmap(framed), Dpi);
+    Rectangle r = DocumentCleanup.DetectContentBounds(GdiGray.FromBitmap(framed), Dpi);
     bool ok = Math.Abs(r.Left - 100) <= 8 && Math.Abs(r.Top - 80) <= 8 && Math.Abs(r.Right - (100 + page.Width)) <= 8 && Math.Abs(r.Bottom - (80 + page.Height)) <= 8;
     Check("DetectContentBounds finds the sheet", ok, r.ToString());
-    Rectangle none = DocumentCleanup.DetectContentBounds(GrayImage.FromBitmap(page), Dpi);
+    Rectangle none = DocumentCleanup.DetectContentBounds(GdiGray.FromBitmap(page), Dpi);
     Check("no border -> full image", none == new Rectangle(0, 0, page.Width, page.Height), none.ToString());
 });
 
@@ -119,14 +119,14 @@ Run("analyze", () =>
         g.Clear(Color.FromArgb(245, 243, 236));
         for (int i = 0; i < 300; i++) g.FillRectangle(Brushes.DimGray, rnd.Next(2480), rnd.Next(3508), 2, 2); // dust
     }
-    Check("blank page with dust is blank", PageAnalyzer.IsBlank(GrayImage.FromBitmap(blank), Dpi));
+    Check("blank page with dust is blank", PageAnalyzer.IsBlank(GdiGray.FromBitmap(blank), Dpi));
     using Bitmap text = TextPage(Color.White);
-    Check("text page is not blank", !PageAnalyzer.IsBlank(GrayImage.FromBitmap(text), Dpi));
+    Check("text page is not blank", !PageAnalyzer.IsBlank(GdiGray.FromBitmap(text), Dpi));
     using var oneLine = new Bitmap(2480, 3508, PixelFormat.Format24bppRgb);
     oneLine.SetResolution(Dpi, Dpi);
     using (Graphics g = Graphics.FromImage(oneLine)) { g.Clear(Color.White); using var f = new Font("Arial", 11); g.DrawString("Ghi chú: đã ký", f, Brushes.Black, 900, 1700); }
-    Check("page with one short line is not blank", !PageAnalyzer.IsBlank(GrayImage.FromBitmap(oneLine), Dpi),
-        $"ink%: line={PageAnalyzer.InkPercent(GrayImage.FromBitmap(oneLine), Dpi):0.0000}, dust={PageAnalyzer.InkPercent(GrayImage.FromBitmap(blank), Dpi):0.0000}");
+    Check("page with one short line is not blank", !PageAnalyzer.IsBlank(GdiGray.FromBitmap(oneLine), Dpi),
+        $"ink%: line={PageAnalyzer.InkPercent(GdiGray.FromBitmap(oneLine), Dpi):0.0000}, dust={PageAnalyzer.InkPercent(GdiGray.FromBitmap(blank), Dpi):0.0000}");
 
     Check("text page -> Bitonal", PageAnalyzer.Classify(text, Dpi) == PageColorKind.Bitonal, PageAnalyzer.Classify(text, Dpi).ToString());
     using var color = (Bitmap)text.Clone();
@@ -148,12 +148,12 @@ Run("ocr", () =>
     string all = string.Join(" ", words.Select(w => w.Text));
     Check("OCR reads Vietnamese", all.Contains("HỢP") && all.Contains("đồng"), $"{words.Count} words; sample: {all[..Math.Min(80, all.Length)]}");
 
-    using Bitmap rot = DocumentCleanup.RotateRight(page, 90);
+    using Bitmap rot = BitmapTransforms.RotateRight(page, 90);
     int fix = ocr.DetectUprightRotation(rot);
-    using Bitmap corrected = DocumentCleanup.RotateRight(rot, fix);
+    using Bitmap corrected = BitmapTransforms.RotateRight(rot, fix);
     int again = ocr.DetectUprightRotation(corrected);
     Check("OSD corrects a 90 deg page", fix == 270 && again == 0, $"fix={fix}, after={again}");
-    using Bitmap upside = DocumentCleanup.RotateRight(page, 180);
+    using Bitmap upside = BitmapTransforms.RotateRight(page, 180);
     Check("OSD corrects an upside-down page", ocr.DetectUprightRotation(upside) == 180);
 });
 
@@ -284,7 +284,7 @@ Run("resolution limiter", () =>
 Run("processor", () =>
 {
     using Bitmap page = TextPage(Color.White);
-    using Bitmap skewed = DocumentCleanup.RotateArbitrary(page, 2.5);
+    using Bitmap skewed = BitmapTransforms.RotateArbitrary(page, 2.5);
     using var framed = new Bitmap(skewed.Width + 160, skewed.Height + 160, PixelFormat.Format24bppRgb);
     framed.SetResolution(Dpi, Dpi);
     using (Graphics g = Graphics.FromImage(framed)) { g.Clear(Color.Black); g.DrawImage(skewed, 80, 80, skewed.Width, skewed.Height); }
@@ -486,7 +486,7 @@ Run("lazy pdf + analysis", () =>
 
     // Analysis on the proxy finds the same things the pixel pipeline did (crop + skew), as ops.
     using Bitmap tilted = TextPage(Color.White);
-    using Bitmap skewed = DocumentCleanup.RotateArbitrary(tilted, 3.0);
+    using Bitmap skewed = BitmapTransforms.RotateArbitrary(tilted, 3.0);
     using var framed = new Bitmap(skewed.Width + 200, skewed.Height + 200, PixelFormat.Format24bppRgb);
     framed.SetResolution(Dpi, Dpi);
     using (Graphics g = Graphics.FromImage(framed)) { g.Clear(Color.Black); g.DrawImage(skewed, 100, 100, skewed.Width, skewed.Height); }

@@ -73,9 +73,9 @@ public static class ResolutionLimiter
         Log.Info($"Resolution limited: {src.Width}x{src.Height} @{dx}x{dy} dpi -> {nw}x{nh} @{targetDpi} dpi");
 
         if (src.PixelFormat == PixelFormat.Format1bppIndexed)
-            return Binarizer.Threshold(GrayImage.FromBitmap(scaled), BitonalThreshold).ToBitmap1bpp(ndx, ndy);
+            return Binarizer.Threshold(GdiGray.FromBitmap(scaled), BitonalThreshold).ToBitmap1bpp(ndx, ndy);
         if (IsGrayStorage(src))
-            return GrayImage.FromBitmap(scaled).ToBitmap8bpp(ndx, ndy);
+            return GdiGray.FromBitmap(scaled).ToBitmap8bpp(ndx, ndy);
         return (Bitmap)scaled.Clone();
     }
 

@@ -38,7 +38,7 @@ public static class PageProcessor
         using Bitmap src = ImageUtils.Load(inputPath);
         (int dpiX, int dpiY) = ImageUtils.ResolveDpiXY(src);
         bool wasGrayish = src.PixelFormat is PixelFormat.Format1bppIndexed or PixelFormat.Format8bppIndexed;
-        GrayImage gray = GrayImage.FromBitmap(src);
+        GrayImage gray = GdiGray.FromBitmap(src);
 
         if (o.DetectBlank && Perf.Measure("proc.blank", () => PageAnalyzer.IsBlank(gray, dpiX, o.BlankInkPercent)))
             return new PageProcessResult(inputPath, true, false, "trang trắng");
@@ -52,8 +52,8 @@ public static class PageProcessor
                 Rectangle r = Perf.Measure("proc.cropdetect", () => DocumentCleanup.DetectContentBounds(gray, dpiX));
                 if (r.Width < src.Width || r.Height < src.Height)
                 {
-                    Replace(ref current, DocumentCleanup.Crop(current, r), src);
-                    gray = GrayImage.FromBitmap(current);
+                    Replace(ref current, BitmapTransforms.Crop(current, r), src);
+                    gray = GdiGray.FromBitmap(current);
                     notes.Add("cắt viền");
                 }
             }
@@ -63,7 +63,7 @@ public static class PageProcessor
                 double angle = Perf.Measure("proc.skewdetect", () => DocumentCleanup.DetectSkew(gray, dpiX));
                 if (angle != 0)
                 {
-                    Replace(ref current, DocumentCleanup.RotateArbitrary(current, -angle), src);
+                    Replace(ref current, BitmapTransforms.RotateArbitrary(current, -angle), src);
                     notes.Add($"chỉnh nghiêng {angle:0.0}°");
                 }
             }
@@ -73,7 +73,7 @@ public static class PageProcessor
                 int turn = Perf.Measure("proc.osd", () => osd.DetectUprightRotation(current));
                 if (turn != 0)
                 {
-                    Replace(ref current, DocumentCleanup.RotateRight(current, turn), src);
+                    Replace(ref current, BitmapTransforms.RotateRight(current, turn), src);
                     notes.Add($"xoay {turn}°");
                 }
             }
@@ -86,7 +86,7 @@ public static class PageProcessor
             if (wasGrayish && current.PixelFormat != PixelFormat.Format8bppIndexed)
             {
                 (int nx, int ny) = ImageUtils.ResolveDpiXY(current);
-                Replace(ref current, GrayImage.FromBitmap(current).ToBitmap8bpp(nx, ny), src);
+                Replace(ref current, GdiGray.FromBitmap(current).ToBitmap8bpp(nx, ny), src);
             }
             if (current.HorizontalResolution < 2) current.SetResolution(dpiX, dpiY);
 
@@ -106,7 +106,7 @@ public static class PageProcessor
         using Bitmap src = ImageUtils.Load(inputPath);
         (int dx, int dy) = ImageUtils.ResolveDpiXY(src);
         src.SetResolution(dx, dy);
-        using Bitmap rotated = DocumentCleanup.RotateRight(src, degreesClockwise);
+        using Bitmap rotated = BitmapTransforms.RotateRight(src, degreesClockwise);
         Directory.CreateDirectory(outputFolder);
         return ImageUtils.SaveLossless(rotated, Path.Combine(outputFolder, Guid.NewGuid().ToString("N")));
     }
