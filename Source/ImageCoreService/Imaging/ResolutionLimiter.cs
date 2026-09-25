@@ -31,11 +31,29 @@ public static class ResolutionLimiter
     {
         if (targetDpi < 50) return inputPath;
 
+        using var perf = Perf.Scope("limit");
         using Bitmap src = ImageUtils.Load(inputPath);
+        using Bitmap? reduced = ResampleToDpi(src, targetDpi);
+        if (reduced == null) return inputPath;
+
+        Directory.CreateDirectory(outputFolder);
+        string outPath = ImageUtils.SaveLossless(reduced, Path.Combine(outputFolder, Guid.NewGuid().ToString("N")));
+        try { File.Delete(inputPath); } catch { /* best effort */ }
+        return outPath;
+    }
+
+    /// <summary>
+    /// The page resampled down to <paramref name="targetDpi"/>, or null when it is already at
+    /// or below it (within tolerance). Keeps the storage class: bitonal stays 1bpp, gray
+    /// stays 8bpp, everything else 24bpp; the result carries the new DPI.
+    /// </summary>
+    public static Bitmap? ResampleToDpi(Bitmap src, int targetDpi)
+    {
+        if (targetDpi < 50) return null;
         (int dx, int dy) = ImageUtils.ResolveDpiXY(src);
         double sx = dx > targetDpi * Tolerance ? (double)targetDpi / dx : 1.0;
         double sy = dy > targetDpi * Tolerance ? (double)targetDpi / dy : 1.0;
-        if (sx >= 1.0 && sy >= 1.0) return inputPath;
+        if (sx >= 1.0 && sy >= 1.0) return null;
 
         int nw = Math.Max(1, (int)Math.Round(src.Width * sx));
         int nh = Math.Max(1, (int)Math.Round(src.Height * sy));
@@ -52,33 +70,13 @@ public static class ResolutionLimiter
             attrs.SetWrapMode(WrapMode.TileFlipXY); // no dark / light fringe at the page edge
             g.DrawImage(src, new Rectangle(0, 0, nw, nh), 0, 0, src.Width, src.Height, GraphicsUnit.Pixel, attrs);
         }
+        Log.Info($"Resolution limited: {src.Width}x{src.Height} @{dx}x{dy} dpi -> {nw}x{nh} @{targetDpi} dpi");
 
-        // Keep the source's storage class: bitonal stays 1bpp, gray stays 8bpp, color 24bpp.
-        Bitmap? converted = null;
-        try
-        {
-            Bitmap result = scaled;
-            if (src.PixelFormat == PixelFormat.Format1bppIndexed)
-            {
-                converted = Binarizer.Threshold(GrayImage.FromBitmap(scaled), BitonalThreshold).ToBitmap1bpp(ndx, ndy);
-                result = converted;
-            }
-            else if (IsGrayStorage(src))
-            {
-                converted = GrayImage.FromBitmap(scaled).ToBitmap8bpp(ndx, ndy);
-                result = converted;
-            }
-
-            Directory.CreateDirectory(outputFolder);
-            string outPath = ImageUtils.SaveLossless(result, Path.Combine(outputFolder, Guid.NewGuid().ToString("N")));
-            Log.Info($"Resolution limited: {Path.GetFileName(inputPath)} {src.Width}x{src.Height} @{dx}x{dy} dpi -> {nw}x{nh} @{targetDpi} dpi");
-            try { File.Delete(inputPath); } catch { /* best effort */ }
-            return outPath;
-        }
-        finally
-        {
-            converted?.Dispose();
-        }
+        if (src.PixelFormat == PixelFormat.Format1bppIndexed)
+            return Binarizer.Threshold(GrayImage.FromBitmap(scaled), BitonalThreshold).ToBitmap1bpp(ndx, ndy);
+        if (IsGrayStorage(src))
+            return GrayImage.FromBitmap(scaled).ToBitmap8bpp(ndx, ndy);
+        return (Bitmap)scaled.Clone();
     }
 
     private static bool IsGrayStorage(Bitmap bmp)

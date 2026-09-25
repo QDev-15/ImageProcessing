@@ -17,7 +17,9 @@ public static class PdfSplitter
 {
     private const double MaxRenderPixels = 36_000_000;
 
-    public static List<string> SplitToImages(string pdfPath, string destFolder, int dpi = 300)
+    /// <param name="onPage">Called with each page image as soon as it is written, so a caller can
+    /// show pages while the rest are still rendering.</param>
+    public static List<string> SplitToImages(string pdfPath, string destFolder, int dpi = 300, Action<string>? onPage = null)
     {
         Directory.CreateDirectory(destFolder);
         var result = new List<string>();
@@ -50,8 +52,8 @@ public static class PdfSplitter
             if (renderPixels > MaxRenderPixels)
                 effectiveDpi = Math.Max(72, (int)(effectiveDpi * Math.Sqrt(MaxRenderPixels / renderPixels)));
 
-            using Image img = doc.Render(i, effectiveDpi, effectiveDpi,
-                PdfiumViewer.PdfRenderFlags.CorrectFromDpi | PdfiumViewer.PdfRenderFlags.Annotations);
+            using Image img = Perf.Measure("pdf.render", () => doc.Render(i, effectiveDpi, effectiveDpi,
+                PdfiumViewer.PdfRenderFlags.CorrectFromDpi | PdfiumViewer.PdfRenderFlags.Annotations));
             using var bmp = new Bitmap(img);
 
             // Tagging the render output with the DPI we asked pdfium to render at
@@ -77,8 +79,9 @@ public static class PdfSplitter
             bmp.SetResolution(saneDpi, saneDpi);
 
             string path = Path.Combine(destFolder, $"{Path.GetFileNameWithoutExtension(pdfPath)}_p{i + 1:000}.png");
-            bmp.Save(path, ImageFormat.Png);
+            using (Perf.Scope("pdf.save")) bmp.Save(path, ImageFormat.Png);
             result.Add(path);
+            onPage?.Invoke(path);
         }
         return result;
     }
@@ -94,6 +97,8 @@ public static class PdfSplitter
     /// can't be parsed this way; a null entry for a given page means "no dominant
     /// raster image found, don't cap that page's render DPI".
     /// </summary>
+    public static double?[] GetNativeImageDpis(string pdfPath) => TryGetNativeImageDpiPerPage(pdfPath) ?? Array.Empty<double?>();
+
     private static double?[] TryGetNativeImageDpiPerPage(string pdfPath)
     {
         try

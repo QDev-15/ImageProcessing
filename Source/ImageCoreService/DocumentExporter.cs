@@ -17,6 +17,12 @@ public sealed class ExportOptions
     public double Jpeg2000Ratio { get; set; } = 40;
     public bool PassThroughOriginalJpeg { get; set; } = true;
 
+    /// <summary>Pages above this DPI are resampled down when rendered for export (0 = never).</summary>
+    public int TargetDpi { get; set; }
+
+    /// <summary>When set, words already recognized for a page are reused and new ones stored.</summary>
+    public OcrCache? OcrCache { get; set; }
+
     public ColorOutputMode ColorMode { get; set; } = ColorOutputMode.Auto;
     public BinarizationMethod Binarization { get; set; } = BinarizationMethod.Sauvola;
     public double SauvolaK { get; set; } = Binarizer.DefaultSauvolaK;
@@ -27,8 +33,9 @@ public sealed class ExportOptions
     public string OcrLanguages { get; set; } = "vie+eng";
     public PdfMetadata Metadata { get; set; } = new();
 
-    public static ExportOptions FromSettings(AppSettings s) => new()
+    public static ExportOptions FromSettings(AppSettings s, string? profileName = null) => new()
     {
+        TargetDpi = s.LimitDpiToScanSetting ? s.GetTargetDpi(profileName) : 0,
         UseJBig2 = s.UseJBig2,
         UseJpeg2000 = s.UseJpeg2000,
         JBig2Mode = s.JBig2Mode,
@@ -81,6 +88,13 @@ public static class DocumentExporter
     }
 
     public static void ExportPdf(IReadOnlyList<string> pageFiles, ExportOptions options, string destPath,
+        IProgress<WorkProgress>? progress = null, CancellationToken cancel = default) =>
+        ExportPdf(ToRecords(pageFiles), options, destPath, progress, cancel);
+
+    private static List<PageRecord> ToRecords(IReadOnlyList<string> files) =>
+        files.Select(f => PageRecord.FromFile(f, Path.GetFileName(f))).ToList();
+
+    public static void ExportPdf(IReadOnlyList<PageRecord> pageFiles, ExportOptions options, string destPath,
         IProgress<WorkProgress>? progress = null, CancellationToken cancel = default)
     {
         if (pageFiles.Count == 0) throw new ArgumentException("No pages to export.", nameof(pageFiles));
@@ -108,8 +122,8 @@ public static class DocumentExporter
                 progress?.Report(new WorkProgress(pageFiles.Count, pageFiles.Count, "JBIG2: mã hoá từ điển ký tự..."));
                 try
                 {
-                    JBig2Encoder.Result[] results = JBig2Encoder.EncodeSymbolMultiPage(
-                        symbolPages.Select(p => p.TempBitonalPath!).ToList(), options.JBig2Threshold);
+                    JBig2Encoder.Result[] results = Perf.Measure("exp.jbig2sym", () => JBig2Encoder.EncodeSymbolMultiPage(
+                        symbolPages.Select(p => p.TempBitonalPath!).ToList(), options.JBig2Threshold));
                     for (int i = 0; i < symbolPages.Count; i++)
                     {
                         symbolPages[i].Bytes = results[i].PageStream;
@@ -148,7 +162,7 @@ public static class DocumentExporter
                 else
                     builder.AddJpegPage(p.Bytes!, p.Width, p.Height, p.DpiX, p.DpiY, p.Words);
             }
-            builder.Save(destPath);
+            Perf.Measure("exp.write", () => builder.Save(destPath));
             Log.Info($"Exported PDF {destPath}: {pageFiles.Count} page(s), JBIG2={options.UseJBig2}, JP2={options.UseJpeg2000}, PDF/A={options.PdfA}, OCR={ocrLanguages != null}");
         }
         finally
@@ -158,6 +172,10 @@ public static class DocumentExporter
     }
 
     public static void ExportTiff(IReadOnlyList<string> pageFiles, ExportOptions options, string destPath,
+        IProgress<WorkProgress>? progress = null, CancellationToken cancel = default) =>
+        ExportTiff(ToRecords(pageFiles), options, destPath, progress, cancel);
+
+    public static void ExportTiff(IReadOnlyList<PageRecord> pageFiles, ExportOptions options, string destPath,
         IProgress<WorkProgress>? progress = null, CancellationToken cancel = default)
     {
         if (pageFiles.Count == 0) throw new ArgumentException("No pages to export.", nameof(pageFiles));
@@ -199,9 +217,10 @@ public static class DocumentExporter
     /// a small pool (an engine is ~1 s to create, so they are reused), and temp files go
     /// through a lock. Results stay in page order.
     /// </summary>
-    private static Prepared[] PrepareAll(IReadOnlyList<string> pageFiles, ExportOptions o, bool forPdf,
+    private static Prepared[] PrepareAll(IReadOnlyList<PageRecord> pageFiles, ExportOptions o, bool forPdf,
         string? ocrLanguages, List<string> temps, IProgress<WorkProgress>? progress, CancellationToken cancel)
     {
+        // Engines are created only when a page misses the OCR cache (each takes ~1 s to load).
         int n = pageFiles.Count;
         var result = new Prepared[n];
         // Inner loops (gray conversion, Sauvola) are already multi-threaded, and every worker
@@ -215,17 +234,13 @@ public static class DocumentExporter
         {
             Parallel.For(0, n, new ParallelOptions { MaxDegreeOfParallelism = degree, CancellationToken = cancel }, i =>
             {
-                OcrEngine? engine = null;
-                if (ocrLanguages != null && !ocrPool.TryTake(out engine))
-                    engine = new OcrEngine(ocrLanguages);
-                try
+                Func<Func<OcrEngine, IReadOnlyList<OcrWord>>, IReadOnlyList<OcrWord>>? runOcr = ocrLanguages == null ? null : work =>
                 {
-                    result[i] = PreparePage(pageFiles[i], o, forPdf, engine, AddTemp);
-                }
-                finally
-                {
-                    if (engine != null) ocrPool.Add(engine);
-                }
+                    if (!ocrPool.TryTake(out OcrEngine? engine)) engine = new OcrEngine(ocrLanguages);
+                    try { return work(engine); }
+                    finally { ocrPool.Add(engine); }
+                };
+                result[i] = PreparePage(pageFiles[i], o, forPdf, runOcr, AddTemp);
                 int d = Interlocked.Increment(ref done);
                 progress?.Report(new WorkProgress(d, n, $"Mã hoá trang {d}/{n}"));
             });
@@ -260,9 +275,37 @@ public static class DocumentExporter
         }
     }
 
-    private static Prepared PreparePage(string file, ExportOptions o, bool forPdf, OcrEngine? ocr, Action<string> addTemp)
+    /// <summary>Words for the page: from the OCR cache when present, otherwise recognized (through
+    /// <paramref name="runOcr"/>, which lends an engine) and stored.</summary>
+    private static IReadOnlyList<OcrWord>? WordsFor(PageRecord page, ExportOptions o,
+        Func<Func<OcrEngine, IReadOnlyList<OcrWord>>, IReadOnlyList<OcrWord>>? runOcr, Func<OcrEngine, IReadOnlyList<OcrWord>> recognize)
     {
-        using Bitmap src = ImageUtils.Load(file);
+        if (runOcr == null) return null;
+        string? key = o.OcrCache != null ? OcrCache.Key(page, o) : null;
+        IReadOnlyList<OcrWord>? cached = key != null ? o.OcrCache!.TryGet(key) : null;
+        if (cached != null) return cached;
+        IReadOnlyList<OcrWord> words = Perf.Measure("exp.ocr", () => runOcr(recognize));
+        if (key != null) o.OcrCache!.Put(key, words);
+        return words;
+    }
+
+    /// <summary>Reads one page exactly as an export would (same render, binarization and
+    /// resolution), so the words are interchangeable with those an export produces.</summary>
+    public static IReadOnlyList<OcrWord> RecognizePage(PageRecord page, ExportOptions o, OcrEngine ocr)
+    {
+        using Bitmap src = PageRenderer.RenderFull(page, o.TargetDpi);
+        (int dpiX, int dpiY) = ImageUtils.ResolveDpiXY(src);
+        if (DecideKind(src, o.ColorMode, dpiX) != PageColorKind.Bitonal) return ocr.Recognize(src);
+        GrayImage bin = ImageUtils.ToBinaryGray(src, o.Binarization, o.Despeckle, o.SauvolaK);
+        using Bitmap bitonal = bin.ToBitmap1bpp(dpiX, dpiY);
+        return ocr.Recognize(bitonal);
+    }
+
+    private static Prepared PreparePage(PageRecord page, ExportOptions o, bool forPdf,
+        Func<Func<OcrEngine, IReadOnlyList<OcrWord>>, IReadOnlyList<OcrWord>>? runOcr, Action<string> addTemp)
+    {
+        string file = page.Source.File;
+        using Bitmap src = PageRenderer.RenderFull(page, o.TargetDpi, out bool modified);
         (int dpiX, int dpiY) = ImageUtils.ResolveDpiXY(src);
         var p = new Prepared
         {
@@ -275,9 +318,9 @@ public static class DocumentExporter
 
         if (p.Kind == PageColorKind.Bitonal)
         {
-            GrayImage bin = ImageUtils.ToBinaryGray(src, o.Binarization, o.Despeckle, o.SauvolaK);
+            GrayImage bin = Perf.Measure("exp.binarize", () => ImageUtils.ToBinaryGray(src, o.Binarization, o.Despeckle, o.SauvolaK));
             using Bitmap bitonal = bin.ToBitmap1bpp(dpiX, dpiY);
-            if (ocr != null) p.Words = ocr.Recognize(bitonal);
+            p.Words = WordsFor(page, o, runOcr, engine => engine.Recognize(bitonal));
 
             if (o.UseJBig2)
             {
@@ -300,9 +343,9 @@ public static class DocumentExporter
         }
 
         // Gray / color.
-        if (ocr != null) p.Words = ocr.Recognize(src);
+        p.Words = WordsFor(page, o, runOcr, engine => engine.Recognize(src));
 
-        bool isJpegFile = IsJpegFile(file);
+        bool isJpegFile = !modified && PageRenderer.IsRawJpeg(page);
         if (o.UseJpeg2000)
         {
             try
@@ -317,7 +360,7 @@ public static class DocumentExporter
                     addTemp(input);
                     prepared.Save(input, ImageFormat.Png);
                 }
-                p.Bytes = OpenJpegEncoder.Encode(input, o.Jpeg2000Ratio > 0 ? o.Jpeg2000Ratio : null);
+                p.Bytes = Perf.Measure("exp.jp2", () => OpenJpegEncoder.Encode(input, o.Jpeg2000Ratio > 0 ? o.Jpeg2000Ratio : null));
                 p.IsJpx = true;
                 p.Components = p.Kind == PageColorKind.Gray ? 1 : 3;
                 return p;

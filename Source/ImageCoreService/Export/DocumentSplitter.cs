@@ -6,7 +6,7 @@ namespace ImageCoreService;
 
 /// <summary>One output document: its pages in order, and the separator barcode that
 /// started it (available to the file-name pattern as {barcode}).</summary>
-public sealed record DocumentGroup(IReadOnlyList<string> Pages, string? Barcode);
+public sealed record DocumentGroup(IReadOnlyList<PageRecord> Pages, string? Barcode);
 
 /// <summary>Barcode reading via ZXing.Net (Apache-2.0): 1D + QR / DataMatrix / PDF417.</summary>
 public static class BarcodeDetector
@@ -42,7 +42,13 @@ public static class BarcodeDetector
 /// </summary>
 public static class DocumentSplitter
 {
-    public static List<DocumentGroup> Split(IReadOnlyList<string> pages, DocumentSplitMode mode, string barcodePrefix,
+    public static List<DocumentGroup> Split(IReadOnlyList<string> files, DocumentSplitMode mode, string barcodePrefix,
+        bool removeSeparatorPages, double blankInkPercent = PageAnalyzer.DefaultBlankInkPercent,
+        IProgress<WorkProgress>? progress = null, CancellationToken cancel = default) =>
+        Split(files.Select(f => PageRecord.FromFile(f, Path.GetFileName(f))).ToList(), mode, barcodePrefix,
+            removeSeparatorPages, blankInkPercent, progress, cancel);
+
+    public static List<DocumentGroup> Split(IReadOnlyList<PageRecord> pages, DocumentSplitMode mode, string barcodePrefix,
         bool removeSeparatorPages, double blankInkPercent = PageAnalyzer.DefaultBlankInkPercent,
         IProgress<WorkProgress>? progress = null, CancellationToken cancel = default)
     {
@@ -50,7 +56,7 @@ public static class DocumentSplitter
             return new List<DocumentGroup> { new(pages.ToList(), null) };
 
         var groups = new List<DocumentGroup>();
-        var current = new List<string>();
+        var current = new List<PageRecord>();
         string? currentBarcode = null;
 
         for (int i = 0; i < pages.Count; i++)
@@ -58,7 +64,8 @@ public static class DocumentSplitter
             cancel.ThrowIfCancellationRequested();
             progress?.Report(new WorkProgress(i + 1, pages.Count, $"Tìm dấu tách tài liệu {i + 1}/{pages.Count}"));
 
-            using Bitmap bmp = ImageUtils.Load(pages[i]);
+            // 200 dpi is plenty to find a blank sheet or a barcode, and far cheaper on big pages.
+            using Bitmap bmp = PageRenderer.RenderFull(pages[i], 200);
             bool isSeparator;
             string? code = null;
             if (mode == DocumentSplitMode.BlankPage)
@@ -78,7 +85,7 @@ public static class DocumentSplitter
             }
 
             if (current.Count > 0) groups.Add(new DocumentGroup(current, currentBarcode));
-            current = new List<string>();
+            current = new List<PageRecord>();
             currentBarcode = code;
             // Blank separators are always dropped; barcode sheets only when asked.
             if (mode == DocumentSplitMode.Barcode && !removeSeparatorPages) current.Add(pages[i]);

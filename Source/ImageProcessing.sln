@@ -9,6 +9,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ImageCoreService", "ImageCo
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SmokeTests", "SmokeTests\SmokeTests.csproj", "{7ACB6FF4-85C0-4970-ADB9-5CB324A044B5}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Bench", "Bench\Bench.csproj", "{6885BADE-83AB-4F48-8DDF-CCA5D893295F}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -55,6 +57,18 @@ Global
 		{7ACB6FF4-85C0-4970-ADB9-5CB324A044B5}.Release|x64.Build.0 = Release|Any CPU
 		{7ACB6FF4-85C0-4970-ADB9-5CB324A044B5}.Release|x86.ActiveCfg = Release|Any CPU
 		{7ACB6FF4-85C0-4970-ADB9-5CB324A044B5}.Release|x86.Build.0 = Release|Any CPU
+		{6885BADE-83AB-4F48-8DDF-CCA5D893295F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6885BADE-83AB-4F48-8DDF-CCA5D893295F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6885BADE-83AB-4F48-8DDF-CCA5D893295F}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{6885BADE-83AB-4F48-8DDF-CCA5D893295F}.Debug|x64.Build.0 = Debug|Any CPU
+		{6885BADE-83AB-4F48-8DDF-CCA5D893295F}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{6885BADE-83AB-4F48-8DDF-CCA5D893295F}.Debug|x86.Build.0 = Debug|Any CPU
+		{6885BADE-83AB-4F48-8DDF-CCA5D893295F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6885BADE-83AB-4F48-8DDF-CCA5D893295F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{6885BADE-83AB-4F48-8DDF-CCA5D893295F}.Release|x64.ActiveCfg = Release|Any CPU
+		{6885BADE-83AB-4F48-8DDF-CCA5D893295F}.Release|x64.Build.0 = Release|Any CPU
+		{6885BADE-83AB-4F48-8DDF-CCA5D893295F}.Release|x86.ActiveCfg = Release|Any CPU
+		{6885BADE-83AB-4F48-8DDF-CCA5D893295F}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

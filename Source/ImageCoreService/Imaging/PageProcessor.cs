@@ -40,7 +40,7 @@ public static class PageProcessor
         bool wasGrayish = src.PixelFormat is PixelFormat.Format1bppIndexed or PixelFormat.Format8bppIndexed;
         GrayImage gray = GrayImage.FromBitmap(src);
 
-        if (o.DetectBlank && PageAnalyzer.IsBlank(gray, dpiX, o.BlankInkPercent))
+        if (o.DetectBlank && Perf.Measure("proc.blank", () => PageAnalyzer.IsBlank(gray, dpiX, o.BlankInkPercent)))
             return new PageProcessResult(inputPath, true, false, "trang trắng");
 
         var notes = new List<string>();
@@ -49,7 +49,7 @@ public static class PageProcessor
         {
             if (o.CropBorders)
             {
-                Rectangle r = DocumentCleanup.DetectContentBounds(gray, dpiX);
+                Rectangle r = Perf.Measure("proc.cropdetect", () => DocumentCleanup.DetectContentBounds(gray, dpiX));
                 if (r.Width < src.Width || r.Height < src.Height)
                 {
                     Replace(ref current, DocumentCleanup.Crop(current, r), src);
@@ -60,7 +60,7 @@ public static class PageProcessor
 
             if (o.Deskew)
             {
-                double angle = DocumentCleanup.DetectSkew(gray, dpiX);
+                double angle = Perf.Measure("proc.skewdetect", () => DocumentCleanup.DetectSkew(gray, dpiX));
                 if (angle != 0)
                 {
                     Replace(ref current, DocumentCleanup.RotateArbitrary(current, -angle), src);
@@ -70,7 +70,7 @@ public static class PageProcessor
 
             if (o.AutoOrient && osd != null)
             {
-                int turn = osd.DetectUprightRotation(current);
+                int turn = Perf.Measure("proc.osd", () => osd.DetectUprightRotation(current));
                 if (turn != 0)
                 {
                     Replace(ref current, DocumentCleanup.RotateRight(current, turn), src);
@@ -91,7 +91,7 @@ public static class PageProcessor
             if (current.HorizontalResolution < 2) current.SetResolution(dpiX, dpiY);
 
             Directory.CreateDirectory(outputFolder);
-            string outPath = ImageUtils.SaveLossless(current, Path.Combine(outputFolder, Guid.NewGuid().ToString("N")));
+            string outPath = Perf.Measure("proc.save", () => ImageUtils.SaveLossless(current, Path.Combine(outputFolder, Guid.NewGuid().ToString("N"))));
             return new PageProcessResult(outPath, false, true, string.Join(", ", notes));
         }
         finally

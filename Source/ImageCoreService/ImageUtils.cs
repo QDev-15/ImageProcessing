@@ -27,8 +27,11 @@ public static class ImageUtils
     {
         // GDI+ needs the stream alive for the bitmap's lifetime; a MemoryStream owned by
         // nobody else is fine (collected together with the bitmap).
-        var ms = new MemoryStream(File.ReadAllBytes(path));
-        return new Bitmap(ms);
+        using (Perf.Scope("decode"))
+        {
+            var ms = new MemoryStream(File.ReadAllBytes(path));
+            return new Bitmap(ms);
+        }
     }
 
     /// <summary>
@@ -37,16 +40,29 @@ public static class ImageUtils
     /// without one (PNG without pHYs, many JPEGs) on an image far too large to be a 96 dpi
     /// page -- derives it from the pixel size against A4 / Letter / Legal.
     /// </summary>
-    public static (int X, int Y) ResolveDpiXY(Bitmap bmp)
+    public static (int X, int Y) ResolveDpiXY(Bitmap bmp) =>
+        ResolveDpiXY(bmp.Width, bmp.Height, bmp.HorizontalResolution, bmp.VerticalResolution);
+
+    public static (int X, int Y) ResolveDpiXY(int width, int height, float horizontalResolution, float verticalResolution)
     {
-        int dx = (int)Math.Round(bmp.HorizontalResolution);
-        int dy = (int)Math.Round(bmp.VerticalResolution);
-        if (IsMissingDpi(dx, bmp.Width, bmp.Height) || IsMissingDpi(dy, bmp.Width, bmp.Height))
+        int dx = (int)Math.Round(horizontalResolution);
+        int dy = (int)Math.Round(verticalResolution);
+        if (IsMissingDpi(dx, width, height) || IsMissingDpi(dy, width, height))
         {
-            int est = EstimateDpiFromPixels(bmp.Width, bmp.Height);
+            int est = EstimateDpiFromPixels(width, height);
             return (est, est);
         }
         return (dx, dy);
+    }
+
+    /// <summary>Pixel size and resolved DPI from the file header only -- no pixel decode, so it
+    /// is instant even for a huge scan.</summary>
+    public static (int Width, int Height, int DpiX, int DpiY) ReadInfo(string path)
+    {
+        using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        using Image img = Image.FromStream(fs, useEmbeddedColorManagement: false, validateImageData: false);
+        (int dx, int dy) = ResolveDpiXY(img.Width, img.Height, img.HorizontalResolution, img.VerticalResolution);
+        return (img.Width, img.Height, dx, dy);
     }
 
     public static int ResolveDpi(Bitmap bmp) => ResolveDpiXY(bmp).X;
@@ -147,7 +163,8 @@ public static class ImageUtils
         g.Clear(Color.White);
         g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBilinear;
         g.DrawImage(src, (boxW - w) / 2, (boxH - h) / 2, w, h);
-        g.DrawRectangle(Pens.Silver, 0, 0, boxW - 1, boxH - 1);
+        using var border = new Pen(Color.Silver); // Pens.Silver is one shared instance: unsafe across threads
+        g.DrawRectangle(border, 0, 0, boxW - 1, boxH - 1);
         return dst;
     }
 }

@@ -18,7 +18,9 @@ public static class PageImporter
         return ext == ".pdf" || ImageExtensions.Contains(ext);
     }
 
-    public static List<string> Import(string file, string pagesFolder)
+    /// <param name="onPage">Called with each page file as soon as it exists (a PDF renders page by
+    /// page), so the caller can show pages while the rest are still being produced.</param>
+    public static List<string> Import(string file, string pagesFolder, Action<string>? onPage = null)
     {
         Directory.CreateDirectory(pagesFolder);
         string ext = Path.GetExtension(file).ToLowerInvariant();
@@ -31,12 +33,13 @@ public static class PageImporter
             try
             {
                 var result = new List<string>();
-                foreach (string page in PdfSplitter.SplitToImages(file, tmp))
+                PdfSplitter.SplitToImages(file, tmp, onPage: page =>
                 {
                     string dest = Path.Combine(pagesFolder, Guid.NewGuid().ToString("N") + ".png");
                     File.Move(page, dest);
                     result.Add(dest);
-                }
+                    onPage?.Invoke(dest);
+                });
                 return result;
             }
             finally
@@ -57,7 +60,9 @@ public static class PageImporter
                     bmp.SelectActiveFrame(FrameDimension.Page, i);
                     using Bitmap frame = bmp.Clone(new Rectangle(0, 0, bmp.Width, bmp.Height), bmp.PixelFormat); // active frame only, same format
                     frame.SetResolution(bmp.HorizontalResolution, bmp.VerticalResolution);
-                    result.Add(ImageUtils.SaveLossless(frame, Path.Combine(pagesFolder, Guid.NewGuid().ToString("N"))));
+                    string saved = ImageUtils.SaveLossless(frame, Path.Combine(pagesFolder, Guid.NewGuid().ToString("N")));
+                    result.Add(saved);
+                    onPage?.Invoke(saved);
                 }
                 return result;
             }
@@ -65,6 +70,7 @@ public static class PageImporter
 
         string copy = Path.Combine(pagesFolder, Guid.NewGuid().ToString("N") + ext);
         File.Copy(file, copy);
+        onPage?.Invoke(copy);
         return new List<string> { copy };
     }
 }

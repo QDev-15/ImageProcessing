@@ -17,16 +17,15 @@ public partial class MainForm : Form
     private ScanProject _project = null!;
     private ScannerService? _scanner;
     private CancellationTokenSource? _work;
-    private Task _scanTail = Task.CompletedTask;
+    private PageIngestor _ingest = null!;
+    private IngestProgress _ingestProgress;
     private string? _lastProfileName;
 
-    // Tesseract OSD engine for auto-orientation, created on first use, shared by the
-    // background processing tasks (serialized with _osdLock -- Tesseract is not thread-safe).
-    private OcrEngine? _osd;
-    private readonly object _osdLock = new();
+    // Orientation-detection engines (Tesseract is not thread-safe): one per concurrent worker.
+    private readonly OsdEnginePool _osdPool = new();
+    private BackgroundOcr _bgOcr = null!;
+    private string _ocrProgress = "";
 
-    private readonly Dictionary<string, Image> _thumbCache = new(StringComparer.OrdinalIgnoreCase);
-    private CancellationTokenSource? _thumbWork;
 
     private readonly string[] _startupFiles;
 
@@ -36,6 +35,14 @@ public partial class MainForm : Form
         _startupFiles = startupFiles ?? Array.Empty<string>();
         InitializeComponent();
         InitZoomControls();
+        InitVirtualList();
+        _bgOcr = new BackgroundOcr(() => _project, () => _settings, () => _lastProfileName,
+            () => _work == null && _scanner?.IsScanning != true && (_ingest?.Pending ?? 0) == 0);
+        _bgOcr.ProgressChanged += (done, total) => BeginInvokeSafe(() =>
+        {
+            _ocrProgress = total == 0 ? "" : $"  |  OCR nền {done}/{total}";
+            UpdatePageCountLabel();
+        });
     }
 
     /// <summary>Zoom buttons + zoom % label on the toolbar, wired to the preview.</summary>
@@ -94,9 +101,12 @@ public partial class MainForm : Form
             return;
         }
         _work?.Cancel();
-        _thumbWork?.Cancel();
+        _bgOcr.Dispose();
+        _ingest.Dispose();
+        _thumbs.Dispose();
+        _project.Flush();
         _scanner?.Dispose();
-        lock (_osdLock) _osd?.Dispose();
+        _osdPool.Dispose();
         // An empty session leaves nothing behind; a non-empty one is offered for restore next time.
         if (_project.IsSession && _project.Pages.Count == 0) _project.DeleteIfSession();
         Log.Info("App closed");
@@ -104,134 +114,343 @@ public partial class MainForm : Form
 
     private void SetProject(ScanProject project)
     {
-        if (_project != null) _project.Changed -= Project_Changed;
+        if (_project != null)
+        {
+            _project.Changed -= Project_Changed;
+            _project.PageUpdated -= Project_PageUpdated;
+            _ingest.ProgressChanged -= Ingest_ProgressChanged;
+            _ingest.Idle -= Ingest_Idle;
+            _ingest.Dispose();
+        }
         _project = project;
         _project.MaxUndo = _settings.MaxUndoSteps;
         _project.Changed += Project_Changed;
-        foreach (Image img in _thumbCache.Values) img.Dispose();
-        _thumbCache.Clear();
+        _project.PageUpdated += Project_PageUpdated;
+        _ingest = new PageIngestor(_project, () => _settings, () => _lastProfileName, _osdPool, degree: Math.Clamp(Environment.ProcessorCount / 4, 1, 3));
+        _ingest.ProgressChanged += Ingest_ProgressChanged;
+        _ingest.Idle += Ingest_Idle;
+        _ingestProgress = default;
+        _thumbs.Clear();
+        _thumbKeys.Clear();
         imlThumbs.Images.Clear();
+        AddThumbnailPlaceholders();
+        _previewKey = null;
         RefreshPageList();
     }
 
-    private void Project_Changed(object? sender, EventArgs e) => RefreshPageList();
+    private void Project_Changed(object? sender, EventArgs e) => RequestRefresh();
+    private void Project_PageUpdated(PageRecord page) => RequestRefresh();
+
+    private void Ingest_ProgressChanged(IngestProgress p)
+    {
+        _ingestProgress = p;
+        BeginInvokeSafe(() =>
+        {
+            RefreshBusyUi();
+            if (_work == null) SetStatus($"Đang xử lý trang {p.Done}/{p.Total}...");
+        });
+    }
+
+    private void Ingest_Idle(IngestSummary s)
+    {
+        BeginInvokeSafe(() =>
+        {
+            _ingestProgress = default;
+            RefreshBusyUi();
+            if (_work != null || s.Total == 0) return;
+            string msg = $"Đã xử lý {s.Total} trang";
+            if (s.Blank > 0) msg += $", bỏ {s.Blank} trang trắng";
+            if (s.Failed > 0) msg += $", {s.Failed} trang lỗi (xem log)";
+            SetStatus(msg + ".");
+        });
+    }
+
+    private void BeginInvokeSafe(Action action)
+    {
+        if (IsDisposed || !IsHandleCreated) return;
+        try { BeginInvoke(action); } catch (InvalidOperationException) { /* form closing */ }
+    }
+
+    /// <summary>Progress bar / cancel link / command enablement for foreground work plus the background ingest queue.</summary>
+    private void RefreshBusyUi()
+    {
+        bool ingesting = _ingest != null && _ingest.Pending > 0;
+        if (_work == null)
+        {
+            progressBar.Visible = ingesting;
+            if (ingesting)
+            {
+                progressBar.Maximum = Math.Max(1, _ingestProgress.Total);
+                progressBar.Value = Math.Clamp(_ingestProgress.Done, 0, progressBar.Maximum);
+            }
+        }
+        lnkCancel.Visible = _work != null || ingesting || _scanner?.IsScanning == true;
+        UpdateCommandState();
+    }
 
     #endregion
 
     #region Page list / thumbnails / preview
+
+    // The list is virtual: it only ever materializes the items on screen, so a project with
+    // hundreds of pages opens and scrolls instantly. _view is the immutable snapshot it shows.
+    private IReadOnlyList<PageRecord> _view = Array.Empty<PageRecord>();
+    private ThumbnailLoader _thumbs = null!;
+    private readonly HashSet<string> _thumbKeys = new(); // thumbnail keys present in imlThumbs
+    private int _refreshQueued;
+    private bool _suppressSelection;
+    private string? _previewKey;
+
+    private void InitVirtualList()
+    {
+        lvPages.VirtualMode = true;
+        lvPages.RetrieveVirtualItem += lvPages_RetrieveVirtualItem;
+        _thumbs = new ThumbnailLoader((page, box) => _project.Cache.GetThumbnail(page, box), OnThumbnailReady, this);
+        AddThumbnailPlaceholders();
+    }
 
     private void ApplyThumbnailSize()
     {
         int w = Math.Clamp(_settings.ThumbnailSize, 60, 300);
         var size = new Size(w, (int)(w * 1.35));
         if (imlThumbs.ImageSize == size) return;
-        foreach (Image img in _thumbCache.Values) img.Dispose();
-        _thumbCache.Clear();
+        _thumbs?.Clear();
+        _thumbKeys.Clear();
         imlThumbs.Images.Clear();
         imlThumbs.ImageSize = size;
+        AddThumbnailPlaceholders();
+    }
+
+    /// <summary>Stand-in images: waiting for processing, failed, thumbnail still loading.</summary>
+    private void AddThumbnailPlaceholders()
+    {
+        Size box = imlThumbs.ImageSize;
+        // The ImageList keeps a reference to what it is given (it re-reads it whenever its native
+        // handle is rebuilt), so the bitmaps handed over must NOT be disposed.
+        void Add(string key, Color fill, string glyph)
+        {
+            var bmp = new Bitmap(box.Width, box.Height);
+            using (Graphics g = Graphics.FromImage(bmp))
+            {
+                g.Clear(fill);
+                g.DrawRectangle(Pens.Silver, 0, 0, box.Width - 1, box.Height - 1);
+                using var font = new Font("Segoe UI", Math.Max(10, box.Width / 6f), FontStyle.Bold);
+                var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
+                g.DrawString(glyph, font, Brushes.Gray, new RectangleF(0, 0, box.Width, box.Height), sf);
+            }
+            imlThumbs.Images.Add(key, bmp);
+        }
+        Add("ph:loading", Color.FromArgb(245, 245, 245), "");
+        Add("ph:pending", Color.FromArgb(235, 240, 250), "...");
+        Add("ph:failed", Color.FromArgb(252, 232, 232), "!");
+    }
+
+    private const int PlaceholderLoading = 0, PlaceholderPending = 1, PlaceholderFailed = 2;
+
+    private string ThumbKey(PageRecord p) => $"{p.ViewKey}|{imlThumbs.ImageSize.Width}x{imlThumbs.ImageSize.Height}";
+
+    private void lvPages_RetrieveVirtualItem(object? sender, RetrieveVirtualItemEventArgs e)
+    {
+        IReadOnlyList<PageRecord> view = _view;
+        if (e.ItemIndex < 0 || e.ItemIndex >= view.Count)
+        {
+            e.Item = new ListViewItem("");
+            return;
+        }
+        PageRecord p = view[e.ItemIndex];
+        string prefix = p.State switch { PageState.Pending => "... ", PageState.Failed => "! ", _ => "" };
+        var item = new ListViewItem($"{prefix}{e.ItemIndex + 1}. {p.Label}") { Tag = p.Id };
+        // Virtual items are not attached to the list yet, so ImageKey cannot resolve: use indexes.
+        // The three placeholders are always the first images of the list.
+        switch (p.State)
+        {
+            case PageState.Pending:
+                item.ImageIndex = PlaceholderPending;
+                break;
+            case PageState.Failed:
+                item.ImageIndex = PlaceholderFailed;
+                item.ToolTipText = p.Error;
+                break;
+            default:
+                string key = ThumbKey(p);
+                int index = _thumbKeys.Contains(key) ? imlThumbs.Images.IndexOfKey(key) : -1;
+                if (index >= 0) item.ImageIndex = index;
+                else
+                {
+                    item.ImageIndex = PlaceholderLoading;
+                    _thumbs.Request(key, p, imlThumbs.ImageSize);
+                }
+                break;
+        }
+        e.Item = item;
+    }
+
+    /// <summary>A thumbnail finished (UI thread): put it into the image list and repaint.</summary>
+    private void OnThumbnailReady(string key, Bitmap bmp)
+    {
+        try
+        {
+            Size box = imlThumbs.ImageSize;
+            if (key.EndsWith($"|{box.Width}x{box.Height}", StringComparison.Ordinal) && _thumbKeys.Add(key))
+            {
+                imlThumbs.Images.Add(key, (Image)bmp.Clone()); // the list owns this copy (see AddThumbnailPlaceholders)
+                lvPages.Invalidate();
+            }
+        }
+        finally
+        {
+            bmp.Dispose();
+        }
+    }
+
+    /// <summary>Page list changed (possibly from a worker thread): rebuild the view once per burst.</summary>
+    private void RequestRefresh()
+    {
+        if (IsDisposed || !IsHandleCreated) return;
+        if (!InvokeRequired) { RefreshPageList(); return; }
+        if (Interlocked.Exchange(ref _refreshQueued, 1) == 0)
+            BeginInvokeSafe(() => { _refreshQueued = 0; RefreshPageList(); });
+    }
+
+    private HashSet<string> SelectedIds()
+    {
+        IReadOnlyList<PageRecord> view = _view;
+        return lvPages.SelectedIndices.Cast<int>().Where(i => i >= 0 && i < view.Count).Select(i => view[i].Id).ToHashSet();
+    }
+
+    private void SelectByIds(HashSet<string> ids)
+    {
+        _suppressSelection = true;
+        try
+        {
+            lvPages.SelectedIndices.Clear();
+            for (int i = 0; i < _view.Count; i++)
+                if (ids.Contains(_view[i].Id)) lvPages.SelectedIndices.Add(i);
+        }
+        finally { _suppressSelection = false; }
+        OnSelectionChanged();
     }
 
     private void RefreshPageList()
     {
-        var selectedFiles = lvPages.SelectedItems.Cast<ListViewItem>().Select(i => (string)i.Tag!).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        lvPages.BeginUpdate();
-        lvPages.Items.Clear();
-        for (int i = 0; i < _project.Pages.Count; i++)
+        HashSet<string> selected = SelectedIds();
+        _view = _project.Pages;
+        _suppressSelection = true;
+        try
         {
-            PageRecord p = _project.Pages[i];
-            var item = new ListViewItem($"{i + 1}. {p.Label}") { Tag = p.FilePath, ImageKey = p.FilePath };
-            if (selectedFiles.Contains(p.FilePath)) item.Selected = true;
-            lvPages.Items.Add(item);
+            lvPages.BeginUpdate();
+            lvPages.VirtualListSize = _view.Count;
+            lvPages.SelectedIndices.Clear();
+            for (int i = 0; i < _view.Count; i++)
+                if (selected.Contains(_view[i].Id)) lvPages.SelectedIndices.Add(i);
+            lvPages.EndUpdate();
         }
-        lvPages.EndUpdate();
+        finally { _suppressSelection = false; }
+        lvPages.Invalidate();
 
-        lblPageCount.Text = $"{_project.Pages.Count} trang";
+        UpdatePageCountLabel();
+        _bgOcr.Signal();
         Text = $"Image Optimizer Tool - {(_project.IsSession ? "(phiên chưa lưu)" : _project.Folder)}";
-        UpdateCommandState();
-        GenerateMissingThumbnails();
-        if (lvPages.SelectedItems.Count == 0) ShowPreview(null);
+        PruneThumbnails();
+        OnSelectionChanged();
     }
 
-    private void GenerateMissingThumbnails()
-    {
-        var missing = _project.Pages.Select(p => p.FilePath).Where(f => !_thumbCache.ContainsKey(f)).Distinct().ToList();
-        if (missing.Count == 0) return;
+    private void UpdatePageCountLabel() => lblPageCount.Text = $"{_view.Count} trang{_ocrProgress}";
 
-        _thumbWork?.Cancel();
-        var cts = _thumbWork = new CancellationTokenSource();
-        Size box = imlThumbs.ImageSize;
-        Task.Run(() =>
+    /// <summary>Drops thumbnails of looks no page has any more (old rotations, deleted pages).</summary>
+    private void PruneThumbnails()
+    {
+        if (_thumbKeys.Count <= _view.Count * 3 + 60) return;
+        var live = _view.Select(ThumbKey).ToHashSet();
+        foreach (string key in _thumbKeys.Where(k => !live.Contains(k)).ToList())
         {
-            foreach (string f in missing)
-            {
-                if (cts.IsCancellationRequested) return;
-                Bitmap thumb;
-                try
-                {
-                    using Bitmap src = ImageUtils.Load(f);
-                    thumb = ImageUtils.MakeThumbnail(src, box.Width, box.Height);
-                }
-                catch (Exception ex)
-                {
-                    Log.Warn("Thumbnail failed: " + f, ex);
-                    continue;
-                }
-                if (IsDisposed || !IsHandleCreated) { thumb.Dispose(); return; }
-                try
-                {
-                    BeginInvoke(() =>
-                    {
-                        if (cts.IsCancellationRequested || _thumbCache.ContainsKey(f) || imlThumbs.ImageSize != box) { thumb.Dispose(); return; }
-                        _thumbCache[f] = thumb;
-                        imlThumbs.Images.Add(f, thumb);
-                        lvPages.Invalidate();
-                    });
-                }
-                catch (InvalidOperationException)
-                {
-                    thumb.Dispose(); // form closed meanwhile
-                    return;
-                }
-            }
-        });
+            imlThumbs.Images.RemoveByKey(key);
+            _thumbKeys.Remove(key);
+        }
     }
 
     private void lvPages_SelectedIndexChanged(object? sender, EventArgs e)
     {
+        if (!_suppressSelection) OnSelectionChanged();
+    }
+
+    private void OnSelectionChanged()
+    {
         UpdateCommandState();
-        ShowPreview(lvPages.SelectedIndices.Count == 1 ? lvPages.SelectedIndices[0] : null);
+        List<int> sel = SelectedIndices();
+        ShowPreview(sel.Count == 1 && sel[0] < _view.Count ? sel[0] : null);
     }
 
     private int _previewVersion;
 
-    /// <summary>Decodes the page off the UI thread (a large scan takes seconds), so clicking
-    /// through thumbnails never freezes the window. Only the newest request may show its
-    /// result; an outdated decode is simply discarded.</summary>
+    /// <summary>
+    /// Progressive preview: the ~1600 px proxy (with the page's ops applied) appears almost at
+    /// once; the full-resolution render then replaces it in place, keeping zoom and position.
+    /// Every step runs off the UI thread and only the newest request may show its result.
+    /// </summary>
     private async void ShowPreview(int? index)
     {
         int version = ++_previewVersion;
-        Image? old = picPreview.Image;
-        picPreview.Image = null;
-        old?.Dispose();
-        lblPreviewInfo.Text = "";
-        if (index is not int i || i < 0 || i >= _project.Pages.Count) return;
+        if (index is not int i || i < 0 || i >= _view.Count)
+        {
+            SetPreviewImage(null, keepView: false);
+            lblPreviewInfo.Text = "";
+            _previewKey = null;
+            return;
+        }
 
-        PageRecord p = _project.Pages[i];
-        int pageCount = _project.Pages.Count;
+        PageRecord p = _view[i];
+        if (p.State != PageState.Ready)
+        {
+            SetPreviewImage(null, keepView: false);
+            lblPreviewInfo.Text = p.State == PageState.Pending ? "Đang xử lý trang..." : "Trang lỗi: " + p.Error;
+            _previewKey = null;
+            return;
+        }
+        if (_previewKey == p.ViewKey && picPreview.Image != null) return; // already showing this look
+
+        _previewKey = p.ViewKey;
+        int pageCount = _view.Count;
+        PageCache cache = _project.Cache;
+        int targetDpi = _settings.LimitDpiToScanSetting ? _settings.GetTargetDpi(_lastProfileName) : 0;
         lblPreviewInfo.Text = "Đang tải...";
         try
         {
-            Bitmap bmp = await Task.Run(() => ImageUtils.Load(p.FilePath));
-            if (version != _previewVersion || IsDisposed) { bmp.Dispose(); return; }
-            (int dx, int dy) = ImageUtils.ResolveDpiXY(bmp);
-            picPreview.Image = bmp;
-            double wMm = bmp.Width * 25.4 / dx, hMm = bmp.Height * 25.4 / dy;
-            lblPreviewInfo.Text = $"Trang {i + 1}/{pageCount}   {bmp.Width}x{bmp.Height} px   {dx}x{dy} dpi   {wMm:0}x{hMm:0} mm   {Path.GetExtension(p.FilePath).TrimStart('.').ToUpperInvariant()}   {p.Label}";
+            (Bitmap proxy, string info) = await Task.Run(() =>
+            {
+                Bitmap bmp = cache.RenderPreview(p);
+                return (bmp, DescribePage(p, i, pageCount));
+            });
+            if (version != _previewVersion || IsDisposed) { proxy.Dispose(); return; }
+            SetPreviewImage(proxy, keepView: false);
+            lblPreviewInfo.Text = info;
+
+            await Task.Delay(120); // skip the full render when the user is just flicking through pages
+            if (version != _previewVersion || IsDisposed) return;
+            Bitmap full = await Task.Run(() => PageRenderer.RenderFull(p, targetDpi));
+            if (version != _previewVersion || IsDisposed) { full.Dispose(); return; }
+            SetPreviewImage(full, keepView: true);
         }
         catch (Exception ex)
         {
             if (version == _previewVersion) lblPreviewInfo.Text = "Không xem trước được: " + ex.Message;
         }
+    }
+
+    private void SetPreviewImage(Bitmap? next, bool keepView)
+    {
+        Image? old = picPreview.Image;
+        if (keepView) picPreview.ReplaceImage(next); else picPreview.Image = next;
+        if (!ReferenceEquals(old, next)) old?.Dispose();
+    }
+
+    /// <summary>Info line from the file header (no pixel decode), adjusted for the page's rotation.</summary>
+    private static string DescribePage(PageRecord p, int index, int pageCount)
+    {
+        (int w, int h, int dx, int dy) = PageRenderer.ReadInfo(p.Source);
+        if (p.Ops.Rotate % 180 != 0) (w, h, dx, dy) = (h, w, dy, dx);
+        double wMm = w * 25.4 / dx, hMm = h * 25.4 / dy;
+        return $"Trang {index + 1}/{pageCount}   {w}x{h} px   {dx}x{dy} dpi   {wMm:0}x{hMm:0} mm   {(p.Source.IsPdf ? "PDF" : Path.GetExtension(p.Source.File).TrimStart('.').ToUpperInvariant())}   {p.Label}";
     }
 
     private List<int> SelectedIndices() => lvPages.SelectedIndices.Cast<int>().OrderBy(i => i).ToList();
@@ -240,20 +459,23 @@ public partial class MainForm : Form
     {
         bool busy = _work != null;
         bool scanning = _scanner?.IsScanning == true;
-        bool idle = !busy && !scanning;
-        bool hasPages = _project.Pages.Count > 0;
+        bool ingesting = _ingest != null && _ingest.Pending > 0;
+        bool idle = !busy && !scanning;   // may start scanning / importing / editing
+        bool quiet = idle && !ingesting;  // needs a settled page list (export, save, new / open)
+        bool hasPages = _view.Count > 0;
         bool hasSel = lvPages.SelectedIndices.Count > 0;
 
-        foreach (ToolStripItem item in new ToolStripItem[] { mnuScan, tsbScan, mnuImportImages, tsbImportImages, mnuImportPdf, tsbImportPdf, mnuNewProject, mnuOpenProject, mnuSettings, tsbSettings, mnuScanProfiles })
+        foreach (ToolStripItem item in new ToolStripItem[] { mnuScan, tsbScan, mnuImportImages, tsbImportImages, mnuImportPdf, tsbImportPdf, mnuSettings, tsbSettings, mnuScanProfiles })
             item.Enabled = idle;
+        foreach (ToolStripItem item in new ToolStripItem[] { mnuNewProject, mnuOpenProject })
+            item.Enabled = quiet;
         foreach (ToolStripItem item in new ToolStripItem[] { mnuExportPdf, tsbExportPdf, mnuExportTiff, tsbExportTiff, mnuClearAll, mnuSaveProject, mnuSaveProjectAs })
-            item.Enabled = idle && hasPages;
+            item.Enabled = quiet && hasPages;
         foreach (ToolStripItem item in new ToolStripItem[] { mnuRotateLeft, tsbRotateLeft, mnuRotateRight, tsbRotateRight, mnuRotate180, mnuDeletePages, tsbDelete, mnuAutoProcess, mnuInsertPages })
             item.Enabled = idle && hasSel;
         mnuUndo.Enabled = tsbUndo.Enabled = idle && _project.CanUndo;
         mnuRedo.Enabled = tsbRedo.Enabled = idle && _project.CanRedo;
         mnuCancelScan.Enabled = scanning;
-        mnuSaveProject.Enabled = idle && hasPages;
     }
 
     #endregion
@@ -303,7 +525,7 @@ public partial class MainForm : Form
         if (mark < 0) mark = _project.Pages.Count - 1;
         int target = after ? mark + 1 : mark;
 
-        var files2 = moving.Select(i => _project.Pages[i].FilePath).ToHashSet();
+        var movedIds = moving.Select(i => _project.Pages[i].Id).ToHashSet();
         _project.Execute(pages =>
         {
             var moved = moving.Select(i => pages[i]).ToList();
@@ -311,7 +533,7 @@ public partial class MainForm : Form
             foreach (int i in moving.OrderByDescending(i => i)) pages.RemoveAt(i);
             pages.InsertRange(Math.Clamp(insertAt, 0, pages.Count), moved);
         });
-        foreach (ListViewItem item in lvPages.Items) item.Selected = files2.Contains((string)item.Tag!);
+        SelectByIds(movedIds);
     }
 
     #endregion
@@ -355,60 +577,15 @@ public partial class MainForm : Form
             _work = null;
             cts.Dispose();
             progressBar.Visible = false;
-            lnkCancel.Visible = _scanner?.IsScanning == true;
-            UpdateCommandState();
+            RefreshBusyUi(); // background ingest may still be running
         }
     }
 
     private void lnkCancel_Click(object? sender, EventArgs e)
     {
         _work?.Cancel();
+        if (_ingest.Pending > 0) _ingest.CancelPending();
         if (_scanner?.IsScanning == true) CancelScan();
-    }
-
-    private OcrEngine? GetOsd()
-    {
-        if (!_settings.AutoOrient) return null;
-        lock (_osdLock)
-        {
-            if (_osd != null) return _osd;
-            try { _osd = new OcrEngine(loadOcr: false); }
-            catch (Exception ex) { Log.Warn("OSD engine unavailable; auto-orient disabled for this session", ex); }
-            return _osd;
-        }
-    }
-
-    /// <summary>Auto-processing of one new page (background thread). Returns null when the
-    /// page is blank and blank removal is on.</summary>
-    private PageRecord? ProcessNewPage(string file, string label)
-    {
-        // Step 0: bring an over-sized page down to the scan-setting DPI first, so every later
-        // step (blank check, deskew, OSD, export) works on the smaller image. Runs even when
-        // auto-processing is off; on failure the page is kept as it is.
-        string source = file;
-        if (_settings.LimitDpiToScanSetting)
-        {
-            try { file = ResolutionLimiter.Limit(file, _settings.GetTargetDpi(_lastProfileName), _project.PagesFolder); }
-            catch (Exception ex) { Log.Warn($"DPI limit failed for {label}; keeping original resolution", ex); }
-        }
-        bool intermediate = !string.Equals(file, source, StringComparison.OrdinalIgnoreCase);
-
-        if (!_settings.AutoProcessOnImport)
-            return new PageRecord(file, label);
-        var options = PageProcessingOptions.FromSettings(_settings);
-        OcrEngine? osd = GetOsd();
-        PageProcessResult r;
-        lock (_osdLock) r = PageProcessor.Process(file, options, osd, _project.PagesFolder);
-        if (intermediate && (r.IsBlank || !string.Equals(r.OutputPath, file, StringComparison.OrdinalIgnoreCase)))
-        {
-            try { File.Delete(file); } catch { /* best effort */ }
-        }
-        if (r.IsBlank)
-        {
-            Log.Info($"Blank page skipped: {label}");
-            return null;
-        }
-        return new PageRecord(r.OutputPath, r.Summary.Length > 0 ? $"{label} ({r.Summary})" : label);
     }
 
     #endregion
@@ -510,32 +687,15 @@ public partial class MainForm : Form
     private async Task ImportFilesAsync(string[] files, int? insertAt)
     {
         if (files.Length == 0 || _work != null) return;
-        List<PageRecord>? added = await RunWorkAsync("Import", (progress, cancel) =>
+        PageIngestor ingest = _ingest;
+        // Reading (PDF rendering, file copies) is the only foreground step: pages show up in the
+        // list as placeholders while it runs and are processed in the background afterwards.
+        int? added = await RunWorkAsync<int?>("Import", (progress, cancel) =>
         {
-            var result = new List<PageRecord>();
-            int skipped = 0;
-            for (int f = 0; f < files.Length; f++)
-            {
-                cancel.ThrowIfCancellationRequested();
-                progress.Report(new WorkProgress(f, files.Length, $"Đọc {Path.GetFileName(files[f])}..."));
-                List<string> pages = PageImporter.Import(files[f], _project.PagesFolder);
-                for (int i = 0; i < pages.Count; i++)
-                {
-                    cancel.ThrowIfCancellationRequested();
-                    string label = pages.Count > 1 ? $"{Path.GetFileName(files[f])} #{i + 1}" : Path.GetFileName(files[f]);
-                    progress.Report(new WorkProgress(f, files.Length, $"Xử lý {label}..."));
-                    PageRecord? rec = ProcessNewPage(pages[i], label);
-                    if (rec == null) skipped++;
-                    else result.Add(rec);
-                }
-            }
-            if (skipped > 0) Log.Info($"Import: {skipped} blank page(s) removed");
-            return result;
+            try { return ingest.Import(files, insertAt, progress, cancel); }
+            catch (OperationCanceledException) { ingest.CancelPending(); throw; }
         });
-        if (added == null || added.Count == 0) return;
-
-        _project.Execute(pages => pages.InsertRange(insertAt is int at ? Math.Clamp(at, 0, pages.Count) : pages.Count, added));
-        SetStatus($"Đã import {added.Count} trang.");
+        if (added is int n && n > 0) SetStatus($"Đã thêm {n} trang, đang xử lý nền...");
     }
 
     #endregion
@@ -565,7 +725,7 @@ public partial class MainForm : Form
     {
         _lastProfileName = profile.Name;
         string incoming = Path.Combine(_project.PagesFolder, "_incoming");
-        int scanned = 0, blank = 0;
+        int scanned = 0;
         var errors = new List<string>();
 
         lnkCancel.Visible = true;
@@ -577,7 +737,8 @@ public partial class MainForm : Form
                 {
                     scanned++;
                     SetStatus($"Đã nhận trang {scanned} từ máy scan...");
-                    _scanTail = AddScannedPageAsync(_scanTail, path, $"Scan {DateTime.Now:HH:mm:ss} #{scanned}", () => blank++);
+                    // The scanner keeps feeding: the page shows up at once and is processed in the background.
+                    _ingest.AddScanned(path, $"Scan {DateTime.Now:HH:mm:ss} #{scanned}");
                 },
                 onError: ex =>
                 {
@@ -587,12 +748,10 @@ public partial class MainForm : Form
                         : "";
                     MessageBox.Show(this, ex.Message + hint, "Scan", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 },
-                onFinished: async () =>
+                onFinished: () =>
                 {
-                    await _scanTail;
-                    lnkCancel.Visible = _work != null;
-                    UpdateCommandState();
-                    SetStatus($"Scan xong: {scanned} trang" + (blank > 0 ? $", bỏ {blank} trang trắng" : "") + (errors.Count > 0 ? " (có lỗi, xem log)" : "") + ".");
+                    RefreshBusyUi();
+                    SetStatus($"Scan xong: {scanned} trang" + (errors.Count > 0 ? " (có lỗi, xem log)" : "") + ".");
                 });
         }
         catch (Exception ex)
@@ -602,31 +761,6 @@ public partial class MainForm : Form
             lnkCancel.Visible = false;
         }
         UpdateCommandState();
-    }
-
-    /// <summary>Processes scanned pages strictly in arrival order (each waits for the previous)
-    /// while the scanner keeps feeding.</summary>
-    private async Task AddScannedPageAsync(Task previous, string path, string label, Action onBlank)
-    {
-        await previous;
-        try
-        {
-            PageRecord? rec = await Task.Run(() => ProcessNewPage(path, label));
-            if (rec == null) { onBlank(); return; }
-            // Move out of _incoming so it is a regular project page file.
-            string final = Path.Combine(_project.PagesFolder, Path.GetFileName(rec.FilePath));
-            if (!string.Equals(Path.GetFullPath(rec.FilePath), Path.GetFullPath(final), StringComparison.OrdinalIgnoreCase))
-            {
-                File.Move(rec.FilePath, final, overwrite: true);
-                rec = rec with { FilePath = final };
-            }
-            _project.Execute(pages => pages.Add(rec));
-        }
-        catch (Exception ex)
-        {
-            Log.Error("Processing scanned page failed: " + path, ex);
-            _project.Execute(pages => pages.Add(new PageRecord(path, label)));
-        }
     }
 
     private void mnuCancelScan_Click(object? sender, EventArgs e) => CancelScan();
@@ -644,64 +778,63 @@ public partial class MainForm : Form
     private void mnuUndo_Click(object? sender, EventArgs e) { if (_work == null) _project.Undo(); }
     private void mnuRedo_Click(object? sender, EventArgs e) { if (_work == null) _project.Redo(); }
 
-    private async void mnuRotateLeft_Click(object? sender, EventArgs e) => await RotateSelectedAsync(270);
-    private async void mnuRotateRight_Click(object? sender, EventArgs e) => await RotateSelectedAsync(90);
-    private async void mnuRotate180_Click(object? sender, EventArgs e) => await RotateSelectedAsync(180);
+    private void mnuRotateLeft_Click(object? sender, EventArgs e) => RotateSelected(270);
+    private void mnuRotateRight_Click(object? sender, EventArgs e) => RotateSelected(90);
+    private void mnuRotate180_Click(object? sender, EventArgs e) => RotateSelected(180);
 
-    private async Task RotateSelectedAsync(int degrees)
+    /// <summary>Rotation is an op on the page (no pixels are rewritten), so it is instant
+    /// however many pages are selected or how large they are.</summary>
+    private void RotateSelected(int degrees)
     {
         List<int> sel = SelectedIndices();
         if (sel.Count == 0 || _work != null) return;
-        var targets = sel.Select(i => _project.Pages[i]).ToList();
-        List<PageRecord>? rotated = await RunWorkAsync("Xoay trang", (progress, cancel) =>
+        var ids = sel.Select(i => _project.Pages[i].Id).ToHashSet();
+        _project.Execute(pages =>
         {
-            var list = new List<PageRecord>();
-            for (int k = 0; k < targets.Count; k++)
-            {
-                cancel.ThrowIfCancellationRequested();
-                progress.Report(new WorkProgress(k + 1, targets.Count, $"Xoay trang {k + 1}/{targets.Count}"));
-                list.Add(targets[k] with { FilePath = PageProcessor.RotateFile(targets[k].FilePath, degrees, _project.PagesFolder) });
-            }
-            return list;
+            foreach (int i in sel)
+                if (pages[i].State == PageState.Ready)
+                    pages[i] = pages[i] with { Ops = pages[i].Ops.RotatedBy(degrees) };
         });
-        if (rotated == null) return;
-        ReplacePages(sel, rotated);
+        SelectByIds(ids);
     }
 
     private async void mnuAutoProcess_Click(object? sender, EventArgs e)
     {
         List<int> sel = SelectedIndices();
         if (sel.Count == 0 || _work != null) return;
-        var targets = sel.Select(i => _project.Pages[i]).ToList();
+        var targets = sel.Select(i => _project.Pages[i]).Where(p => p.State == PageState.Ready).ToList();
+        if (targets.Count == 0) return;
         var options = PageProcessingOptions.FromSettings(_settings);
         options.DetectBlank = false;
+        PageCache cache = _project.Cache;
         List<PageRecord>? done = await RunWorkAsync("Xử lý trang", (progress, cancel) =>
         {
             var list = new List<PageRecord>();
-            OcrEngine? osd = GetOsd();
-            for (int k = 0; k < targets.Count; k++)
+            OcrEngine? osd = _settings.AutoOrient ? _osdPool.Rent() : null;
+            try
             {
-                cancel.ThrowIfCancellationRequested();
-                progress.Report(new WorkProgress(k + 1, targets.Count, $"Xử lý trang {k + 1}/{targets.Count}"));
-                PageProcessResult r;
-                lock (_osdLock) r = PageProcessor.Process(targets[k].FilePath, options, osd, _project.PagesFolder);
-                list.Add(r.Changed ? new PageRecord(r.OutputPath, $"{targets[k].Label} ({r.Summary})") : targets[k]);
+                for (int k = 0; k < targets.Count; k++)
+                {
+                    cancel.ThrowIfCancellationRequested();
+                    progress.Report(new WorkProgress(k + 1, targets.Count, $"Xử lý trang {k + 1}/{targets.Count}"));
+                    // The analysis is recorded as ops on the page; no pixel is rewritten.
+                    AnalysisResult r = PageAnalysis.Analyze(cache, targets[k].Source, options, osd);
+                    list.Add(r.Ops == targets[k].Ops ? targets[k]
+                        : targets[k] with { Ops = r.Ops, Label = r.Summary.Length > 0 ? $"{targets[k].Label} ({r.Summary})" : targets[k].Label });
+                }
             }
+            finally { if (osd != null) _osdPool.Return(osd); }
             return list;
         });
         if (done == null) return;
-        ReplacePages(sel, done);
-        SetStatus($"Đã xử lý {done.Count} trang.");
-    }
-
-    private void ReplacePages(List<int> indices, List<PageRecord> replacements)
-    {
+        var byId = done.ToDictionary(r => r.Id);
         _project.Execute(pages =>
         {
-            for (int k = 0; k < indices.Count; k++) pages[indices[k]] = replacements[k];
+            for (int i = 0; i < pages.Count; i++)
+                if (byId.TryGetValue(pages[i].Id, out PageRecord? r)) pages[i] = r;
         });
-        var files = replacements.Select(r => r.FilePath).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        foreach (ListViewItem item in lvPages.Items) item.Selected = files.Contains((string)item.Tag!);
+        SelectByIds(byId.Keys.ToHashSet());
+        SetStatus($"Đã xử lý {done.Count} trang.");
     }
 
     private void mnuDeletePages_Click(object? sender, EventArgs e)
@@ -729,6 +862,11 @@ public partial class MainForm : Form
     private async Task ExportAsync(ExportFormat format)
     {
         if (_project.Pages.Count == 0 || _work != null) return;
+        if (_ingest.Pending > 0)
+        {
+            MessageBox.Show(this, $"Còn {_ingest.Pending} trang đang được xử lý. Vui lòng đợi xong rồi xuất.", "Xuất file", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
 
         string ext = format == ExportFormat.Pdf ? ".pdf" : ".tif";
         if (!string.IsNullOrWhiteSpace(_settings.OutputFolder))
@@ -766,12 +904,18 @@ public partial class MainForm : Form
             folder = dlg.SelectedPath;
         }
 
-        var pages = _project.Pages.Select(p => p.FilePath).ToList();
+        var pages = _project.Pages.ToList();
+        int failed = pages.Count(p => p.State == PageState.Failed);
+        if (failed > 0)
+            SetStatus($"Bỏ qua {failed} trang lỗi khi xuất.");
         AppSettings settings = _settings.Clone();
         string? profile = _lastProfileName;
         var sw = Stopwatch.StartNew();
+        OcrCache ocrCache = _project.OcrCache; // pages read in the background are not read again
+        _bgOcr.Pause();
         List<string>? outputs = await RunWorkAsync(format == ExportFormat.Pdf ? "Xuất PDF" : "Xuất TIFF",
-            (progress, cancel) => BatchExporter.Export(pages, settings, format, folder, explicitPath, profile, progress, cancel));
+            (progress, cancel) => BatchExporter.Export(pages, settings, format, folder, explicitPath, profile, progress, cancel, ocrCache));
+        _bgOcr.Resume();
         if (outputs == null || outputs.Count == 0) return;
 
         long bytes = outputs.Sum(f => new FileInfo(f).Length);

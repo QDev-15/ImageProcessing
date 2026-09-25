@@ -51,6 +51,33 @@ public sealed class ZoomPanView : Control
     [Browsable(false)]
     public float Zoom => _zoom;
 
+    /// <summary>
+    /// Swaps in a different rendering of the SAME page (e.g. the full-resolution image replacing
+    /// its low-resolution proxy) without disturbing the view: the same point of the page stays
+    /// under the view centre at the same on-screen scale. In fit mode it simply stays fitted.
+    /// </summary>
+    public void ReplaceImage(Image? next)
+    {
+        Image? prev = _image;
+        if (prev == null || next == null || _fit)
+        {
+            Image = next;
+            return;
+        }
+
+        // Keep the page point under the centre, and the on-screen size of the page.
+        float cx = ClientSize.Width / 2f, cy = ClientSize.Height / 2f;
+        float rx = (cx - _offset.X) / (prev.Width * _zoom), ry = (cy - _offset.Y) / (prev.Height * _zoom);
+        float pageScale = prev.Width * _zoom / next.Width;
+        _image = next;
+        _zoom = Math.Clamp(pageScale, MinZoom, MaxZoom);
+        _offset = new PointF(cx - rx * next.Width * _zoom, cy - ry * next.Height * _zoom);
+        ClampOffset();
+        UpdateCursor();
+        Invalidate();
+        ZoomChanged?.Invoke(this, EventArgs.Empty);
+    }
+
     public void FitToWindow()
     {
         _fit = true;

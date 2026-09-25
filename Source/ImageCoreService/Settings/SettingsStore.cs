@@ -6,8 +6,12 @@ namespace ImageCoreService;
 /// <summary>Per-user data locations.</summary>
 public static class AppPaths
 {
+    /// <summary>Settings, logs and (by default) work sessions. IMAGEOPTIMIZER_DATA overrides the
+    /// location (automated UI tests run against a scratch folder, never the user's real data).</summary>
     public static string DataFolder { get; set; } =
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ImageOptimizerTool");
+        Environment.GetEnvironmentVariable("IMAGEOPTIMIZER_DATA") is { Length: > 0 } custom
+            ? custom
+            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ImageOptimizerTool");
 
     public static string SettingsFile => Path.Combine(DataFolder, "settings.xml");
     public static string LogFolder => Path.Combine(DataFolder, "logs");

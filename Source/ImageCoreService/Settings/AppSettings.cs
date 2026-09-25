@@ -97,7 +97,7 @@ public sealed class AppSettings
     public bool AutoProcessOnImport { get; set; } = true;
 
     [Category("3. Xử lý ảnh"), DisplayName("Giới hạn DPI theo cài đặt scan"),
-     Description("Khi scan / import, ảnh có DPI cao hơn DPI của profile scan (mặc định 300) sẽ được thu nhỏ về đúng DPI đó. Ảnh có DPI bằng hoặc thấp hơn được giữ nguyên, không phóng to. Tắt = giữ nguyên độ phân giải gốc.")]
+     Description("Trang có DPI cao hơn DPI của profile scan (mặc định 300) được thu nhỏ về đúng DPI đó khi xem đủ độ phân giải và khi xuất (file gốc không bị đổi). DPI bằng hoặc thấp hơn được giữ nguyên, không phóng to. Tắt = giữ nguyên độ phân giải gốc.")]
     public bool LimitDpiToScanSetting { get; set; } = true;
 
     /// <summary>DPI pages are limited to on scan / import: the DPI of the named scan profile

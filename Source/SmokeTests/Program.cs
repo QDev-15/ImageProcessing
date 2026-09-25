@@ -326,7 +326,7 @@ Run("processor", () =>
 
     var project = ScanProject.NewSession(Path.Combine(outDir, "work"));
     string f1 = project.ImportFile(textPath), f2 = project.ImportFile(blankPath);
-    project.Execute(p => { p.Add(new PageRecord(f1, "a")); p.Add(new PageRecord(f2, "b")); });
+    project.Execute(p => { p.Add(PageRecord.FromFile(f1, "a")); p.Add(PageRecord.FromFile(f2, "b")); });
     project.Execute(p => p.Reverse());
     project.Undo();
     Check("undo restores order", project.Pages[0].Label == "a" && project.CanRedo);
@@ -336,6 +336,238 @@ Run("processor", () =>
     project.SaveAs(saved);
     var reopened = ScanProject.Open(saved);
     Check("project save / reopen", reopened.Pages.Count == 2 && reopened.Pages[0].Label == "b" && File.Exists(reopened.Pages[0].FilePath));
+});
+
+// ---- 6c. Project model v2: ops, renderer, migration, background updates ----
+Run("project v2", () =>
+{
+    // Renderer applies ops non-destructively: the source file is never touched.
+    using Bitmap page = TextPage(Color.White);
+    string src = Save(page, "v2_src.png");
+    byte[] before = File.ReadAllBytes(src);
+    PageRecord rec = PageRecord.FromFile(src, "p");
+    using (Bitmap r90 = PageRenderer.RenderFull(rec with { Ops = rec.Ops.RotatedBy(90) }))
+        Check("rotate op renders a turned page", r90.Width == page.Height && r90.Height == page.Width, $"{r90.Width}x{r90.Height}");
+    using (Bitmap cropped = PageRenderer.RenderFull(rec with { Ops = new PageOps(Crop: new RectangleF(0.1f, 0.2f, 0.5f, 0.5f)) }))
+        Check("crop op is relative to the source", Math.Abs(cropped.Width - page.Width / 2) <= 1 && Math.Abs(cropped.Height - page.Height / 2) <= 1, $"{cropped.Width}x{cropped.Height}");
+    using (Bitmap plain = PageRenderer.RenderFull(rec, 0, out bool modified))
+        Check("no ops -> unmodified render", !modified && plain.Width == page.Width);
+    using (Bitmap limited = PageRenderer.RenderFull(rec, 150, out bool modified))
+        Check("target DPI limits at render time", modified && Math.Abs(limited.Width - page.Width / 2) <= 1 && Math.Abs(limited.HorizontalResolution - 150) < 1, $"{limited.Width} @{limited.HorizontalResolution}");
+    Check("source file untouched by ops", File.ReadAllBytes(src).SequenceEqual(before));
+    Check("raw JPEG only when ops are identity", !PageRenderer.IsRawJpeg(rec) && PageRenderer.IsRawJpeg(PageRecord.FromFile(Path.Combine(outDir, "p3_orig.jpg"), "j"))
+        && !PageRenderer.IsRawJpeg(PageRecord.FromFile(Path.Combine(outDir, "p3_orig.jpg"), "j") is var j ? j with { Ops = j.Ops.RotatedBy(90) } : null!));
+
+    // Export honours ops (rotated page -> landscape media box) and skips nothing.
+    string rotPdf = Path.Combine(outDir, "v2_rot.pdf");
+    DocumentExporter.ExportPdf(new[] { rec with { Ops = rec.Ops.RotatedBy(90) } }, new ExportOptions { PdfA = false }, rotPdf);
+    using (var d = PdfiumViewer.PdfDocument.Load(rotPdf))
+        Check("export applies the rotate op", d.PageSizes[0].Width > d.PageSizes[0].Height, $"{d.PageSizes[0]}");
+
+    // Project file round trip incl. ops, and Update / Discard versus undo history.
+    var project = ScanProject.NewSession(Path.Combine(outDir, "work_v2"));
+    PageRecord a = PageRecord.FromFile(project.ImportFile(src), "a") with { Ops = new PageOps(90, 1.25, new RectangleF(0.1f, 0.1f, 0.8f, 0.8f)) };
+    PageRecord b = PageRecord.FromFile(project.ImportFile(src), "b") with { State = PageState.Pending };
+    project.Execute(p => { p.Add(a); p.Add(b); });
+    project.Execute(p => p.Reverse());
+    Check("Update patches current list and undo snapshots without an undo step",
+        project.Update(b.Id, r => r with { State = PageState.Ready, Label = "b-done" }) && project.Pages[0].Label == "b-done");
+    project.Undo();
+    Check("undo keeps the patched record", project.Pages.Single(p => p.Id == b.Id).State == PageState.Ready);
+    project.Redo();
+    project.Discard(new[] { b.Id });
+    Check("Discard removes from list and history", project.Pages.Count == 1 && !project.Pages.Any(p => p.Id == b.Id));
+    project.Flush();
+    project.Persist();
+    var back = ScanProject.Open(project.Folder);
+    PageRecord a2 = back.Pages.Single();
+    Check("project v2 round-trips ids and ops", a2.Id == a.Id && a2.Ops.Rotate == 90 && Math.Abs(a2.Ops.Deskew - 1.25) < 1e-9
+        && a2.Ops.Crop is { } c && Math.Abs(c.Width - 0.8f) < 1e-4, a2.Ops.Signature);
+
+    // Migration from a version-1 project.xml (page = file + label).
+    string old = Path.Combine(outDir, "old_v1_project");
+    if (Directory.Exists(old)) Directory.Delete(old, true);
+    Directory.CreateDirectory(Path.Combine(old, "pages"));
+    File.Copy(src, Path.Combine(old, "pages", "one.png"));
+    File.Copy(src, Path.Combine(old, "pages", "two.png"));
+    string v1xml = "<?xml version=\"1.0\" encoding=\"utf-8\"?><ScanProject xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"><Pages>"
+        + "<Page File=\"pages\\one.png\" Label=\"Trang 1\" /><Page File=\"pages\\two.png\" Label=\"Trang 2\" /></Pages></ScanProject>";
+    File.WriteAllText(Path.Combine(old, "project.xml"), v1xml);
+    var migrated = ScanProject.Open(old);
+    Check("v1 project opens with both pages, ready, no ops", migrated.Pages.Count == 2 && migrated.Pages.All(p => p.State == PageState.Ready && p.Ops.IsIdentity && p.Id.Length > 0)
+        && migrated.Pages[1].Label == "Trang 2" && File.Exists(migrated.Pages[0].FilePath));
+    Check("v1 project.xml kept as project.xml.v1.bak", File.Exists(Path.Combine(old, "project.xml.v1.bak")) && File.ReadAllText(Path.Combine(old, "project.xml.v1.bak")) == v1xml);
+    Check("upgraded project.xml is version 2", File.ReadAllText(Path.Combine(old, "project.xml")).Contains("Version=\"2\""));
+    var again = ScanProject.Open(old);
+    Check("re-opening the upgraded project keeps ids", again.Pages[0].Id == migrated.Pages[0].Id);
+});
+
+// ---- 6d. Cache (proxy / thumbnails) and background ingest ----
+Run("cache + ingest", () =>
+{
+    var project = ScanProject.NewSession(Path.Combine(outDir, "work_ingest"));
+
+    // Proxy: ~1600 px long edge, persisted, reused; ops apply on top without touching the source.
+    using Bitmap page = TextPage(Color.White);
+    string src = project.ImportFile(Save(page, "ing_src.png"));
+    var rec = PageRecord.FromFile(src, "src");
+    using (Bitmap proxy = project.Cache.GetProxy(rec.Source))
+        Check("proxy long edge is 1600 px, DPI scaled with it", Math.Max(proxy.Width, proxy.Height) == PageCache.ProxyEdge && Math.Abs(proxy.HorizontalResolution - 300.0 * 1600 / page.Height) < 1,
+            $"{proxy.Width}x{proxy.Height} @{proxy.HorizontalResolution:0}");
+    Check("proxy is stored in the cache folder", Directory.EnumerateFiles(Path.Combine(project.CacheFolder, "proxy")).Any());
+    using (Bitmap turned = project.Cache.RenderPreview(rec with { Ops = rec.Ops.RotatedBy(90) }))
+        Check("preview applies ops to the proxy", turned.Width == 1600 && turned.Height < turned.Width, $"{turned.Width}x{turned.Height}");
+    using (Bitmap t1 = project.Cache.GetThumbnail(rec, new Size(120, 162)))
+        Check("thumbnail has the requested box", t1.Width == 120 && t1.Height == 162);
+    int thumbsBefore = Directory.EnumerateFiles(Path.Combine(project.CacheFolder, "thumbs")).Count();
+    using (Bitmap t2 = project.Cache.GetThumbnail(rec with { Ops = rec.Ops.RotatedBy(90) }, new Size(120, 162))) { }
+    Check("a rotated look gets its own thumbnail", Directory.EnumerateFiles(Path.Combine(project.CacheFolder, "thumbs")).Count() == thumbsBefore + 1);
+
+    // Ingest: placeholders at once, order kept, blank dropped, one Undo removes the whole import.
+    AppSettings settings = new AppSettings { AutoProcessOnImport = true, AutoOrient = false };
+    settings.Normalize();
+    using var idle = new ManualResetEventSlim();
+    IngestSummary? summary = null;
+    using var ingest = new PageIngestor(project, () => settings, () => null, null, degree: 2);
+    ingest.Idle += s => { summary = s; idle.Set(); };
+    string pdf3 = Path.Combine(outDir, "out_g4_jpeg.pdf");        // 3 pages
+    string blankPng = Path.Combine(outDir, "blank.png");
+    string textPng = Path.Combine(outDir, "p1_text.png");
+    int added = ingest.Import(new[] { pdf3, blankPng, textPng }, insertAt: null, progress: null, CancellationToken.None);
+    Check("import adds one placeholder per page immediately", added == 5 && project.Pages.Count == 5 && project.Pages.Take(3).All(p => p.State is PageState.Pending or PageState.Ready),
+        $"{added} added, states: {string.Join(",", project.Pages.Select(p => p.State))}");
+    Check("labels keep file / page numbering", project.Pages[0].Label == "out_g4_jpeg.pdf #1" && project.Pages[2].Label == "out_g4_jpeg.pdf #3", string.Join(" | ", project.Pages.Select(p => p.Label)));
+    Check("ingest finishes", idle.Wait(TimeSpan.FromSeconds(90)));
+    Check("blank page removed, the rest ready, order kept", project.Pages.Count == 4 && project.Pages.All(p => p.State == PageState.Ready)
+        && project.Pages[3].Label.StartsWith("p1_text.png") && summary is { Blank: 1 }, string.Join(" | ", project.Pages.Select(p => p.Label)));
+    Check("one Undo removes the whole import", project.CanUndo && Undo(project) && project.Pages.Count == 0);
+
+    bool Undo(ScanProject p) { p.Undo(); return true; }
+
+    // Cancelling drops pages that are still waiting.
+    using var idle2 = new ManualResetEventSlim();
+    ingest.Idle += s => idle2.Set();
+    ingest.Import(new[] { pdf3, pdf3, pdf3 }, null, null, CancellationToken.None);
+    ingest.CancelPending();
+    Check("cancel finishes and leaves no pending page", idle2.Wait(TimeSpan.FromSeconds(90)) && project.Pages.All(p => p.State != PageState.Pending), $"{project.Pages.Count} left");
+});
+
+// ---- 6f. Lazy PDF + non-destructive analysis ----
+Run("lazy pdf + analysis", () =>
+{
+    var project = ScanProject.NewSession(Path.Combine(outDir, "work_lazy"));
+    var settings = new AppSettings { AutoProcessOnImport = true, AutoOrient = false };
+    settings.Normalize();
+    using var osdPool = new OsdEnginePool();
+    using var idle = new ManualResetEventSlim();
+    using var ingest = new PageIngestor(project, () => settings, () => null, osdPool, degree: 2);
+    ingest.Idle += _ => idle.Set();
+
+    string pdf3 = Path.Combine(outDir, "out_g4_jpeg.pdf"); // 3 pages
+    var watch = System.Diagnostics.Stopwatch.StartNew();
+    ingest.Import(new[] { pdf3 }, null, null, CancellationToken.None);
+    double importSeconds = watch.Elapsed.TotalSeconds;
+    string[] filesInPages = Directory.GetFiles(project.PagesFolder);
+    Check("PDF import renders nothing: one PDF copy, 3 page sources", filesInPages.Length == 1 && filesInPages[0].EndsWith(".pdf")
+        && project.Pages.Count == 3 && project.Pages.All(p => p.Source.IsPdf && p.Source.File == filesInPages[0]) && project.Pages.Select(p => p.Source.PdfPage).SequenceEqual(new[] { 0, 1, 2 }),
+        $"{filesInPages.Length} file(s), import {importSeconds:0.00}s");
+    Check("ingest of PDF pages finishes", idle.Wait(TimeSpan.FromSeconds(90)) && project.Pages.All(p => p.State == PageState.Ready));
+    Check("only proxies were rendered (no full-size PNG)", Directory.GetFiles(project.PagesFolder).Length == 1
+        && Directory.GetFiles(Path.Combine(project.CacheFolder, "proxy")).Length == 3);
+
+    // A PDF page renders at export size on demand; export from PDF sources round-trips text.
+    using (Bitmap full = PageRenderer.RenderFull(project.Pages[0], 200))
+        Check("PDF page renders at the requested density", Math.Abs(full.Width - 8.27 * 200) < 40 && Math.Abs(full.HorizontalResolution - 200) < 2, $"{full.Width}x{full.Height} @{full.HorizontalResolution}");
+    string pdfOut = Path.Combine(outDir, "from_lazy_pdf.pdf");
+    DocumentExporter.ExportPdf(project.Pages.ToList(), new ExportOptions { Ocr = true, TargetDpi = 300 }, pdfOut);
+    VerifyPdf(pdfOut, 3, "HỢP");
+    // Native DPI caps the render: never more pixels than the page really has.
+    Check("native DPI recorded and respected", project.Pages[0].Source.NativeDpi is >= 0);
+
+    // Analysis on the proxy finds the same things the pixel pipeline did (crop + skew), as ops.
+    using Bitmap tilted = TextPage(Color.White);
+    using Bitmap skewed = DocumentCleanup.RotateArbitrary(tilted, 3.0);
+    using var framed = new Bitmap(skewed.Width + 200, skewed.Height + 200, PixelFormat.Format24bppRgb);
+    framed.SetResolution(Dpi, Dpi);
+    using (Graphics g = Graphics.FromImage(framed)) { g.Clear(Color.Black); g.DrawImage(skewed, 100, 100, skewed.Width, skewed.Height); }
+    string framedPath = project.ImportFile(Save(framed, "lazy_framed.png"));
+    byte[] before = File.ReadAllBytes(framedPath);
+    var options = new PageProcessingOptions { AutoOrient = false };
+    AnalysisResult r = PageAnalysis.Analyze(project.Cache, new PageSource(framedPath), options, null);
+    Check("analysis: crop rect + skew angle recorded as ops", !r.IsBlank && r.Ops.Crop is { Width: > 0.5f and < 1f } && Math.Abs(r.Ops.Deskew - 3.0) < 0.6, r.Ops.Signature + " " + r.Summary);
+    Check("analysis leaves the source file untouched", File.ReadAllBytes(framedPath).SequenceEqual(before));
+    using Bitmap fixedPage = PageRenderer.RenderFull(PageRecord.FromFile(framedPath, "f") with { Ops = r.Ops });
+    Check("full render applies the recorded ops", fixedPage.Width < framed.Width && fixedPage.Height < framed.Height, $"{fixedPage.Width}x{fixedPage.Height} vs {framed.Width}x{framed.Height}");
+
+    // Project file keeps a PDF page's page number and native DPI.
+    project.Flush(); project.Persist();
+    var reopened = ScanProject.Open(project.Folder);
+    Check("PDF page sources survive save / reopen", reopened.Pages.Count == 3 && reopened.Pages.Select(p => p.Source.PdfPage).SequenceEqual(new[] { 0, 1, 2 }));
+    string saved = Path.Combine(outDir, "lazy_saved");
+    if (Directory.Exists(saved)) Directory.Delete(saved, true);
+    project.SaveAs(saved);
+    Check("Save as copies the PDF once and re-points every page", Directory.GetFiles(Path.Combine(saved, "pages"), "*.pdf").Length == 1
+        && project.Pages.All(p => p.Source.File.StartsWith(Path.GetFullPath(saved), StringComparison.OrdinalIgnoreCase)));
+});
+
+// ---- 6e0. Background OCR before any project is open (app waiting in the startup dialog) ----
+Run("background ocr without project", () =>
+{
+    var settings = new AppSettings { Ocr = true };
+    using var bg = new BackgroundOcr(() => null, () => settings, () => null, () => true);
+    long logBefore = File.Exists(Log.CurrentFile) ? new FileInfo(Log.CurrentFile).Length : 0;
+    bg.Signal();
+    Thread.Sleep(3500); // long enough for the 2 s settle time plus a pass
+    string added = File.Exists(Log.CurrentFile)
+        ? System.Text.Encoding.UTF8.GetString(File.ReadAllBytes(Log.CurrentFile).AsSpan((int)Math.Min(logBefore, int.MaxValue)))
+        : "";
+    Check("no project yet: passes are skipped without error", !added.Contains("Background OCR pass failed"), added.Trim());
+});
+
+// ---- 6e. OCR cache + background OCR ----
+Run("ocr cache", () =>
+{
+    var project = ScanProject.NewSession(Path.Combine(outDir, "work_ocr"));
+    string src = project.ImportFile(Path.Combine(outDir, "doc_page.png"));
+    PageRecord rec = PageRecord.FromFile(src, "ocr page");
+    project.Execute(p => p.Add(rec));
+
+    var settings = new AppSettings { Ocr = true };
+    settings.Normalize();
+    ExportOptions opt = ExportOptions.FromSettings(settings);
+    string key = OcrCache.Key(rec, opt);
+    Check("OCR key changes with ops and settings", key != OcrCache.Key(rec with { Ops = rec.Ops.RotatedBy(90) }, opt)
+        && key != OcrCache.Key(rec, ExportOptions.FromSettings(new AppSettings { OcrLanguages = "eng" })) && key == OcrCache.Key(rec, opt));
+
+    // A background pass reads the page and stores the words.
+    using var bg = new BackgroundOcr(() => project, () => settings, () => null, () => true);
+    bg.Signal();
+    var deadline = DateTime.UtcNow.AddSeconds(90);
+    while (!project.OcrCache.Contains(key) && DateTime.UtcNow < deadline) Thread.Sleep(300);
+    IReadOnlyList<OcrWord>? words = project.OcrCache.TryGet(key);
+    Check("background OCR fills the cache", words is { Count: > 20 }, $"{words?.Count} words");
+    bg.Pause();
+
+    // Several pages: one pass reads them all (a signal arriving mid-pass must not strand the rest).
+    var more = new List<PageRecord>();
+    foreach (string name in new[] { "p1_text.png", "p2_color.png", "doc_page.png" })
+        more.Add(PageRecord.FromFile(project.ImportFile(Path.Combine(outDir, name)), name));
+    project.Execute(p => p.AddRange(more));
+    bg.Resume();
+    var deadline2 = DateTime.UtcNow.AddSeconds(120);
+    while (more.Any(m => !project.OcrCache.Contains(OcrCache.Key(m, opt))) && DateTime.UtcNow < deadline2) Thread.Sleep(300);
+    Check("background OCR reads every page", more.All(m => project.OcrCache.Contains(OcrCache.Key(m, opt))),
+        $"{more.Count(m => project.OcrCache.Contains(OcrCache.Key(m, opt)))}/{more.Count} cached");
+    bg.Pause();
+
+    // An export with the cache uses those words (proof: a poisoned entry shows up in the PDF text).
+    project.OcrCache.Put(key, new[] { new OcrWord("ZEBRAQUAGGA", 300, 300, 900, 120, 400, 95f) });
+    opt.OcrCache = project.OcrCache;
+    opt.Ocr = true;
+    string pdf = Path.Combine(outDir, "ocr_cached.pdf");
+    DocumentExporter.ExportPdf(new[] { rec }, opt, pdf);
+    using var d = PdfiumViewer.PdfDocument.Load(pdf);
+    Check("export reuses cached words instead of running OCR", d.GetPdfText(0).Contains("ZEBRAQUAGGA"), d.GetPdfText(0).Trim());
 });
 
 // ---- 7. Settings ----

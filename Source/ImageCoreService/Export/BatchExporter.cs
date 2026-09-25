@@ -10,10 +10,13 @@ public static class BatchExporter
 {
     /// <param name="explicitPath">When not splitting, the exact output file (from a Save
     /// dialog). When splitting, ignored -- files go to <paramref name="folder"/>.</param>
-    public static List<string> Export(IReadOnlyList<string> pages, AppSettings settings, ExportFormat format,
+    public static List<string> Export(IReadOnlyList<PageRecord> allPages, AppSettings settings, ExportFormat format,
         string folder, string? explicitPath, string? profileName,
-        IProgress<WorkProgress>? progress = null, CancellationToken cancel = default)
+        IProgress<WorkProgress>? progress = null, CancellationToken cancel = default, OcrCache? ocrCache = null)
     {
+        // Pages that failed to ingest have no usable pixels; the UI reports them, export skips them.
+        List<PageRecord> pages = allPages.Where(p => p.State == PageState.Ready).ToList();
+        if (pages.Count == 0) throw new InvalidOperationException("Không có trang nào sẵn sàng để xuất.");
         List<DocumentGroup> docs = DocumentSplitter.Split(pages, settings.SplitMode, settings.SeparatorBarcodePrefix,
             settings.RemoveSeparatorPages, settings.BlankPageInkPercent, progress, cancel);
         string ext = format == ExportFormat.Pdf ? ".pdf" : ".tif";
@@ -38,7 +41,8 @@ public static class BatchExporter
 
             var docProgress = progress == null ? null : new SyncProgress<WorkProgress>(p =>
                 progress.Report(p with { Message = docs.Count > 1 ? $"Tài liệu {d + 1}/{docs.Count}: {p.Message}" : p.Message }));
-            ExportOptions options = ExportOptions.FromSettings(settings);
+            ExportOptions options = ExportOptions.FromSettings(settings, profileName);
+            options.OcrCache = ocrCache;
             if (format == ExportFormat.Pdf)
                 DocumentExporter.ExportPdf(doc.Pages, options, path, docProgress, cancel);
             else

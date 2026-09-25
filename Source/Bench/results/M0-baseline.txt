@@ -1,0 +1,41 @@
+=== M0-baseline  2026-09-25 10:57  pages=40  cores=12 ===
+data generated in 18.0s  (PDF 3260 KB, 40 JPEG 1867 KB each)
+
+import PDF (40 pages): render+save            19.35 s   PageImporter.Import
+    pdf.render                   8.73 s  x40
+    pdf.save                     8.08 s  x40
+import PDF: limit + auto-process              22.35 s   ResolutionLimiter + PageProcessor
+    proc.osd                    11.76 s  x40
+    decode                       4.01 s  x80
+    proc.skewdetect              3.13 s  x40
+    limit                        2.19 s  x40
+    proc.blank                   1.67 s  x40
+    proc.cropdetect              0.31 s  x40
+import 40 JPEG: copy + limit + auto-process    16.57 s   
+    proc.osd                     6.19 s  x40
+    decode                       5.63 s  x80
+    limit                        2.99 s  x40
+    proc.skewdetect              2.70 s  x40
+    proc.blank                   1.27 s  x40
+    proc.cropdetect              0.19 s  x40
+thumbnails (80 pages, decode + scale)          8.48 s   
+    decode                       4.31 s  x80
+preview decode (10 pages)                      0.40 s   
+    decode                       0.37 s  x10
+export PDF 40 pages, G4+JPEG, no OCR           7.49 s   3284 KB
+    exp.binarize                19.63 s  x40
+    decode                       3.48 s  x40
+    exp.write                    0.12 s  x1
+export PDF 40 pages, JBIG2+JP2, no OCR        13.09 s   373 KB
+    exp.binarize                22.55 s  x40
+    decode                       3.33 s  x40
+    exp.jbig2sym                 2.27 s  x1
+    exp.write                    0.02 s  x1
+export PDF 12 pages, JBIG2+JP2 + OCR           7.64 s   329 KB
+    exp.ocr                     16.51 s  x12
+    exp.binarize                 4.96 s  x12
+    exp.jbig2sym                 0.75 s  x1
+    decode                       0.72 s  x12
+    exp.write                    0.01 s  x1
+
+
