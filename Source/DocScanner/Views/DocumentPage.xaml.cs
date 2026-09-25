@@ -2,21 +2,20 @@ using DocScanner.ViewModels;
 
 namespace DocScanner.Views;
 
-public partial class HomePage : ContentPage
+public partial class DocumentPage : ContentPage
 {
-	private readonly HomeViewModel _viewModel;
+	private readonly DocumentViewModel _viewModel;
 
-	public HomePage(HomeViewModel viewModel)
+	public DocumentPage(DocumentViewModel viewModel)
 	{
 		InitializeComponent();
 		BindingContext = _viewModel = viewModel;
 	}
 
-	protected override async void OnAppearing()
+	protected override void OnAppearing()
 	{
 		base.OnAppearing();
 		_viewModel.Attach();
-		await _viewModel.RefreshAsync();
 	}
 
 	protected override void OnDisappearing()

@@ -59,6 +59,7 @@
 
 	<ItemGroup>
 		<ProjectReference Include="..\ImageCore.Shared\ImageCore.Shared.csproj" />
+		<ProjectReference Include="..\DocScanner.Core\DocScanner.Core.csproj" />
 	</ItemGroup>
 
 </Project>

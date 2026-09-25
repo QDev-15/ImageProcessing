@@ -1,4 +1,6 @@
 <Solution>
+  <Project Path="DocScanner.Core.Tests/DocScanner.Core.Tests.csproj" />
+  <Project Path="DocScanner.Core/DocScanner.Core.csproj" />
   <Project Path="DocScanner/DocScanner.csproj" />
   <Project Path="ImageCore.Shared.Tests/ImageCore.Shared.Tests.csproj" />
   <Project Path="ImageCore.Shared/ImageCore.Shared.csproj" />

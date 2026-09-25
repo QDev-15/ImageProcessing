@@ -5,3 +5,5 @@
 [Pp]ackages/
 [Pp]ublish/
 /artifacts/
+# Visual Studio per-user project state
+*.csproj.user

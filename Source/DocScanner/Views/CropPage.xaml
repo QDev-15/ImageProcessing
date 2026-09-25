@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage
+    x:Class="DocScanner.Views.CropPage"
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    xmlns:vm="clr-namespace:DocScanner.ViewModels"
+    xmlns:views="clr-namespace:DocScanner.Views"
+    x:DataType="vm:CropViewModel"
+    Title="{Binding Title}">
+
+    <Grid RowDefinitions="*,Auto,Auto">
+
+        <!-- The editor draws the picture, the outline, the handles and the magnifier itself. -->
+        <views:QuadEditor Grid.Row="0"
+                          ImagePath="{Binding ImagePath}"
+                          Quad="{Binding Quad}"
+                          Detected="{Binding Detected}"
+                          Manual="{Binding Manual}"
+                          EditedCommand="{Binding EditedCommand}" />
+
+        <!-- Fixed height: a longer message must not resize the editor while a finger is on it. -->
+        <Label Grid.Row="1" Text="{Binding Status}" HorizontalOptions="Center" VerticalOptions="Center"
+               HeightRequest="40" MaxLines="2" LineBreakMode="TailTruncation" FontSize="13"
+               TextColor="{AppThemeBinding Light=#666666, Dark=#AAAAAA}" />
+
+        <Grid Grid.Row="2" ColumnDefinitions="*,*,*,*" ColumnSpacing="8" Padding="12,0,12,12">
+            <Button Text="Tự động" FontSize="12" Padding="4" IsEnabled="{Binding CanEdit}" Command="{Binding AutoCommand}" />
+            <Button Grid.Column="1" Text="Toàn ảnh" FontSize="12" Padding="4" IsEnabled="{Binding CanEdit}" Command="{Binding FullImageCommand}" />
+            <Button Grid.Column="2" Text="Xoay 90°" FontSize="12" Padding="4" IsEnabled="{Binding CanEdit}" Command="{Binding RotateCommand}" />
+            <Button Grid.Column="3" Text="Xong" FontSize="12" Padding="4" Command="{Binding DoneCommand}" />
+        </Grid>
+    </Grid>
+</ContentPage>

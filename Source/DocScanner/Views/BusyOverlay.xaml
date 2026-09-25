@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentView
+    x:Class="DocScanner.Views.BusyOverlay"
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    xmlns:vm="clr-namespace:DocScanner.ViewModels"
+    x:DataType="vm:ImportViewModelBase"
+    IsVisible="{Binding IsBusy}"
+    BackgroundColor="#B3000000">
+
+    <!-- Full-screen scrim: swallows taps while photos are being imported. -->
+    <VerticalStackLayout VerticalOptions="Center" HorizontalOptions="Center" Spacing="16">
+        <ActivityIndicator IsRunning="{Binding IsBusy}" Color="White" WidthRequest="48" HeightRequest="48" />
+        <Label Text="{Binding BusyText}" TextColor="White" FontSize="16" HorizontalTextAlignment="Center" />
+        <Button Text="Huỷ" Command="{Binding CancelImportCommand}" />
+    </VerticalStackLayout>
+</ContentView>

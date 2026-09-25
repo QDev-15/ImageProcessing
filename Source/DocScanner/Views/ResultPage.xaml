@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage
+    x:Class="DocScanner.Views.ResultPage"
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    xmlns:vm="clr-namespace:DocScanner.ViewModels"
+    x:DataType="vm:ResultViewModel"
+    Title="{Binding Title}">
+
+    <Grid RowDefinitions="*,Auto,Auto">
+
+        <Grid Grid.Row="0" Margin="12">
+            <Image Source="{Binding Image}" Aspect="AspectFit" />
+            <ActivityIndicator IsRunning="{Binding IsBusy}" IsVisible="{Binding IsBusy}"
+                               HorizontalOptions="Center" VerticalOptions="Center" WidthRequest="48" HeightRequest="48" />
+        </Grid>
+
+        <HorizontalStackLayout Grid.Row="1" HorizontalOptions="Center" Spacing="12" Padding="0,6">
+            <Label Text="{Binding Status}" VerticalOptions="Center" FontSize="13"
+                   TextColor="{AppThemeBinding Light=#666666, Dark=#AAAAAA}" />
+            <Button Text="Thử lại" IsVisible="{Binding HasError}" Command="{Binding RetryCommand}" FontSize="12" Padding="10,2" />
+        </HorizontalStackLayout>
+
+        <VerticalStackLayout Grid.Row="2" Spacing="8" Padding="16,0,16,12">
+            <Button Text="{Binding AspectText}" Command="{Binding ToggleAspectCommand}" FontSize="13"
+                    BackgroundColor="Transparent" BorderWidth="1"
+                    BorderColor="{AppThemeBinding Light=#999999, Dark=#666666}"
+                    TextColor="{AppThemeBinding Light=#333333, Dark=#DDDDDD}" />
+            <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
+                <Button Text="Chỉnh lại" Command="{Binding EditAgainCommand}" />
+                <Button Grid.Column="1" Text="Xong" Command="{Binding DoneCommand}" />
+            </Grid>
+        </VerticalStackLayout>
+    </Grid>
+</ContentPage>

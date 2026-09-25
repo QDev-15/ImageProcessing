@@ -18,8 +18,4 @@ public abstract class PlaceholderPage : ContentPage
 	}
 }
 
-public sealed class PageViewerPage() : PlaceholderPage("Xem trang", "Xem và quản lý các trang (Bước 8).");
-
-public sealed class CropPage() : PlaceholderPage("Cắt tài liệu", "Dò mép giấy và kéo 4 điểm (Bước 4-6).");
-
 public sealed class ExportPage() : PlaceholderPage("Xuất PDF", "Xuất PDF nhiều trang và chia sẻ (Bước 8).");

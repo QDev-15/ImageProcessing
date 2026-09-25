@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage
+    x:Class="DocScanner.Views.DocumentPage"
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    xmlns:vm="clr-namespace:DocScanner.ViewModels"
+    xmlns:views="clr-namespace:DocScanner.Views"
+    x:DataType="vm:DocumentViewModel"
+    Title="{Binding Title}">
+
+    <Grid RowDefinitions="Auto,*,Auto">
+
+        <Label Grid.Row="0" Text="{Binding ProgressText}" IsVisible="{Binding HasProgress}"
+               HorizontalOptions="Center" Margin="0,8,0,0" FontSize="13"
+               TextColor="{AppThemeBinding Light=#666666, Dark=#AAAAAA}" />
+
+        <CollectionView Grid.Row="1" ItemsSource="{Binding Pages}" Margin="12,8,12,0">
+            <CollectionView.ItemsLayout>
+                <GridItemsLayout Orientation="Vertical" Span="2" HorizontalItemSpacing="8" VerticalItemSpacing="8" />
+            </CollectionView.ItemsLayout>
+            <CollectionView.ItemTemplate>
+                <DataTemplate x:DataType="vm:PageItem">
+                    <Border StrokeThickness="1" Padding="4"
+                            Stroke="{AppThemeBinding Light=#DDDDDD, Dark=#444444}"
+                            BackgroundColor="{AppThemeBinding Light=White, Dark=#222222}">
+                        <Border.StrokeShape>
+                            <RoundRectangle CornerRadius="8" />
+                        </Border.StrokeShape>
+                        <Grid RowDefinitions="Auto,Auto">
+                            <Grid HeightRequest="220">
+                                <Image Source="{Binding Thumb}" IsVisible="{Binding ShowThumb}" Aspect="AspectFit">
+                                    <Image.GestureRecognizers>
+                                        <TapGestureRecognizer Command="{Binding OpenCommand}" />
+                                    </Image.GestureRecognizers>
+                                </Image>
+                                <ActivityIndicator IsRunning="{Binding ShowSpinner}" IsVisible="{Binding ShowSpinner}"
+                                                   HorizontalOptions="Center" VerticalOptions="Center" />
+                                <Label Text="{Binding StatusText}" IsVisible="{Binding IsFailed}"
+                                       HorizontalOptions="Center" VerticalOptions="Center" TextColor="#D32F2F">
+                                    <Label.GestureRecognizers>
+                                        <TapGestureRecognizer Command="{Binding OpenCommand}" />
+                                    </Label.GestureRecognizers>
+                                </Label>
+                            </Grid>
+                            <Button Text="✕" WidthRequest="36" HeightRequest="36" Padding="0" CornerRadius="18"
+                                    HorizontalOptions="End" VerticalOptions="Start" FontSize="14"
+                                    BackgroundColor="#99000000" TextColor="White"
+                                    Command="{Binding DeleteCommand}" />
+                            <Label Grid.Row="1" Text="{Binding Label}" HorizontalOptions="Center" FontSize="12"
+                                   TextColor="{AppThemeBinding Light=#666666, Dark=#AAAAAA}" />
+                        </Grid>
+                    </Border>
+                </DataTemplate>
+            </CollectionView.ItemTemplate>
+        </CollectionView>
+
+        <Grid Grid.Row="2" ColumnDefinitions="*,*" ColumnSpacing="10" Padding="16">
+            <Button Text="Thêm từ thư viện" Command="{Binding AddFromGalleryCommand}" />
+            <Button Grid.Column="1" Text="Chụp thêm" Command="{Binding AddFromCameraCommand}" />
+        </Grid>
+
+        <views:BusyOverlay Grid.RowSpan="3" />
+    </Grid>
+</ContentPage>
