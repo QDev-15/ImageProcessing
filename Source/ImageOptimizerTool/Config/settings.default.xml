@@ -2,8 +2,8 @@
 <AppSettings xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
   <UseJBig2>true</UseJBig2>
   <UseJpeg2000>true</UseJpeg2000>
-  <WorkFolder />
-  <OutputFolder />
+  <WorkFolder>C:\ImageTestWokingSpace</WorkFolder>
+  <OutputFolder>C:\Users\Downloads\Documents</OutputFolder>
   <ThumbnailSize>120</ThumbnailSize>
   <MaxUndoSteps>50</MaxUndoSteps>
   <ScanDriver>Auto</ScanDriver>
@@ -21,6 +21,7 @@
     </ScanProfile>
   </ScanProfiles>
   <AutoProcessOnImport>true</AutoProcessOnImport>
+  <LimitDpiToScanSetting>true</LimitDpiToScanSetting>
   <Deskew>true</Deskew>
   <CropBlackBorders>true</CropBlackBorders>
   <AutoOrient>true</AutoOrient>

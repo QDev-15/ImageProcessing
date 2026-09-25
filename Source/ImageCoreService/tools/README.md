@@ -9,7 +9,7 @@ whether to integrate.
 ## tools/openjpeg/ -- OpenJPEG 2.5.4 (JPEG 2000 reference codec)
 
 - Source: official upstream project, https://github.com/uclouvain/openjpeg
-- Downloaded from: https://github.com/uclouvain/openjpeg/releases/download/v2.5.4/openjpeg-v2.5.4-windows-x86.zip
+- Downloaded from: https://github.com/uclouvain/openjpeg/releases/download/v2.5.4/openjpeg-v2.5.4-windows-x64.zip (x64 -- the x86 build runs out of its 4 GB address space and fails with "opj_encode" on ~85 MP scans)
   (official release asset, built by the OpenJPEG project itself)
 - License: BSD-2-Clause (see https://github.com/uclouvain/openjpeg/blob/master/LICENSE)
 - Why: OpenJPEG has a real rate-distortion-optimized encoder (`-r`/`-q` actually

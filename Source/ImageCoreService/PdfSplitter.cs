@@ -15,6 +15,8 @@ namespace ImageCoreService;
 /// </summary>
 public static class PdfSplitter
 {
+    private const double MaxRenderPixels = 36_000_000;
+
     public static List<string> SplitToImages(string pdfPath, string destFolder, int dpi = 300)
     {
         Directory.CreateDirectory(destFolder);
@@ -39,6 +41,14 @@ public static class PdfSplitter
                 if (nativeDpi > 0 && nativeDpi < effectiveDpi)
                     effectiveDpi = nativeDpi;
             }
+
+            // A corrupted / oversized /MediaBox would otherwise render to hundreds of MP (an
+            // 85 MP page needs >1 GB across the pipeline); cap the render size. The page
+            // keeps ample detail: 36 MP is A4 at ~600 dpi.
+            SizeF pageSizePt = doc.PageSizes[i];
+            double renderPixels = pageSizePt.Width / 72.0 * effectiveDpi * (pageSizePt.Height / 72.0 * effectiveDpi);
+            if (renderPixels > MaxRenderPixels)
+                effectiveDpi = Math.Max(72, (int)(effectiveDpi * Math.Sqrt(MaxRenderPixels / renderPixels)));
 
             using Image img = doc.Render(i, effectiveDpi, effectiveDpi,
                 PdfiumViewer.PdfRenderFlags.CorrectFromDpi | PdfiumViewer.PdfRenderFlags.Annotations);

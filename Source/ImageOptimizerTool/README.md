@@ -39,9 +39,17 @@ Mở `Source/ImageProcessing.sln` bằng Visual Studio 2022+ (hoặc `dotnet bui
 
 ## Cách hoạt động chính
 
-- **Độ phân giải:** không bao giờ resample. DPI lấy từ file / driver; file không có DPI (hoặc
-  mang giá trị mặc định 96/72 trên ảnh quá lớn) thì suy ra từ kích thước pixel theo khổ
-  A4 / Letter / Legal.
+- **Độ phân giải:** DPI lấy từ file / driver; file không có DPI (hoặc mang giá trị mặc định
+  96/72 trên ảnh quá lớn) thì suy ra từ kích thước pixel theo khổ A4 / Letter / Legal. Khi scan /
+  import, trang có DPI **cao hơn** DPI của profile scan (mặc định 300) được thu nhỏ về đúng DPI
+  đó (`ResolutionLimiter`, tuỳ chọn *Giới hạn DPI theo cài đặt scan*, mặc định bật); DPI bằng
+  hoặc thấp hơn thì giữ nguyên, không bao giờ phóng to. Nhờ đó mọi bước sau (trắng đen, OCR,
+  JPEG2000, JBIG2) nhanh hơn và ít RAM hơn nhiều (trang 85 MP → ~9 MP). PDF import được render
+  tối đa 36 MP / trang.
+- **Xuất file không bao giờ hỏng vì codec ngoài:** `jbig2.exe` (32-bit) hoặc `opj_compress.exe`
+  lỗi / hết RAM thì trang đó tự chuyển codec (JBIG2 Symbol → JBIG2 generic → CCITT G4;
+  JPEG2000 → JPEG), có ghi log. Các trang được mã hoá song song (tối đa 4, mỗi luồng một engine
+  Tesseract riêng) và kết quả giữ đúng thứ tự.
 - **Chất lượng:** trang scan được lưu không mất dữ liệu (1-bit → TIFF G4, xám / màu → PNG). Mọi
   thao tác chỉnh sửa cũng ghi PNG. Chỉ có đúng 1 lần nén mất dữ liệu, lúc xuất file. File JPEG gốc
   chưa chỉnh sửa được nhúng nguyên byte vào PDF.

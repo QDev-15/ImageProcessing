@@ -26,7 +26,7 @@ public static class OpenJpegEncoder
         try
         {
             string outPath = Path.Combine(workDir, "out.jp2");
-            var args = new List<string> { "-i", inputImagePath, "-o", outPath };
+            var args = new List<string> { "-i", inputImagePath, "-o", outPath, "-threads", "ALL" };
             if (compressionRatio.HasValue)
                 args.AddRange(["-r", compressionRatio.Value.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)]);
 

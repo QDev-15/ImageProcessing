@@ -35,6 +35,27 @@ public partial class MainForm : Form
         _settings = settings;
         _startupFiles = startupFiles ?? Array.Empty<string>();
         InitializeComponent();
+        InitZoomControls();
+    }
+
+    /// <summary>Zoom buttons + zoom % label on the toolbar, wired to the preview.</summary>
+    private void InitZoomControls()
+    {
+        var lblZoom = new ToolStripLabel("100%") { AutoSize = false, Width = 48, TextAlign = ContentAlignment.MiddleCenter, ToolTipText = "Mức zoom" };
+        ToolStripButton Btn(string text, string tip, Action act)
+        {
+            var b = new ToolStripButton(text) { DisplayStyle = ToolStripItemDisplayStyle.Text, ToolTipText = tip };
+            b.Click += (_, _) => act();
+            return b;
+        }
+
+        toolStrip.Items.Add(new ToolStripSeparator());
+        toolStrip.Items.Add(Btn("Zoom −", "Thu nhỏ (cuộn chuột xuống)", picPreview.ZoomOut));
+        toolStrip.Items.Add(lblZoom);
+        toolStrip.Items.Add(Btn("Zoom +", "Phóng to (cuộn chuột lên)", picPreview.ZoomIn));
+        toolStrip.Items.Add(Btn("Vừa khung", "Vừa khung xem (double-click ảnh)", picPreview.FitToWindow));
+        toolStrip.Items.Add(Btn("100%", "Kích thước thật (1 pixel ảnh = 1 pixel màn hình)", picPreview.ActualSize));
+        picPreview.ZoomChanged += (_, _) => lblZoom.Text = $"{picPreview.Zoom * 100:0}%";
     }
 
     #region Lifecycle
@@ -181,8 +202,14 @@ public partial class MainForm : Form
         ShowPreview(lvPages.SelectedIndices.Count == 1 ? lvPages.SelectedIndices[0] : null);
     }
 
-    private void ShowPreview(int? index)
+    private int _previewVersion;
+
+    /// <summary>Decodes the page off the UI thread (a large scan takes seconds), so clicking
+    /// through thumbnails never freezes the window. Only the newest request may show its
+    /// result; an outdated decode is simply discarded.</summary>
+    private async void ShowPreview(int? index)
     {
+        int version = ++_previewVersion;
         Image? old = picPreview.Image;
         picPreview.Image = null;
         old?.Dispose();
@@ -190,17 +217,20 @@ public partial class MainForm : Form
         if (index is not int i || i < 0 || i >= _project.Pages.Count) return;
 
         PageRecord p = _project.Pages[i];
+        int pageCount = _project.Pages.Count;
+        lblPreviewInfo.Text = "Đang tải...";
         try
         {
-            Bitmap bmp = ImageUtils.Load(p.FilePath);
+            Bitmap bmp = await Task.Run(() => ImageUtils.Load(p.FilePath));
+            if (version != _previewVersion || IsDisposed) { bmp.Dispose(); return; }
             (int dx, int dy) = ImageUtils.ResolveDpiXY(bmp);
             picPreview.Image = bmp;
             double wMm = bmp.Width * 25.4 / dx, hMm = bmp.Height * 25.4 / dy;
-            lblPreviewInfo.Text = $"Trang {i + 1}/{_project.Pages.Count}   {bmp.Width}x{bmp.Height} px   {dx}x{dy} dpi   {wMm:0}x{hMm:0} mm   {Path.GetExtension(p.FilePath).TrimStart('.').ToUpperInvariant()}   {p.Label}";
+            lblPreviewInfo.Text = $"Trang {i + 1}/{pageCount}   {bmp.Width}x{bmp.Height} px   {dx}x{dy} dpi   {wMm:0}x{hMm:0} mm   {Path.GetExtension(p.FilePath).TrimStart('.').ToUpperInvariant()}   {p.Label}";
         }
         catch (Exception ex)
         {
-            lblPreviewInfo.Text = "Không xem trước được: " + ex.Message;
+            if (version == _previewVersion) lblPreviewInfo.Text = "Không xem trước được: " + ex.Message;
         }
     }
 
@@ -352,12 +382,27 @@ public partial class MainForm : Form
     /// page is blank and blank removal is on.</summary>
     private PageRecord? ProcessNewPage(string file, string label)
     {
+        // Step 0: bring an over-sized page down to the scan-setting DPI first, so every later
+        // step (blank check, deskew, OSD, export) works on the smaller image. Runs even when
+        // auto-processing is off; on failure the page is kept as it is.
+        string source = file;
+        if (_settings.LimitDpiToScanSetting)
+        {
+            try { file = ResolutionLimiter.Limit(file, _settings.GetTargetDpi(_lastProfileName), _project.PagesFolder); }
+            catch (Exception ex) { Log.Warn($"DPI limit failed for {label}; keeping original resolution", ex); }
+        }
+        bool intermediate = !string.Equals(file, source, StringComparison.OrdinalIgnoreCase);
+
         if (!_settings.AutoProcessOnImport)
             return new PageRecord(file, label);
         var options = PageProcessingOptions.FromSettings(_settings);
         OcrEngine? osd = GetOsd();
         PageProcessResult r;
         lock (_osdLock) r = PageProcessor.Process(file, options, osd, _project.PagesFolder);
+        if (intermediate && (r.IsBlank || !string.Equals(r.OutputPath, file, StringComparison.OrdinalIgnoreCase)))
+        {
+            try { File.Delete(file); } catch { /* best effort */ }
+        }
         if (r.IsBlank)
         {
             Log.Info($"Blank page skipped: {label}");
@@ -686,6 +731,10 @@ public partial class MainForm : Form
         if (_project.Pages.Count == 0 || _work != null) return;
 
         string ext = format == ExportFormat.Pdf ? ".pdf" : ".tif";
+        if (!string.IsNullOrWhiteSpace(_settings.OutputFolder))
+        {
+            try { Directory.CreateDirectory(_settings.OutputFolder); } catch { /* falls back to Documents below */ }
+        }
         string folder = string.IsNullOrWhiteSpace(_settings.OutputFolder) || !Directory.Exists(_settings.OutputFolder)
             ? Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments)
             : _settings.OutputFolder;

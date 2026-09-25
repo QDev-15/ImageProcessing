@@ -72,7 +72,7 @@ namespace ImageOptimizerTool
             this.splitContainer = new System.Windows.Forms.SplitContainer();
             this.lvPages = new System.Windows.Forms.ListView();
             this.imlThumbs = new System.Windows.Forms.ImageList(this.components);
-            this.picPreview = new System.Windows.Forms.PictureBox();
+            this.picPreview = new ZoomPanView();
             this.lblPreviewInfo = new System.Windows.Forms.Label();
             this.statusStrip = new System.Windows.Forms.StatusStrip();
             this.lblStatus = new System.Windows.Forms.ToolStripStatusLabel();
@@ -85,7 +85,6 @@ namespace ImageOptimizerTool
             this.splitContainer.Panel1.SuspendLayout();
             this.splitContainer.Panel2.SuspendLayout();
             this.splitContainer.SuspendLayout();
-            ((System.ComponentModel.ISupportInitialize)(this.picPreview)).BeginInit();
             this.statusStrip.SuspendLayout();
             this.SuspendLayout();
             //
@@ -464,7 +463,6 @@ namespace ImageOptimizerTool
             this.picPreview.Location = new System.Drawing.Point(0, 23);
             this.picPreview.Name = "picPreview";
             this.picPreview.Size = new System.Drawing.Size(800, 567);
-            this.picPreview.SizeMode = System.Windows.Forms.PictureBoxSizeMode.Zoom;
             this.picPreview.TabIndex = 1;
             this.picPreview.TabStop = false;
             //
@@ -539,7 +537,6 @@ namespace ImageOptimizerTool
             this.splitContainer.Panel2.ResumeLayout(false);
             ((System.ComponentModel.ISupportInitialize)(this.splitContainer)).EndInit();
             this.splitContainer.ResumeLayout(false);
-            ((System.ComponentModel.ISupportInitialize)(this.picPreview)).EndInit();
             this.statusStrip.ResumeLayout(false);
             this.statusStrip.PerformLayout();
             this.ResumeLayout(false);
@@ -602,7 +599,7 @@ namespace ImageOptimizerTool
         private System.Windows.Forms.SplitContainer splitContainer;
         private System.Windows.Forms.ListView lvPages;
         private System.Windows.Forms.ImageList imlThumbs;
-        private System.Windows.Forms.PictureBox picPreview;
+        private ZoomPanView picPreview;
         private System.Windows.Forms.Label lblPreviewInfo;
         private System.Windows.Forms.StatusStrip statusStrip;
         private System.Windows.Forms.ToolStripStatusLabel lblStatus;

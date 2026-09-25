@@ -201,6 +201,85 @@ Run("export", () =>
     Check("TIFF page 1 readable by GDI+ at native DPI", Math.Abs(first.HorizontalResolution - Dpi) < 1, $"{first.HorizontalResolution}");
 });
 
+// ---- 6a. DPI limit on scan / import, resilient export ----
+Run("resolution limiter", () =>
+{
+    string folder = Path.Combine(outDir, "limited");
+    Directory.CreateDirectory(folder);
+
+    // 900 dpi color page (A4-sized in pixels at 900 dpi would be ~7400x10500; use a 1/3 scale stand-in: 2481x3507 tagged 900).
+    using Bitmap big = TextPage(Color.White);
+    big.SetResolution(900, 900);
+    string bigPng = Save(big, "lim_big.png");
+    string outPath = ResolutionLimiter.Limit(bigPng, 300, folder);
+    using (Bitmap r = ImageUtils.Load(outPath))
+        Check("900 dpi page scaled to 300 dpi", Math.Abs(r.Width - big.Width / 3) <= 1 && Math.Abs(r.HorizontalResolution - 300) < 1
+            && r.PixelFormat == PixelFormat.Format24bppRgb, $"{r.Width}x{r.Height} @{r.HorizontalResolution}");
+    Check("source file consumed", !File.Exists(bigPng));
+
+    // Page at / below target stays byte-identical (same path returned, nothing rewritten).
+    using Bitmap ok = TextPage(Color.White);
+    string okPng = Save(ok, "lim_ok.png");
+    Check("300 dpi page untouched", ResolutionLimiter.Limit(okPng, 300, folder) == okPng && File.Exists(okPng));
+    Check("200 dpi target on 300 dpi page shrinks", ResolutionLimiter.Limit(Save(ok, "lim_ok2.png"), 200, folder) != okPng);
+
+    // Bitonal stays 1bpp.
+    using Bitmap bin = ImageUtils.ToBitonal(TextPage(Color.White));
+    bin.SetResolution(600, 600);
+    string binTif = ImageUtils.SaveLossless(bin, Path.Combine(outDir, "lim_bin"));
+    string binOut = ResolutionLimiter.Limit(binTif, 300, folder);
+    using (Bitmap r = ImageUtils.Load(binOut))
+        Check("600 dpi bitonal page -> 300 dpi, still 1bpp", r.PixelFormat == PixelFormat.Format1bppIndexed
+            && Math.Abs(r.HorizontalResolution - 300) < 1 && Math.Abs(r.Width - bin.Width / 2) <= 1, $"{r.Width}x{r.Height} {r.PixelFormat}");
+
+    // Untagged big image: DPI is inferred from the pixel size (A4 -> ~300 here, so untouched at 300).
+    string exportFolder = Path.Combine(outDir, "resil");
+    Directory.CreateDirectory(exportFolder);
+    using Bitmap tiny = new(8, 8, PixelFormat.Format24bppRgb);
+    tiny.SetResolution(300, 300);
+    string tinyPng = Save(tiny, "tiny.png");
+    string tinyPdf = Path.Combine(exportFolder, "tiny.pdf");
+    DocumentExporter.ExportPdf(new[] { tinyPng }, new ExportOptions { UseJpeg2000 = true, UseJBig2 = true }, tinyPdf);
+    Check("export of a tiny page succeeds whatever the codec does", new FileInfo(tinyPdf).Length > 0);
+
+    // External encoders unavailable / crashing (e.g. out of memory): export still completes.
+    string toolsDir = Path.Combine(AppContext.BaseDirectory, "tools");
+    string hiddenTools = toolsDir + "_hidden";
+    Directory.Move(toolsDir, hiddenTools);
+    try
+    {
+        using Bitmap col = TextPage(Color.White);
+        using (Graphics g = Graphics.FromImage(col)) g.FillEllipse(Brushes.Blue, 1500, 2800, 500, 400);
+        string colPng = Save(col, "resil_color.png"), txtPng = Save(TextPage(Color.White), "resil_text.png");
+        string fbPdf = Path.Combine(exportFolder, "fallback.pdf");
+        DocumentExporter.ExportPdf(new[] { txtPng, colPng, txtPng }, new ExportOptions { UseJBig2 = true, UseJpeg2000 = true }, fbPdf);
+        VerifyPdf(fbPdf, 3, null);
+        string fbTif = Path.Combine(exportFolder, "fallback.tif");
+        DocumentExporter.ExportTiff(new[] { txtPng, colPng }, new ExportOptions { UseJBig2 = true, UseJpeg2000 = true }, fbTif);
+        Check("export survives missing jbig2 / openjpeg (JBIG2 -> G4, JP2 -> JPEG)", new FileInfo(fbTif).Length > 0);
+    }
+    finally
+    {
+        Directory.Move(hiddenTools, toolsDir);
+    }
+
+    // Many pages in parallel keep their order.
+    using Bitmap a = TextPage(Color.White);
+    var many = new List<string>();
+    for (int i = 0; i < 6; i++)
+    {
+        using Bitmap pg = new(a.Width / 2, (int)(a.Height / 2 + i * 40), PixelFormat.Format24bppRgb);
+        pg.SetResolution(150, 150);
+        many.Add(Save(pg, $"many_{i}.png"));
+    }
+    string manyPdf = Path.Combine(exportFolder, "many.pdf");
+    DocumentExporter.ExportPdf(many, new ExportOptions { PdfA = false }, manyPdf);
+    using var md = PdfiumViewer.PdfDocument.Load(manyPdf);
+    bool ordered = md.PageCount == 6;
+    for (int i = 1; ordered && i < 6; i++) ordered = md.PageSizes[i].Height > md.PageSizes[i - 1].Height;
+    Check("parallel export keeps page order", ordered);
+});
+
 // ---- 6b. Page processor, splitter, naming, project ----
 Run("processor", () =>
 {

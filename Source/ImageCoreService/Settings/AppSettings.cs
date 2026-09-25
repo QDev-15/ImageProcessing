@@ -96,6 +96,20 @@ public sealed class AppSettings
      Description("Chạy các bước xử lý bật bên dưới cho mỗi trang ngay khi scan / import.")]
     public bool AutoProcessOnImport { get; set; } = true;
 
+    [Category("3. Xử lý ảnh"), DisplayName("Giới hạn DPI theo cài đặt scan"),
+     Description("Khi scan / import, ảnh có DPI cao hơn DPI của profile scan (mặc định 300) sẽ được thu nhỏ về đúng DPI đó. Ảnh có DPI bằng hoặc thấp hơn được giữ nguyên, không phóng to. Tắt = giữ nguyên độ phân giải gốc.")]
+    public bool LimitDpiToScanSetting { get; set; } = true;
+
+    /// <summary>DPI pages are limited to on scan / import: the DPI of the named scan profile
+    /// (default profile when null / unknown), 300 when none is usable.</summary>
+    public int GetTargetDpi(string? profileName = null)
+    {
+        ScanProfile? p = ScanProfiles.FirstOrDefault(x => string.Equals(x.Name, profileName, StringComparison.OrdinalIgnoreCase))
+                         ?? ScanProfiles.FirstOrDefault(x => string.Equals(x.Name, DefaultProfileName, StringComparison.OrdinalIgnoreCase))
+                         ?? ScanProfiles.FirstOrDefault();
+        return p is { Dpi: >= 50 } ? p.Dpi : 300;
+    }
+
     [Category("3. Xử lý ảnh"), DisplayName("Chỉnh nghiêng (deskew)")]
     public bool Deskew { get; set; } = true;
 

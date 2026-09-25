@@ -43,7 +43,7 @@ thương mại, với điều kiện giữ thông báo bản quyền / license (
 |---|---|
 | `vcruntime140.dll`, `vcruntime140_1.dll`, `msvcp140.dll` (x64, 14.44) | tesseract50.dll / leptonica-1.82.0.dll |
 | `tools\jbig2enc\msvcr120.dll` (x86, VC++ 2013) | leptonica-1.76.0.dll của jbig2enc |
-| `tools\openjpeg\vcruntime140.dll`, `msvcp140*.dll`, `concrt140.dll` (x86) | OpenJPEG |
+| `tools\openjpeg\vcruntime140.dll`, `msvcp140*.dll`, `concrt140.dll` (x64) | OpenJPEG |
 
 Các file này thuộc danh sách "Redistributable Code" của Visual Studio, được phép phân phối kèm
 ứng dụng. ⚠ Các file x64 / msvcr120 hiện được copy từ máy dev (System32 / SysWOW64). Với bản

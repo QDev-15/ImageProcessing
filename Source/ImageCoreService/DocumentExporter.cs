@@ -7,15 +7,15 @@ namespace ImageCoreService;
 public sealed class ExportOptions
 {
     /// <summary>false -> CCITT G4 for bitonal pages.</summary>
-    public bool UseJBig2 { get; set; } = true;
+    public bool UseJBig2 { get; set; }
     /// <summary>false -> JPEG for gray / color pages.</summary>
-    public bool UseJpeg2000 { get; set; } = true;
+    public bool UseJpeg2000 { get; set; }
     public JBig2Mode JBig2Mode { get; set; } = JBig2Mode.Symbol;
     public double JBig2Threshold { get; set; } = 0.85;
     public int JpegQuality { get; set; } = 60;
     /// <summary>0 = lossless.</summary>
     public double Jpeg2000Ratio { get; set; } = 40;
-    public bool PassThroughOriginalJpeg { get; set; } = false;
+    public bool PassThroughOriginalJpeg { get; set; } = true;
 
     public ColorOutputMode ColorMode { get; set; } = ColorOutputMode.Auto;
     public BinarizationMethod Binarization { get; set; } = BinarizationMethod.Sauvola;
@@ -86,24 +86,18 @@ public static class DocumentExporter
         if (pageFiles.Count == 0) throw new ArgumentException("No pages to export.", nameof(pageFiles));
 
         var temps = new List<string>();
-        OcrEngine? ocr = null;
         try
         {
+            string? ocrLanguages = null;
             if (options.Ocr)
             {
                 if (OcrEngine.IsLanguageAvailable(options.OcrLanguages))
-                    ocr = new OcrEngine(options.OcrLanguages);
+                    ocrLanguages = options.OcrLanguages;
                 else
                     Log.Warn($"OCR skipped: language data '{options.OcrLanguages}' not found in {OcrEngine.TessDataPath}");
             }
 
-            var prepared = new List<Prepared>(pageFiles.Count);
-            for (int i = 0; i < pageFiles.Count; i++)
-            {
-                cancel.ThrowIfCancellationRequested();
-                progress?.Report(new WorkProgress(i + 1, pageFiles.Count, $"Mã hoá trang {i + 1}/{pageFiles.Count}"));
-                prepared.Add(PreparePage(pageFiles[i], options, forPdf: true, ocr, temps));
-            }
+            Prepared[] prepared = PrepareAll(pageFiles, options, forPdf: true, ocrLanguages, temps, progress, cancel);
 
             // JBIG2 symbol mode: one jbig2.exe run over every bitonal page so glyphs repeated
             // ACROSS pages share one dictionary (embedded once, referenced by every page).
@@ -112,12 +106,28 @@ public static class DocumentExporter
             {
                 cancel.ThrowIfCancellationRequested();
                 progress?.Report(new WorkProgress(pageFiles.Count, pageFiles.Count, "JBIG2: mã hoá từ điển ký tự..."));
-                JBig2Encoder.Result[] results = JBig2Encoder.EncodeSymbolMultiPage(
-                    symbolPages.Select(p => p.TempBitonalPath!).ToList(), options.JBig2Threshold);
-                for (int i = 0; i < symbolPages.Count; i++)
+                try
                 {
-                    symbolPages[i].Bytes = results[i].PageStream;
-                    symbolPages[i].JBig2Globals = results[i].GlobalsStream;
+                    JBig2Encoder.Result[] results = JBig2Encoder.EncodeSymbolMultiPage(
+                        symbolPages.Select(p => p.TempBitonalPath!).ToList(), options.JBig2Threshold);
+                    for (int i = 0; i < symbolPages.Count; i++)
+                    {
+                        symbolPages[i].Bytes = results[i].PageStream;
+                        symbolPages[i].JBig2Globals = results[i].GlobalsStream;
+                    }
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    // jbig2.exe is a 32-bit build: it can run out of memory on very large pages.
+                    // Never fail the export for it -- code each page on its own (generic
+                    // region), and any page that still fails as CCITT G4.
+                    Log.Warn("JBIG2 symbol coding failed; falling back to per-page coding", ex);
+                    foreach (Prepared p in symbolPages)
+                    {
+                        cancel.ThrowIfCancellationRequested();
+                        p.JBig2Globals = null;
+                        EncodeBitonalFallback(p, p.TempBitonalPath!);
+                    }
                 }
             }
 
@@ -139,11 +149,10 @@ public static class DocumentExporter
                     builder.AddJpegPage(p.Bytes!, p.Width, p.Height, p.DpiX, p.DpiY, p.Words);
             }
             builder.Save(destPath);
-            Log.Info($"Exported PDF {destPath}: {pageFiles.Count} page(s), JBIG2={options.UseJBig2}, JP2={options.UseJpeg2000}, PDF/A={options.PdfA}, OCR={ocr != null}");
+            Log.Info($"Exported PDF {destPath}: {pageFiles.Count} page(s), JBIG2={options.UseJBig2}, JP2={options.UseJpeg2000}, PDF/A={options.PdfA}, OCR={ocrLanguages != null}");
         }
         finally
         {
-            ocr?.Dispose();
             DeleteTempFiles(temps);
         }
     }
@@ -157,11 +166,8 @@ public static class DocumentExporter
         try
         {
             var pages = new List<TiffPage>(pageFiles.Count);
-            for (int i = 0; i < pageFiles.Count; i++)
+            foreach (Prepared p in PrepareAll(pageFiles, options, forPdf: false, ocrLanguages: null, temps, progress, cancel))
             {
-                cancel.ThrowIfCancellationRequested();
-                progress?.Report(new WorkProgress(i + 1, pageFiles.Count, $"Mã hoá trang {i + 1}/{pageFiles.Count}"));
-                Prepared p = PreparePage(pageFiles[i], options, forPdf: false, null, temps);
                 TiffPageCodec codec = p.Kind == PageColorKind.Bitonal
                     ? (p.IsJBig2 ? TiffPageCodec.JBig2 : TiffPageCodec.CcittG4)
                     : (p.IsJpx ? TiffPageCodec.Jpeg2000 : TiffPageCodec.Jpeg);
@@ -186,7 +192,75 @@ public static class DocumentExporter
         _ => PageAnalyzer.Classify(bmp, dpi),
     };
 
-    private static Prepared PreparePage(string file, ExportOptions o, bool forPdf, OcrEngine? ocr, List<string> temps)
+    /// <summary>
+    /// Prepares every page (binarize / classify / OCR / encode) with a few pages in flight at
+    /// once. Pages are independent; the two shared resources are handled explicitly:
+    /// Tesseract is not thread-safe, so each worker takes its own <see cref="OcrEngine"/> from
+    /// a small pool (an engine is ~1 s to create, so they are reused), and temp files go
+    /// through a lock. Results stay in page order.
+    /// </summary>
+    private static Prepared[] PrepareAll(IReadOnlyList<string> pageFiles, ExportOptions o, bool forPdf,
+        string? ocrLanguages, List<string> temps, IProgress<WorkProgress>? progress, CancellationToken cancel)
+    {
+        int n = pageFiles.Count;
+        var result = new Prepared[n];
+        // Inner loops (gray conversion, Sauvola) are already multi-threaded, and every worker
+        // holds a full page in memory plus its own OCR models: a small degree is the sweet spot.
+        int degree = Math.Min(n, Math.Clamp(Environment.ProcessorCount / 2, 1, 4));
+        var ocrPool = new System.Collections.Concurrent.ConcurrentBag<OcrEngine>();
+        int done = 0;
+        void AddTemp(string path) { lock (temps) temps.Add(path); }
+
+        try
+        {
+            Parallel.For(0, n, new ParallelOptions { MaxDegreeOfParallelism = degree, CancellationToken = cancel }, i =>
+            {
+                OcrEngine? engine = null;
+                if (ocrLanguages != null && !ocrPool.TryTake(out engine))
+                    engine = new OcrEngine(ocrLanguages);
+                try
+                {
+                    result[i] = PreparePage(pageFiles[i], o, forPdf, engine, AddTemp);
+                }
+                finally
+                {
+                    if (engine != null) ocrPool.Add(engine);
+                }
+                int d = Interlocked.Increment(ref done);
+                progress?.Report(new WorkProgress(d, n, $"Mã hoá trang {d}/{n}"));
+            });
+        }
+        catch (AggregateException ae) when (ae.InnerExceptions.Count > 0)
+        {
+            // Surface the real failure, not "One or more errors occurred".
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(ae.InnerExceptions[0]).Throw();
+        }
+        finally
+        {
+            foreach (OcrEngine engine in ocrPool) engine.Dispose();
+        }
+        return result;
+    }
+
+    /// <summary>Generic-region JBIG2 for one page; if that fails too, CCITT G4 (managed, no
+    /// external process). Used when symbol coding cannot run.</summary>
+    private static void EncodeBitonalFallback(Prepared p, string bitonalPng)
+    {
+        try
+        {
+            p.Bytes = JBig2Encoder.EncodeGeneric(bitonalPng).PageStream;
+            p.IsJBig2 = true;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Log.Warn("JBIG2 generic coding failed; using CCITT G4 for this page", ex);
+            using Bitmap bitonal = ImageUtils.Load(bitonalPng);
+            p.Bytes = G4Encoder.EncodeToG4(bitonal);
+            p.IsJBig2 = false;
+        }
+    }
+
+    private static Prepared PreparePage(string file, ExportOptions o, bool forPdf, OcrEngine? ocr, Action<string> addTemp)
     {
         using Bitmap src = ImageUtils.Load(file);
         (int dpiX, int dpiY) = ImageUtils.ResolveDpiXY(src);
@@ -210,13 +284,13 @@ public static class DocumentExporter
                 p.IsJBig2 = true;
                 string tmp = Path.Combine(Path.GetTempPath(), "ioc_" + Guid.NewGuid().ToString("N") + ".png");
                 bitonal.Save(tmp, ImageFormat.Png);
-                temps.Add(tmp);
+                addTemp(tmp);
                 // TIFF has no /JBIG2Globals equivalent, so each TIFF strip must be a
                 // self-contained generic-region stream; PDF can use shared symbols.
                 if (forPdf && o.JBig2Mode == JBig2Mode.Symbol)
                     p.TempBitonalPath = tmp;
                 else
-                    p.Bytes = JBig2Encoder.EncodeGeneric(tmp).PageStream;
+                    EncodeBitonalFallback(p, tmp); // generic JBIG2, G4 if jbig2.exe fails
             }
             else
             {
@@ -231,21 +305,31 @@ public static class DocumentExporter
         bool isJpegFile = IsJpegFile(file);
         if (o.UseJpeg2000)
         {
-            p.IsJpx = true;
-            // Always hand opj_compress a normalized PNG (8-bit gray or 24-bit RGB): it cannot
-            // read JPEG and mishandles 1bpp / palette / alpha inputs.
-            string input;
+            try
             {
-                input = Path.Combine(Path.GetTempPath(), "ioc_" + Guid.NewGuid().ToString("N") + ".png");
-                using Bitmap prepared = p.Kind == PageColorKind.Gray
+                // Always hand opj_compress a normalized PNG (8-bit gray or 24-bit RGB): it cannot
+                // read JPEG and mishandles 1bpp / palette / alpha inputs.
+                string input = Path.Combine(Path.GetTempPath(), "ioc_" + Guid.NewGuid().ToString("N") + ".png");
+                using (Bitmap prepared = p.Kind == PageColorKind.Gray
                     ? GrayImage.FromBitmap(src).ToBitmap8bpp(dpiX, dpiY)
-                    : ImageUtils.To24bpp(src);
-                prepared.Save(input, ImageFormat.Png);
-                temps.Add(input);
+                    : ImageUtils.To24bpp(src))
+                {
+                    addTemp(input);
+                    prepared.Save(input, ImageFormat.Png);
+                }
+                p.Bytes = OpenJpegEncoder.Encode(input, o.Jpeg2000Ratio > 0 ? o.Jpeg2000Ratio : null);
+                p.IsJpx = true;
+                p.Components = p.Kind == PageColorKind.Gray ? 1 : 3;
+                return p;
             }
-            p.Bytes = OpenJpegEncoder.Encode(input, o.Jpeg2000Ratio > 0 ? o.Jpeg2000Ratio : null);
-            p.Components = p.Kind == PageColorKind.Gray ? 1 : 3;
-            return p;
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // Out of memory, missing / blocked exe, odd input: the page must still export,
+                // so fall through to the managed JPEG encoder (same geometry, different codec).
+                Log.Warn($"JPEG2000 failed for {Path.GetFileName(file)} ({src.Width}x{src.Height}); using JPEG for this page", ex);
+                p.IsJpx = false;
+                p.Bytes = null;
+            }
         }
 
         if (isJpegFile && o.PassThroughOriginalJpeg)
