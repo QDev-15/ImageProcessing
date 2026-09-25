@@ -28,6 +28,10 @@ public static class MauiProgram
 		builder.Services.AddSingleton<PageIngestQueue>();
 		builder.Services.AddSingleton<PageEditService>();
 		builder.Services.AddSingleton<ImportService>();
+		builder.Services.AddSingleton<PdfExportService>();
+		builder.Services.AddSingleton(_ => new ExportLibrary(Path.Combine(FileSystem.AppDataDirectory, "exports")));
+		builder.Services.AddSingleton<ExportCoordinator>();
+		builder.Services.AddSingleton<IDownloadsService, AndroidDownloadsService>();
 		builder.Services.AddSingleton<PermissionService>();
 		builder.Services.AddSingleton<ImportCoordinator>();
 
@@ -35,11 +39,12 @@ public static class MauiProgram
 		builder.Services.AddTransient<DocumentViewModel>();
 		builder.Services.AddTransient<CropViewModel>();
 		builder.Services.AddTransient<ResultViewModel>();
+		builder.Services.AddTransient<ExportsViewModel>();
 		builder.Services.AddTransient<HomePage>();
 		builder.Services.AddTransient<DocumentPage>();
 		builder.Services.AddTransient<CropPage>();
 		builder.Services.AddTransient<ResultPage>();
-		builder.Services.AddTransient<ExportPage>();
+		builder.Services.AddTransient<ExportsPage>();
 
 #if DEBUG
 		builder.Logging.AddDebug();

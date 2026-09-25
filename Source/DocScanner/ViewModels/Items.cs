@@ -8,6 +8,8 @@ namespace DocScanner.ViewModels;
 /// pipeline (see <see cref="Refresh"/>).</summary>
 public partial class DocumentItem : ObservableObject
 {
+	private string? _thumbPath;
+
 	public DocumentItem(DocumentRecord record, Action<DocumentItem> open, Action<DocumentItem> delete)
 	{
 		Record = record;
@@ -17,7 +19,9 @@ public partial class DocumentItem : ObservableObject
 	}
 
 	public DocumentRecord Record { get; }
-	public string Name { get; }
+	[ObservableProperty]
+	private string name = "";
+
 	public ICommand OpenCommand { get; }
 	public ICommand DeleteCommand { get; }
 
@@ -35,8 +39,12 @@ public partial class DocumentItem : ObservableObject
 		string date = Record.CreatedUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm");
 		Subtitle = busy > 0 ? $"{pages.Count} trang · đang xử lý {busy} · {date}" : $"{pages.Count} trang · {date}";
 
-		if (Thumb == null && firstThumbPath != null && File.Exists(firstThumbPath))
+		Name = Record.Name; // may have been renamed
+		if (firstThumbPath != null && firstThumbPath != _thumbPath && File.Exists(firstThumbPath))
+		{
 			Thumb = ImageSource.FromFile(firstThumbPath);
+			_thumbPath = firstThumbPath;
+		}
 	}
 }
 
@@ -50,13 +58,17 @@ public partial class PageItem : ObservableObject
 
 	/// <param name="thumbPath">Which file to show for the page (the straightened thumbnail once there is a
 	/// current one, otherwise the plain thumbnail).</param>
-	public PageItem(PageRecord record, int number, Func<PageRecord, string> thumbPath, Action<PageItem> open, Action<PageItem> delete)
+	public PageItem(PageRecord record, int number, Func<PageRecord, string> thumbPath, Action<PageItem> open, Action<PageItem> delete,
+		Action<PageItem>? menu = null, Action<PageItem>? dragStart = null, Action<PageItem>? drop = null)
 	{
 		Record = record;
 		_thumbPath = thumbPath;
 		Label = $"Trang {number}";
 		OpenCommand = new Command(() => open(this));
 		DeleteCommand = new Command(() => delete(this));
+		MenuCommand = new Command(() => menu?.Invoke(this));
+		DragStartingCommand = new Command(() => dragStart?.Invoke(this));
+		DropCommand = new Command(() => drop?.Invoke(this));
 		Refresh();
 	}
 
@@ -64,6 +76,11 @@ public partial class PageItem : ObservableObject
 	public string Label { get; }
 	public ICommand OpenCommand { get; }
 	public ICommand DeleteCommand { get; }
+	/// <summary>Page actions (move, delete...).</summary>
+	public ICommand MenuCommand { get; }
+	/// <summary>Drag to reorder: this tile is picked up / another tile is dropped on it.</summary>
+	public ICommand DragStartingCommand { get; }
+	public ICommand DropCommand { get; }
 
 	[ObservableProperty]
 	private ImageSource? thumb;

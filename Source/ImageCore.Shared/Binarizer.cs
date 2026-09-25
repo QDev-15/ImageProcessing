@@ -78,47 +78,81 @@ public static class Binarizer
         return dst;
     }
 
+    /// <summary>
+    /// Sauvola threshold with a square <paramref name="window"/>, borders clipped. Memory is
+    /// O(width): each horizontal band of rows keeps running per-column sums of v and v^2 and slides
+    /// them down one row at a time (add the row entering the window, drop the one leaving it); the
+    /// window sum along a row is another running sum over those columns. An 8.7 MP A4 page therefore
+    /// needs a few KB of working memory instead of the ~140 MB two full integral images would take.
+    /// The sums are exact integers, so the result is bit-identical to the integral-image version.
+    /// </summary>
     public static GrayImage Sauvola(GrayImage src, int window, double k)
     {
         int w = src.Width, h = src.Height;
-        int stride = w + 1;
-        // Integral images of v and v^2 (one extra row/column of zeros). long is plenty:
-        // 255^2 * 100M pixels still fits comfortably.
-        var sum = new long[(long)stride * (h + 1)];
-        var sq = new long[(long)stride * (h + 1)];
-        for (int y = 0; y < h; y++)
-        {
-            long rowSum = 0, rowSq = 0;
-            int o = y * w;
-            long io = (long)(y + 1) * stride, ip = (long)y * stride;
-            for (int x = 0; x < w; x++)
-            {
-                int v = src.Data[o + x];
-                rowSum += v;
-                rowSq += v * v;
-                sum[io + x + 1] = sum[ip + x + 1] + rowSum;
-                sq[io + x + 1] = sq[ip + x + 1] + rowSq;
-            }
-        }
-
-        const double R = 128.0; // dynamic range of the standard deviation for 8-bit input
-        int half = window / 2;
+        int half = Math.Max(0, window / 2);
         var dst = new GrayImage(w, h);
-        Parallel.For(0, h, y =>
+        if (w == 0 || h == 0) return dst;
+
+        // Bands run in parallel; each needs to prime its column sums over ~window rows, so keep
+        // bands several windows tall.
+        int bands = Math.Clamp(Environment.ProcessorCount, 1, Math.Max(1, h / Math.Max(64, 4 * half)));
+        int bandHeight = (h + bands - 1) / bands;
+        byte[] data = src.Data, output = dst.Data;
+
+        Parallel.For(0, bands, b =>
         {
-            int y0 = Math.Max(0, y - half), y1 = Math.Min(h - 1, y + half);
-            long r0 = (long)y0 * stride, r1 = (long)(y1 + 1) * stride;
-            int o = y * w;
-            for (int x = 0; x < w; x++)
+            int yStart = b * bandHeight, yEnd = Math.Min(h, yStart + bandHeight);
+            if (yStart >= yEnd) return;
+
+            var colSum = new long[w];
+            var colSq = new long[w];
+            void AddRow(int r, int sign)
             {
-                int x0 = Math.Max(0, x - half), x1 = Math.Min(w - 1, x + half);
-                long n = (long)(x1 - x0 + 1) * (y1 - y0 + 1);
-                long s = sum[r1 + x1 + 1] - sum[r0 + x1 + 1] - sum[r1 + x0] + sum[r0 + x0];
-                long s2 = sq[r1 + x1 + 1] - sq[r0 + x1 + 1] - sq[r1 + x0] + sq[r0 + x0];
-                double mean = s / (double)n;
-                double variance = Math.Max(0, s2 / (double)n - mean * mean);
-                double t = mean * (1 + k * (Math.Sqrt(variance) / R - 1));
-                dst.Data[o + x] = src.Data[o + x] <= t ? (byte)0 : (byte)255;
+                int o = r * w;
+                for (int x = 0; x < w; x++)
+                {
+                    int v = data[o + x];
+                    colSum[x] += sign * v;
+                    colSq[x] += sign * v * v;
+                }
+            }
+
+            int top = Math.Max(0, yStart - half), bottom = Math.Min(h - 1, yStart + half);
+            for (int r = top; r <= bottom; r++) AddRow(r, +1);
+
+            const double R = 128.0; // dynamic range of the standard deviation for 8-bit input
+            for (int y = yStart; y < yEnd; y++)
+            {
+                if (y > yStart)
+                {
+                    int newTop = Math.Max(0, y - half), newBottom = Math.Min(h - 1, y + half);
+                    if (newBottom > bottom) AddRow(newBottom, +1);
+                    if (newTop > top) AddRow(top, -1);
+                    top = newTop;
+                    bottom = newBottom;
+                }
+                int rows = bottom - top + 1;
+
+                // Running window over the columns of this row.
+                long s = 0, s2 = 0;
+                int right = Math.Min(w - 1, half);
+                for (int x = 0; x <= right; x++) { s += colSum[x]; s2 += colSq[x]; }
+                int o = y * w;
+                for (int x = 0; x < w; x++)
+                {
+                    if (x > 0)
+                    {
+                        int enter = x + half, leave = x - half - 1;
+                        if (enter < w) { s += colSum[enter]; s2 += colSq[enter]; }
+                        if (leave >= 0) { s -= colSum[leave]; s2 -= colSq[leave]; }
+                    }
+                    int x0 = Math.Max(0, x - half), x1 = Math.Min(w - 1, x + half);
+                    long n = (long)(x1 - x0 + 1) * rows;
+                    double mean = s / (double)n;
+                    double variance = Math.Max(0, s2 / (double)n - mean * mean);
+                    double t = mean * (1 + k * (Math.Sqrt(variance) / R - 1));
+                    output[o + x] = data[o + x] <= t ? (byte)0 : (byte)255;
+                }
             }
         });
         return dst;

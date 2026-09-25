@@ -4,12 +4,27 @@
     xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
     xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
     xmlns:views="clr-namespace:DocScanner.Views"
-    Shell.FlyoutBehavior="Disabled"
+    Shell.FlyoutBehavior="Flyout"
+    FlyoutBackgroundColor="{AppThemeBinding Light=White, Dark=#1C1C1C}"
     Title="Doc Scanner">
 
-    <ShellContent
-        Title="Doc Scanner"
-        ContentTemplate="{DataTemplate views:HomePage}"
-        Route="home" />
+    <!-- Menu (☰ on the main screens): documents, exported PDFs. -->
+    <Shell.FlyoutHeader>
+        <Grid Padding="20,32,20,20" ColumnDefinitions="Auto,*" ColumnSpacing="14" BackgroundColor="#1A5FD6">
+            <Image Source="scanner_logo.png" WidthRequest="52" HeightRequest="52" />
+            <VerticalStackLayout Grid.Column="1" VerticalOptions="Center">
+                <Label Text="Doc Scanner" TextColor="White" FontSize="20" FontAttributes="Bold" />
+                <Label Text="Quét tài liệu, xuất PDF" TextColor="#DDE8FF" FontSize="13" />
+            </VerticalStackLayout>
+        </Grid>
+    </Shell.FlyoutHeader>
+
+    <FlyoutItem Title="Tài liệu" Route="home">
+        <ShellContent ContentTemplate="{DataTemplate views:HomePage}" />
+    </FlyoutItem>
+
+    <FlyoutItem Title="PDF đã xuất" Route="exports">
+        <ShellContent ContentTemplate="{DataTemplate views:ExportsPage}" />
+    </FlyoutItem>
 
 </Shell>

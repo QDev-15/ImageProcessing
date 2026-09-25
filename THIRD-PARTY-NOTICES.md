@@ -22,6 +22,7 @@ thương mại, với điều kiện giữ thông báo bản quyền / license (
 | .NET MAUI (Microsoft.Maui.Controls), app mobile `DocScanner` | 10.x | MIT | Chỉ app Android, không nằm trong app WinForms. |
 | CommunityToolkit.Mvvm                                | 8.4.0         | MIT    | App mobile `DocScanner`. |
 | xUnit / Microsoft.NET.Test.Sdk (chỉ project test)    | 2.9.2 / 17.12.0 | Apache-2.0 / MIT | Không phân phối kèm app. |
+| PdfPig (UglyToad.PdfPig, chỉ project test)          | 0.1.16        | Apache-2.0 | Đọc lại PDF xuất ra trong `DocScanner.Core.Tests`. Không phân phối kèm app. |
 
 ## Dữ liệu
 

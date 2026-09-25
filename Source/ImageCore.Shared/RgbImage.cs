@@ -31,6 +31,15 @@ public sealed class RgbImage
         return img;
     }
 
+    /// <summary>Gray -> RGB (R = G = B), for encoders that only take color.</summary>
+    public static RgbImage FromGray(GrayImage gray)
+    {
+        var img = new RgbImage(gray.Width, gray.Height);
+        for (int i = 0, o = 0; i < gray.Data.Length; i++, o += 3)
+            img.Data[o] = img.Data[o + 1] = img.Data[o + 2] = gray.Data[i];
+        return img;
+    }
+
     public GrayImage ToGray()
     {
         var g = new GrayImage(Width, Height);

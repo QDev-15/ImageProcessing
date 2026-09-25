@@ -1,6 +1,7 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using DocScanner.Core;
+using DocScanner.Services;
 
 namespace DocScanner.ViewModels;
 
@@ -9,7 +10,8 @@ namespace DocScanner.ViewModels;
 /// "Toàn ảnh", rotate). The page may still be in the background pipeline when it is opened: this
 /// screen shows what exists and updates itself as the pipeline advances.
 /// </summary>
-public partial class CropViewModel(DocumentStore store, CropDetectionService detection, PageEditService edit, PageIngestQueue queue)
+public partial class CropViewModel(DocumentStore store, CropDetectionService detection, PageEditService edit, PageIngestQueue queue,
+	ExportCoordinator exports)
 	: ObservableObject, IQueryAttributable
 {
 	private string? _docId;
@@ -38,6 +40,12 @@ public partial class CropViewModel(DocumentStore store, CropDetectionService det
 	/// <summary>Buttons work only on a finished page (a rotation while it is being rebuilt would race the rebuild).</summary>
 	[ObservableProperty]
 	private bool canEdit;
+
+	[ObservableProperty]
+	private bool canGoPrevious;
+
+	[ObservableProperty]
+	private bool canGoNext;
 
 	public void ApplyQueryAttributes(IDictionary<string, object> query)
 	{
@@ -74,7 +82,10 @@ public partial class CropViewModel(DocumentStore store, CropDetectionService det
 			CanEdit = false;
 			return;
 		}
-		Title = $"Trang {pages.ToList().IndexOf(page) + 1}";
+		int index = pages.ToList().IndexOf(page);
+		Title = $"Trang {index + 1}/{pages.Count}";
+		CanGoPrevious = index > 0;
+		CanGoNext = index < pages.Count - 1;
 
 		switch (page.State)
 		{
@@ -176,21 +187,43 @@ public partial class CropViewModel(DocumentStore store, CropDetectionService det
 		if (edit.Rotate(_docId, _pageId)) Refresh(); // Pending now; the pipeline reports back when the page is rebuilt
 	}
 
-	/// <summary>Finish editing: make sure the outline is saved, then straighten the page and show the result.</summary>
+	/// <summary>Straighten the page and show the result (color / gray / black and white).</summary>
 	[RelayCommand]
-	private async Task DoneAsync()
+	private async Task ShowResultAsync()
 	{
-		if (_docId == null || _pageId == null || !CanEdit)
-		{
-			await Shell.Current.GoToAsync("..");
-			return;
-		}
-
-		// An untouched page still shows the fallback frame (never saved): that is what the user accepted.
-		PageRecord? page = store.Pages(_docId).FirstOrDefault(p => p.Id == _pageId);
-		if (page is { CropQuad: null } && Quad is { Length: 8 })
-			edit.SetCrop(_docId, _pageId, ImageCoreService.Quad.FromValues(Quad));
-
+		if (_docId == null || _pageId == null || !CanEdit) return;
+		KeepShownOutline();
 		await Shell.Current.GoToAsync($"{AppShell.Routes.Result}?docId={_docId}&pageId={_pageId}");
+	}
+
+	/// <summary>Previous (-1) / next (+1) page of the document, from the buttons or a swipe outside the outline.
+	/// The outline on screen is kept for the page being left.</summary>
+	[RelayCommand]
+	private void Go(int delta)
+	{
+		if (_docId == null || _pageId == null) return;
+		var next = store.Neighbor(_docId, _pageId, delta);
+		if (next == null) return;
+		KeepShownOutline();
+		_pageId = next.Value.PageId;
+		_detecting = false;
+		Refresh();
+	}
+
+	[RelayCommand]
+	private Task ExportPdfAsync()
+	{
+		if (_docId == null) return Task.CompletedTask;
+		KeepShownOutline();
+		return exports.ExportAsync(_docId);
+	}
+
+	/// <summary>An untouched page still shows the fallback frame (never saved): that is what the user accepted.</summary>
+	private void KeepShownOutline()
+	{
+		if (_docId == null || _pageId == null || !CanEdit) return;
+		PageRecord? page = store.Pages(_docId).FirstOrDefault(p => p.Id == _pageId);
+		if (page is { State: PageState.Ready, CropQuad: null } && Quad is { Length: 8 })
+			edit.SetCrop(_docId, _pageId, ImageCoreService.Quad.FromValues(Quad));
 	}
 }

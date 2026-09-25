@@ -109,6 +109,110 @@ public sealed class DocumentStore(string root)
         }
     }
 
+    /// <summary>Renames a document (blank names are ignored). Returns false when it no longer exists.</summary>
+    public bool Rename(string docId, string name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return false;
+        return Update(docId, d => d.Name = name.Trim());
+    }
+
+    /// <summary>Moves a page to <paramref name="newIndex"/> (clamped) in the document's order.</summary>
+    public bool MovePage(string docId, string pageId, int newIndex)
+    {
+        bool moved = false;
+        Update(docId, d =>
+        {
+            int from = d.Pages.FindIndex(p => p.Id == pageId);
+            if (from < 0) return;
+            int to = Math.Clamp(newIndex, 0, d.Pages.Count - 1);
+            if (to == from) return;
+            PageRecord page = d.Pages[from];
+            d.Pages.RemoveAt(from);
+            d.Pages.Insert(to, page);
+            moved = true;
+        });
+        return moved;
+    }
+
+    /// <summary>The page <paramref name="delta"/> places after (+) or before (-) the given one, with its 0-based
+    /// index and the page count; null at either end, or when the page is gone.</summary>
+    public (string PageId, int Index, int Count)? Neighbor(string docId, string pageId, int delta)
+    {
+        IReadOnlyList<PageRecord> pages = Pages(docId);
+        int i = pages.ToList().FindIndex(p => p.Id == pageId);
+        int j = i + delta;
+        if (i < 0 || j < 0 || j >= pages.Count) return null;
+        return (pages[j].Id, j, pages.Count);
+    }
+
+    /// <summary>Puts the pages in exactly this order (ids of the document's pages; unknown ids ignored,
+    /// pages not listed keep their relative order at the end). Used to undo a move.</summary>
+    public bool SetOrder(string docId, IReadOnlyList<string> pageIds) =>
+        Update(docId, d =>
+        {
+            var byId = d.Pages.ToDictionary(p => p.Id);
+            var ordered = pageIds.Where(byId.ContainsKey).Distinct().Select(id => byId[id]).ToList();
+            ordered.AddRange(d.Pages.Where(p => !ordered.Contains(p)));
+            d.Pages.Clear();
+            d.Pages.AddRange(ordered);
+        });
+
+    /// <summary>Deletes a page but keeps it restorable: its folder moves to the document's trash and the
+    /// record is returned (with its old position) for <see cref="RestorePage"/>. Null if not found.</summary>
+    public DeletedPage? TrashPage(string docId, string pageId)
+    {
+        CheckId(docId);
+        CheckId(pageId);
+        lock (_gate)
+        {
+            DocumentRecord? doc = GetLocked(docId);
+            int index = doc?.Pages.FindIndex(p => p.Id == pageId) ?? -1;
+            if (doc == null || index < 0) return null;
+            PageRecord page = doc.Pages[index];
+            doc.Pages.RemoveAt(index);
+            SaveLocked(doc);
+
+            string folder = PageFolder(docId, pageId), trash = TrashFolder(docId, pageId);
+            if (Directory.Exists(folder))
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(trash)!);
+                if (Directory.Exists(trash)) Directory.Delete(trash, recursive: true);
+                Directory.Move(folder, trash);
+            }
+            return new DeletedPage(docId, page, index);
+        }
+    }
+
+    /// <summary>Puts a trashed page back at its old position. False when its files are gone (trash emptied).</summary>
+    public bool RestorePage(DeletedPage deleted)
+    {
+        lock (_gate)
+        {
+            DocumentRecord? doc = GetLocked(deleted.DocId);
+            string trash = TrashFolder(deleted.DocId, deleted.Page.Id);
+            if (doc == null || !Directory.Exists(trash) || doc.Pages.Any(p => p.Id == deleted.Page.Id)) return false;
+            Directory.Move(trash, PageFolder(deleted.DocId, deleted.Page.Id));
+            doc.Pages.Insert(Math.Clamp(deleted.Index, 0, doc.Pages.Count), deleted.Page);
+            SaveLocked(doc);
+            return true;
+        }
+    }
+
+    /// <summary>Permanently removes trashed pages (called when leaving the document, and at start-up).</summary>
+    public void EmptyTrash(string docId)
+    {
+        lock (_gate)
+        {
+            string folder = Path.Combine(DocumentFolder(docId), TrashName);
+            try { if (Directory.Exists(folder)) Directory.Delete(folder, recursive: true); }
+            catch (IOException) { } // a file still open: try again next time
+        }
+    }
+
+    private const string TrashName = ".trash";
+
+    private string TrashFolder(string docId, string pageId) => Path.Combine(DocumentFolder(docId), TrashName, pageId);
+
     public string DocumentFolder(string docId)
     {
         CheckId(docId);
@@ -128,9 +232,13 @@ public sealed class DocumentStore(string root)
 
     public string ThumbPath(string docId, PageRecord page) => Path.Combine(PageFolder(docId, page.Id), "thumb.jpg");
 
-    /// <summary>The straightened page of the given revision.</summary>
-    public string CroppedPath(string docId, string pageId, int revision) =>
-        Path.Combine(PageFolder(docId, pageId), $"cropped_{revision}.jpg");
+    /// <summary>The straightened page of the given revision (".jpg" for color / gray, ".png" for black and white).</summary>
+    public string CroppedPath(string docId, string pageId, int revision, string extension = ".jpg") =>
+        Path.Combine(PageFolder(docId, pageId), $"cropped_{revision}{extension}");
+
+    /// <summary>The page's current straightened render.</summary>
+    public string CroppedPath(string docId, PageRecord page) =>
+        CroppedPath(docId, page.Id, page.CroppedRevision, page.CroppedExtension);
 
     public string CroppedThumbPath(string docId, string pageId, int revision) =>
         Path.Combine(PageFolder(docId, pageId), $"cropped_thumb_{revision}.jpg");

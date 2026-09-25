@@ -38,6 +38,13 @@ public sealed class QuadEditor : GraphicsView, IDrawable
 	public static readonly BindableProperty EditedCommandProperty = BindableProperty.Create(
 		nameof(EditedCommand), typeof(ICommand), typeof(QuadEditor), null);
 
+	public static readonly BindableProperty SwipeCommandProperty = BindableProperty.Create(
+		nameof(SwipeCommand), typeof(ICommand), typeof(QuadEditor), null);
+
+	/// <summary>Called with +1 (swipe left: next page) or -1 (swipe right: previous page) after a horizontal
+	/// fling that started outside the outline (inside it, a drag moves the outline).</summary>
+	public ICommand? SwipeCommand { get => (ICommand?)GetValue(SwipeCommandProperty); set => SetValue(SwipeCommandProperty, value); }
+
 	public string? ImagePath { get => (string?)GetValue(ImagePathProperty); set => SetValue(ImagePathProperty, value); }
 	public double[]? Quad { get => (double[]?)GetValue(QuadProperty); set => SetValue(QuadProperty, value); }
 
@@ -63,7 +70,11 @@ public sealed class QuadEditor : GraphicsView, IDrawable
 	private const double MinArea = 0.01;      // outline area, as a share of the picture
 	private const double MinSide = 0.04;      // shortest side, as a share of the picture's size
 
-	private enum DragKind { None, Corner, Side, Move }
+	/// <summary>Swipe = a touch that started outside the outline: a horizontal fling turns the page.</summary>
+	private enum DragKind { None, Corner, Side, Move, Swipe }
+
+	/// <summary>Horizontal fling needed to turn the page: this share of the view width, and mostly sideways.</summary>
+	private const float SwipeFraction = 0.2f;
 
 	private Microsoft.Maui.Graphics.IImage? _image;
 	private string? _loadedPath;
@@ -167,8 +178,13 @@ public sealed class QuadEditor : GraphicsView, IDrawable
 
 	private void OnStart(object? sender, TouchEventArgs e)
 	{
-		if (e.Touches.Length == 0 || !_hasQuad || !TryLayout(out float ox, out float oy, out float w, out float h)) return;
+		if (e.Touches.Length == 0) return;
 		PointF t = e.Touches[0];
+		if (!_hasQuad || !TryLayout(out float ox, out float oy, out float w, out float h))
+		{
+			BeginSwipe(t); // nothing to edit yet (page still being prepared): only page turning
+			return;
+		}
 
 		// Corners first, then the middle of each side, then "inside = move everything".
 		int best = -1;
@@ -203,7 +219,8 @@ public sealed class QuadEditor : GraphicsView, IDrawable
 			}
 			else
 			{
-				return; // touched empty space
+				BeginSwipe(t); // touched outside the outline: maybe a page turn
+				return;
 			}
 		}
 
@@ -212,8 +229,19 @@ public sealed class QuadEditor : GraphicsView, IDrawable
 		Invalidate();
 	}
 
+	private void BeginSwipe(PointF t)
+	{
+		_drag = DragKind.Swipe;
+		_start = _touch = t;
+	}
+
 	private void OnDrag(object? sender, TouchEventArgs e)
 	{
+		if (_drag == DragKind.Swipe)
+		{
+			if (e.Touches.Length > 0) _touch = e.Touches[0];
+			return;
+		}
 		if (_drag == DragKind.None || e.Touches.Length == 0 || !TryLayout(out float ox, out float oy, out float w, out float h)) return;
 		_touch = e.Touches[0];
 		float dx = _touch.X - _start.X, dy = _touch.Y - _start.Y;
@@ -278,6 +306,15 @@ public sealed class QuadEditor : GraphicsView, IDrawable
 
 	private void OnEnd(object? sender, TouchEventArgs e)
 	{
+		if (_drag == DragKind.Swipe)
+		{
+			_drag = DragKind.None;
+			if (e.Touches.Length > 0) _touch = e.Touches[0];
+			float dx = _touch.X - _start.X, dy = _touch.Y - _start.Y;
+			if (Math.Abs(dx) >= Width * SwipeFraction && Math.Abs(dx) > 1.5f * Math.Abs(dy))
+				SwipeCommand?.Execute(dx < 0 ? 1 : -1);
+			return;
+		}
 		if (_drag == DragKind.None) return;
 		bool moved = !_q.SequenceEqual(_base);
 		_drag = DragKind.None;
@@ -287,6 +324,7 @@ public sealed class QuadEditor : GraphicsView, IDrawable
 
 	private void OnCancel(object? sender, EventArgs e)
 	{
+		if (_drag == DragKind.Swipe) _drag = DragKind.None;
 		if (_drag == DragKind.None) return;
 		_q = (double[])_base.Clone(); // the system took the touch away (e.g. an edge gesture): undo
 		_drag = DragKind.None;

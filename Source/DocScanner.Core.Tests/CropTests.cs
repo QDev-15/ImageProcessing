@@ -199,7 +199,7 @@ public class CropRenderTests
         var quad = new Quad(new PointD(0.25, 0.2), new PointD(0.75, 0.2), new PointD(0.75, 0.9), new PointD(0.25, 0.9));
         store.Update(doc.Id, d => d.Pages.Add(new PageRecord
         {
-            Id = "p1", State = PageState.Ready, FreeAspect = true, RawWidth = stored.Width, RawHeight = stored.Height,
+            Id = "p1", State = PageState.Ready, CleanBackground = false, FreeAspect = true, RawWidth = stored.Width, RawHeight = stored.Height,
             ExifOrientation = exif, UserRotation = userRotation, CropQuad = quad.ToValues(),
         }));
 
@@ -228,7 +228,7 @@ public class CropRenderTests
         var quad = new Quad(new PointD(0.2, 0.15), new PointD(0.8, 0.25), new PointD(0.75, 0.85), new PointD(0.25, 0.75));
         store.Update(doc.Id, d => d.Pages.Add(new PageRecord
         {
-            Id = "p1", State = PageState.Ready, FreeAspect = true, RawWidth = images.Raw.Width, RawHeight = images.Raw.Height,
+            Id = "p1", State = PageState.Ready, CleanBackground = false, FreeAspect = true, RawWidth = images.Raw.Width, RawHeight = images.Raw.Height,
             ExifOrientation = 6, CropQuad = quad.ToValues(),
         }));
 
@@ -257,11 +257,11 @@ public class CropRenderTests
         RgbImage upright = Upright(400, 300);
         images.Raw = upright;
         DocumentRecord doc = store.Create();
-        // outline x 100..300, y 60..270: 200 x 210, nearly square
-        var quad = new Quad(new PointD(0.25, 0.2), new PointD(0.75, 0.2), new PointD(0.75, 0.9), new PointD(0.25, 0.9));
+        // outline x 100..300, y 20..290: 200 x 270, sheet-shaped (1 : 1.35) -> snapped to A4
+        var quad = new Quad(new PointD(0.25, 20 / 300.0), new PointD(0.75, 20 / 300.0), new PointD(0.75, 290 / 300.0), new PointD(0.25, 290 / 300.0));
         store.Update(doc.Id, d => d.Pages.Add(new PageRecord
         {
-            Id = "p1", State = PageState.Ready, RawWidth = 400, RawHeight = 300, CropQuad = quad.ToValues(),
+            Id = "p1", State = PageState.Ready, CleanBackground = false, RawWidth = 400, RawHeight = 300, CropQuad = quad.ToValues(),
         }));
         var render = new CropRenderService(store, images);
 
@@ -274,17 +274,40 @@ public class CropRenderTests
         Assert.InRange(a4.Data[(1 * 200 + 1) * 3], 100 * 255 / 399 - 6, 100 * 255 / 399 + 8);            // top-left: red of x=100
         int br = ((a4.Height - 2) * 200 + (a4.Width - 2)) * 3;
         Assert.InRange(a4.Data[br], 300 * 255 / 399 - 8, 300 * 255 / 399 + 6);                           // bottom-right: red of x=300
-        Assert.InRange(a4.Data[br + 1], 270 * 255 / 299 - 8, 270 * 255 / 299 + 6);                       // green of y=270
+        Assert.InRange(a4.Data[br + 1], 290 * 255 / 299 - 8, 290 * 255 / 299 + 6);                       // green of y=290
         Assert.False(page.CroppedFreeAspect);
 
-        // switching to the outline's own proportions makes the render stale and gives 200 x 210
+        // switching to the outline's own proportions makes the render stale and gives 200 x 270
         store.Update(doc.Id, d => d.Pages[0].FreeAspect = true);
         Assert.True(store.Pages(doc.Id).Single().NeedsRender);
         await render.RenderAsync(doc.Id, "p1");
         page = store.Pages(doc.Id).Single();
-        Assert.Equal((200, 210), (page.CroppedWidth, page.CroppedHeight));
+        Assert.Equal((200, 270), (page.CroppedWidth, page.CroppedHeight));
         Assert.True(page.CroppedFreeAspect);
         Assert.False(page.NeedsRender);
+    }
+
+    [Fact]
+    public async Task An_outline_that_is_not_sheet_shaped_is_not_stretched_to_A4()
+    {
+        // Owner's page 7 (2026-09-26): a sheet cut off by the photo frame, outline nearly square. Forcing A4
+        // stretched the text; now it keeps its proportions (the PDF export centers it on an A4 page).
+        using var root = new TempRoot();
+        var store = new DocumentStore(root.Path);
+        var images = new FakeImageService { Raw = Upright(400, 300) };
+        DocumentRecord doc = store.Create();
+        var quad = new Quad(new PointD(0.25, 0.2), new PointD(0.75, 0.2), new PointD(0.75, 0.9), new PointD(0.25, 0.9)); // 200 x 210
+        store.Update(doc.Id, d => d.Pages.Add(new PageRecord
+        {
+            Id = "p1", State = PageState.Ready, CleanBackground = false, RawWidth = 400, RawHeight = 300, CropQuad = quad.ToValues(),
+        }));
+
+        await new CropRenderService(store, images).RenderAsync(doc.Id, "p1");
+
+        PageRecord page = store.Pages(doc.Id).Single();
+        Assert.Equal((200, 210), (page.CroppedWidth, page.CroppedHeight));
+        Assert.False(page.FreeAspect);        // still the user's A4 choice ...
+        Assert.False(page.NeedsRender);       // ... and the render counts as current for it
     }
 
     [Fact]
@@ -300,7 +323,7 @@ public class CropRenderTests
         var quad = new Quad(new PointD(-0.1, 0.2), new PointD(0.5, 0.2), new PointD(0.5, 0.9), new PointD(-0.1, 0.9));
         store.Update(doc.Id, d => d.Pages.Add(new PageRecord
         {
-            Id = "p1", State = PageState.Ready, FreeAspect = true, RawWidth = 400, RawHeight = 300, CropQuad = quad.ToValues(),
+            Id = "p1", State = PageState.Ready, CleanBackground = false, FreeAspect = true, RawWidth = 400, RawHeight = 300, CropQuad = quad.ToValues(),
         }));
 
         await new CropRenderService(store, images).RenderAsync(doc.Id, "p1");
@@ -327,7 +350,7 @@ public class CropRenderTests
         DocumentRecord doc = store.Create();
         store.Update(doc.Id, d => d.Pages.Add(new PageRecord
         {
-            Id = "p1", State = PageState.Ready, FreeAspect = true, RawWidth = 400, RawHeight = 300,
+            Id = "p1", State = PageState.Ready, CleanBackground = false, FreeAspect = true, RawWidth = 400, RawHeight = 300,
             CropQuad = new Quad(new PointD(0.25, 0.2), new PointD(0.75, 0.2), new PointD(0.75, 0.9), new PointD(0.25, 0.9)).ToValues(),
         }));
 
@@ -438,6 +461,107 @@ public class RenderStageTests
         Assert.Equal(PageState.Ready, p.State);
         Assert.Equal(0, p.CroppedRevision);
         Assert.Equal("cannot decode region", p.RenderError);
+    }
+
+    [Fact]
+    public async Task Black_and_white_renders_a_one_bit_png_and_switching_back_to_color_replaces_it()
+    {
+        using var rig = new Rig();
+        (DocumentRecord doc, PageRecord page) = await rig.OnePage();
+        rig.Queue.EnqueueRender(doc.Id, page.Id);
+        await rig.Queue.WaitIdleAsync();
+        string colorJpg = rig.Store.CroppedPath(doc.Id, rig.Store.Pages(doc.Id).Single());
+        Assert.EndsWith(".jpg", colorJpg);
+
+        Assert.True(rig.Edit.SetFilter(doc.Id, page.Id, PageColorMode.BlackWhite));
+        Assert.True(rig.Store.Pages(doc.Id).Single().NeedsRender);
+        rig.Queue.EnqueueRender(doc.Id, page.Id);
+        await rig.Queue.WaitIdleAsync();
+
+        PageRecord p = rig.Store.Pages(doc.Id).Single();
+        Assert.False(p.NeedsRender);
+        Assert.Equal((".png", PageColorMode.BlackWhite), (p.CroppedExtension, p.CroppedColorMode));
+        string png = rig.Store.CroppedPath(doc.Id, p);
+        PngReader.PngData data = PngReader.Read(File.ReadAllBytes(png));
+        Assert.Equal((p.CroppedWidth, p.CroppedHeight, 1), (data.Width, data.Height, data.BitDepth));
+        Assert.False(File.Exists(colorJpg));                                       // previous render (other extension) removed
+        Assert.True(File.Exists(rig.Store.CroppedThumbPath(doc.Id, p.Id, p.CroppedRevision)));
+
+        rig.Edit.SetFilter(doc.Id, page.Id, PageColorMode.Color);
+        rig.Queue.EnqueueRender(doc.Id, page.Id);
+        await rig.Queue.WaitIdleAsync();
+        p = rig.Store.Pages(doc.Id).Single();
+        Assert.Equal(".jpg", p.CroppedExtension);
+        Assert.False(File.Exists(png));
+    }
+
+    [Fact]
+    public async Task Gray_mode_saves_a_gray_jpeg()
+    {
+        using var rig = new Rig();
+        (DocumentRecord doc, PageRecord page) = await rig.OnePage();
+        rig.Edit.SetFilter(doc.Id, page.Id, PageColorMode.Gray);
+        rig.Queue.EnqueueRender(doc.Id, page.Id);
+        await rig.Queue.WaitIdleAsync();
+
+        PageRecord p = rig.Store.Pages(doc.Id).Single();
+        RgbImage saved = rig.Images.Saved[rig.Store.CroppedPath(doc.Id, p)];
+        for (int i = 0; i < saved.Data.Length; i += 3)
+            Assert.True(saved.Data[i] == saved.Data[i + 1] && saved.Data[i + 1] == saved.Data[i + 2]);
+    }
+
+    [Fact]
+    public async Task Only_settings_that_change_the_picture_make_the_render_stale()
+    {
+        using var rig = new Rig();
+        (DocumentRecord doc, PageRecord page) = await rig.OnePage();
+        rig.Queue.EnqueueRender(doc.Id, page.Id);
+        await rig.Queue.WaitIdleAsync();
+
+        rig.Edit.SetFilter(doc.Id, page.Id, darkness: 90, cleanBackground: false); // color page: neither matters
+        Assert.False(rig.Store.Pages(doc.Id).Single().NeedsRender);
+        rig.Edit.SetFilter(doc.Id, page.Id, cleanBackground: true);
+
+        rig.Edit.SetFilter(doc.Id, page.Id, PageColorMode.Gray);
+        rig.Queue.EnqueueRender(doc.Id, page.Id);
+        await rig.Queue.WaitIdleAsync();
+        rig.Edit.SetFilter(doc.Id, page.Id, darkness: 10);                        // gray: darkness does not matter
+        Assert.False(rig.Store.Pages(doc.Id).Single().NeedsRender);
+        rig.Edit.SetFilter(doc.Id, page.Id, cleanBackground: false);              // ... background cleaning does
+        Assert.True(rig.Store.Pages(doc.Id).Single().NeedsRender);
+    }
+
+    [Fact]
+    public async Task Applying_a_look_to_all_pages_reports_only_the_pages_that_change()
+    {
+        using var rig = new Rig();
+        DocumentRecord doc = rig.Store.Create();
+        await rig.Import.ImportAsync(doc, Enumerable.Range(0, 3)
+            .Select(i => new ImportSource($"{i}.jpg", _ => Task.FromResult<Stream>(new MemoryStream([1, 2, (byte)i])))).ToList());
+        await rig.Queue.WaitIdleAsync();
+        string first = rig.Store.Pages(doc.Id)[0].Id;
+        rig.Edit.SetFilter(doc.Id, first, PageColorMode.BlackWhite, darkness: 70);
+
+        IReadOnlyList<string> changed = rig.Edit.ApplyFilterToAll(doc.Id, new FilterOptions(PageColorMode.BlackWhite, 70));
+        Assert.Equal(2, changed.Count);
+        Assert.DoesNotContain(first, changed);
+        Assert.All(rig.Store.Pages(doc.Id), p => Assert.Equal((PageColorMode.BlackWhite, 70), (p.ColorMode, p.BwDarkness)));
+    }
+
+    [Fact]
+    public void A_document_saved_before_page_looks_existed_still_reads_as_rendered_color_pages()
+    {
+        using var root = new TempRoot();
+        string id = "0123456789abcdef0123456789abcdef";
+        Directory.CreateDirectory(Path.Combine(root.Path, id));
+        File.WriteAllText(Path.Combine(root.Path, id, "doc.json"), $$"""
+            { "id": "{{id}}", "name": "old", "pages": [ { "id": "p1", "state": "Ready", "rawWidth": 100, "rawHeight": 80,
+              "cropQuad": [0,0,1,0,1,1,0,1], "croppedRevision": 1, "croppedQuad": [0,0,1,0,1,1,0,1], "croppedWidth": 10, "croppedHeight": 14 } ] }
+            """);
+        PageRecord p = new DocumentStore(root.Path).Pages(id).Single();
+        Assert.Equal(PageColorMode.Color, p.ColorMode);
+        Assert.False(p.NeedsRender);
+        Assert.EndsWith("cropped_1.jpg", new DocumentStore(root.Path).CroppedPath(id, p));
     }
 
     private sealed class BrokenRegionImages(FakeImageService inner) : IImageService

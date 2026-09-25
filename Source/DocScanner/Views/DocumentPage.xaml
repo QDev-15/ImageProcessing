@@ -8,7 +8,12 @@
     x:DataType="vm:DocumentViewModel"
     Title="{Binding Title}">
 
-    <Grid RowDefinitions="Auto,*,Auto">
+    <ContentPage.ToolbarItems>
+        <ToolbarItem Text="Xuất PDF" Command="{Binding ExportPdfCommand}" Order="Primary" />
+        <ToolbarItem Text="Đổi tên" Command="{Binding RenameCommand}" Order="Secondary" />
+    </ContentPage.ToolbarItems>
+
+    <Grid RowDefinitions="Auto,*,Auto,Auto">
 
         <Label Grid.Row="0" Text="{Binding ProgressText}" IsVisible="{Binding HasProgress}"
                HorizontalOptions="Center" Margin="0,8,0,0" FontSize="13"
@@ -26,6 +31,11 @@
                         <Border.StrokeShape>
                             <RoundRectangle CornerRadius="8" />
                         </Border.StrokeShape>
+                        <!-- Long-press and drag a tile onto another to move it there. -->
+                        <Border.GestureRecognizers>
+                            <DragGestureRecognizer CanDrag="True" DragStartingCommand="{Binding DragStartingCommand}" />
+                            <DropGestureRecognizer AllowDrop="True" DropCommand="{Binding DropCommand}" />
+                        </Border.GestureRecognizers>
                         <Grid RowDefinitions="Auto,Auto">
                             <Grid HeightRequest="220">
                                 <Image Source="{Binding Thumb}" IsVisible="{Binding ShowThumb}" Aspect="AspectFit">
@@ -42,6 +52,10 @@
                                     </Label.GestureRecognizers>
                                 </Label>
                             </Grid>
+                            <Button Text="⋯" WidthRequest="36" HeightRequest="36" Padding="0" CornerRadius="18"
+                                    HorizontalOptions="Start" VerticalOptions="Start" FontSize="16"
+                                    BackgroundColor="#99000000" TextColor="White"
+                                    Command="{Binding MenuCommand}" />
                             <Button Text="✕" WidthRequest="36" HeightRequest="36" Padding="0" CornerRadius="18"
                                     HorizontalOptions="End" VerticalOptions="Start" FontSize="14"
                                     BackgroundColor="#99000000" TextColor="White"
@@ -54,11 +68,28 @@
             </CollectionView.ItemTemplate>
         </CollectionView>
 
-        <Grid Grid.Row="2" ColumnDefinitions="*,*" ColumnSpacing="10" Padding="16">
+        <!-- Undo bar for the last move / delete -->
+        <Border Grid.Row="2" IsVisible="{Binding CanUndo}" Margin="12,6,12,0" Padding="14,4" StrokeThickness="0"
+                BackgroundColor="{AppThemeBinding Light=#323232, Dark=#E0E0E0}">
+            <Border.StrokeShape>
+                <RoundRectangle CornerRadius="8" />
+            </Border.StrokeShape>
+            <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="4">
+                <Label Text="{Binding UndoText}" VerticalOptions="Center" FontSize="14"
+                       TextColor="{AppThemeBinding Light=White, Dark=Black}" />
+                <Button Grid.Column="1" Text="Hoàn tác" Command="{Binding UndoCommand}" BackgroundColor="Transparent" FontAttributes="Bold"
+                        TextColor="{AppThemeBinding Light={StaticResource PrimaryDark}, Dark={StaticResource Primary}}" />
+                <Button Grid.Column="2" Text="✕" Command="{Binding DismissUndoCommand}" BackgroundColor="Transparent" WidthRequest="40"
+                        TextColor="{AppThemeBinding Light=White, Dark=Black}" />
+            </Grid>
+        </Border>
+
+        <Grid Grid.Row="3" ColumnDefinitions="*,*" ColumnSpacing="10" Padding="16">
             <Button Text="Thêm từ thư viện" Command="{Binding AddFromGalleryCommand}" />
             <Button Grid.Column="1" Text="Chụp thêm" Command="{Binding AddFromCameraCommand}" />
         </Grid>
 
-        <views:BusyOverlay Grid.RowSpan="3" />
+        <views:BusyOverlay Grid.RowSpan="4" />
+        <views:ExportOverlay Grid.RowSpan="4" />
     </Grid>
 </ContentPage>

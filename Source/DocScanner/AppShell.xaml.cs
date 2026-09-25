@@ -9,7 +9,6 @@ public partial class AppShell : Shell
 		public const string Document = "document";
 		public const string Crop = "crop";
 		public const string Result = "result";
-		public const string Export = "export";
 	}
 
 	public AppShell()
@@ -18,6 +17,5 @@ public partial class AppShell : Shell
 		Routing.RegisterRoute(Routes.Document, typeof(DocumentPage));
 		Routing.RegisterRoute(Routes.Crop, typeof(CropPage));
 		Routing.RegisterRoute(Routes.Result, typeof(ResultPage));
-		Routing.RegisterRoute(Routes.Export, typeof(ExportPage));
 	}
 }

@@ -39,7 +39,17 @@ public sealed class FakeImageService : IImageService
         return Task.CompletedTask;
     }
 
-    public Task<RgbImage> LoadRgbAsync(string path, int maxEdge, CancellationToken ct) => Task.FromResult(new RgbImage(64, 48));
+    /// <summary>maxEdge of every LoadRgbAsync call (the export asks for its target resolution).</summary>
+    public List<int> LoadMaxEdges { get; } = [];
+
+    /// <summary>JPEG quality of every save, by path.</summary>
+    public Dictionary<string, int> Qualities { get; } = [];
+
+    public Task<RgbImage> LoadRgbAsync(string path, int maxEdge, CancellationToken ct)
+    {
+        lock (_lock) LoadMaxEdges.Add(maxEdge);
+        return Task.FromResult(new RgbImage(64, 48));
+    }
 
     /// <summary>The "original" as stored in the file, when a test needs real pixels (else mid-grey).</summary>
     public RgbImage? Raw { get; set; }
@@ -63,11 +73,22 @@ public sealed class FakeImageService : IImageService
         return Task.FromResult(sample > 1 ? crop.Downscale(sample) : crop);
     }
 
+    /// <summary>SOI + a baseline frame header (size, 3 components) + EOI. Not decodable, but structurally a JPEG.</summary>
+    public static byte[] MinimalJpeg(int width, int height) =>
+    [
+        0xFF, 0xD8,
+        0xFF, 0xC0, 0, 17, 8, (byte)(height >> 8), (byte)height, (byte)(width >> 8), (byte)width, 3,
+        1, 0x22, 0, 2, 0x11, 1, 3, 0x11, 1,
+        0xFF, 0xD9,
+    ];
+
     public Task SaveJpegAsync(RgbImage image, string path, int quality, CancellationToken ct)
     {
+        lock (_lock) Qualities[path] = quality;
         lock (_lock) Saved[path] = image;
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        File.WriteAllText(path, "jpeg");
+        File.WriteAllBytes(path, MinimalJpeg(image.Width, image.Height)); // just a frame header: enough for the PDF export to read
+
         return Task.CompletedTask;
     }
 }

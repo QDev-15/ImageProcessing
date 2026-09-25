@@ -156,3 +156,18 @@ public class PerspectiveWarpTests(ITestOutputHelper output)
         Assert.All(small.Data, v => Assert.Equal(123, v));
     }
 }
+
+public class A4ShapeTests
+{
+    private static Quad R(double w, double h) => new(new PointD(0, 0), new PointD(w, 0), new PointD(w, h), new PointD(0, h));
+
+    [Theory]
+    [InlineData(1000, 1414, true)]   // exact A4
+    [InlineData(1000, 1300, true)]   // A4 seen with some perspective / loose corners
+    [InlineData(1414, 1000, true)]   // landscape
+    [InlineData(1000, 1080, false)]  // nearly square: a sheet cut off by the frame (owner's page 7)
+    [InlineData(500, 1000, false)]   // long receipt
+    [InlineData(1000, 520, false)]   // wide strip / banner (1.9 : 1)
+    public void Only_sheet_shaped_outlines_count_as_A4(double w, double h, bool a4) =>
+        Assert.Equal(a4, PerspectiveWarp.IsA4Like(R(w, h)));
+}

@@ -39,34 +39,67 @@ public sealed class CropRenderService(DocumentStore store, IImageService images)
         PointD Local(PointD p) => new((p.X - plan.RegionX) * kx, (p.Y - plan.RegionY) * ky);
         var source = new Quad(Local(stored.TopLeft), Local(stored.TopRight), Local(stored.BottomRight), Local(stored.BottomLeft));
 
-        RgbImage flat = await Task.Run(() => PerspectiveWarp.Warp(region, source, plan.OutWidth, plan.OutHeight), ct);
-        (int tw, int th) = ImageGeometry.FitLongEdge(flat.Width, flat.Height, ThumbEdge);
-        RgbImage thumb = flat.Resize(tw, th);
+        FilterOptions filter = page.Filter;
+        FilteredPage result = await Task.Run(() =>
+        {
+            RgbImage flat = PerspectiveWarp.Warp(region, source, plan.OutWidth, plan.OutHeight);
+            region = null!; // let the decoded photo go before the filter allocates
+            return DocumentFilter.Apply(flat, filter, PageDpi(flat.Width, flat.Height));
+        }, ct);
 
         int revision = page.CroppedRevision + 1;
-        string flatPath = store.CroppedPath(docId, pageId, revision);
+        string extension = result.IsBilevel ? ".png" : ".jpg";
+        string flatPath = store.CroppedPath(docId, pageId, revision, extension);
         string thumbPath = store.CroppedThumbPath(docId, pageId, revision);
-        await images.SaveJpegAsync(flat, flatPath, JpegQuality, ct);
-        await images.SaveJpegAsync(thumb, thumbPath, ThumbQuality, ct);
+        Directory.CreateDirectory(Path.GetDirectoryName(flatPath)!);
+        if (result.Color != null)
+            await images.SaveJpegAsync(result.Color, flatPath, JpegQuality, ct);
+        else if (result.IsBilevel)
+            await File.WriteAllBytesAsync(flatPath, PngWriter.EncodeBilevel(result.Gray!), ct); // lossless, tiny, embeds straight into PDF
+        else
+            await images.SaveJpegAsync(RgbImage.FromGray(result.Gray!), flatPath, JpegQuality, ct);
+        await images.SaveJpegAsync(MakeThumb(result), thumbPath, ThumbQuality, ct);
+        int outWidth = result.Width, outHeight = result.Height;
 
         int previous = 0;
+        string previousExtension = ".jpg";
         bool kept = store.Update(docId, d =>
         {
             PageRecord? p = d.Pages.FirstOrDefault(x => x.Id == pageId);
             if (p == null) return;
             previous = p.CroppedRevision;
+            previousExtension = p.CroppedExtension;
             p.CroppedRevision = revision;
-            p.CroppedWidth = flat.Width;
-            p.CroppedHeight = flat.Height;
+            p.CroppedExtension = extension;
+            p.CroppedWidth = outWidth;
+            p.CroppedHeight = outHeight;
             p.CroppedQuad = quadValues;
             p.CroppedRotation = rotation;
             p.CroppedFreeAspect = freeAspect;
+            p.CroppedColorMode = filter.Mode;
+            p.CroppedBwDarkness = filter.Darkness;
+            p.CroppedCleanBackground = filter.CleanBackground;
             p.RenderError = null;
         });
 
         // Old renders are only garbage once the new one is recorded.
-        if (kept && previous > 0) DeleteQuietly(store.CroppedPath(docId, pageId, previous), store.CroppedThumbPath(docId, pageId, previous));
+        if (kept && previous > 0)
+            DeleteQuietly(store.CroppedPath(docId, pageId, previous, previousExtension), store.CroppedThumbPath(docId, pageId, previous));
         if (!kept) DeleteQuietly(flatPath, thumbPath); // the page was deleted meanwhile
+    }
+
+    /// <summary>Resolution of a straightened page, taking its long side as an A4 sheet's (11.69 in). Exact
+    /// for A4 renders; for free-aspect pages it only sizes the black-and-white window and specks, where
+    /// being within a factor of two is plenty.</summary>
+    public static int PageDpi(int width, int height) => Math.Max(50, (int)Math.Round(Math.Max(width, height) / 11.69));
+
+    private static RgbImage MakeThumb(FilteredPage page)
+    {
+        (int tw, int th) = ImageGeometry.FitLongEdge(page.Width, page.Height, ThumbEdge);
+        if (page.Color != null) return page.Color.Resize(tw, th);
+        // Shrink the gray page first so only a small RGB copy is ever made.
+        int factor = Math.Max(1, Math.Min(page.Width / tw, page.Height / th));
+        return RgbImage.FromGray(page.Gray!.Downscale(factor)).Resize(tw, th);
     }
 
     private static void DeleteQuietly(params string[] paths)

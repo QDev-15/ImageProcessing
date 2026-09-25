@@ -29,8 +29,12 @@ public partial class HomeViewModel(DocumentStore store, ImportCoordinator import
 	private void RefreshItem(DocumentItem item)
 	{
 		IReadOnlyList<PageRecord> pages = store.Pages(item.Record.Id);
-		item.Refresh(pages, pages.Count > 0 ? store.ThumbPath(item.Record.Id, pages[0]) : null);
+		item.Refresh(pages, pages.Count > 0 ? CoverThumb(item.Record.Id, pages[0]) : null);
 	}
+
+	/// <summary>The first page as the user sees it: straightened once it has a current render.</summary>
+	private string CoverThumb(string docId, PageRecord p) =>
+		p.CroppedRevision > 0 && !p.NeedsRender ? store.CroppedThumbPath(docId, p.Id, p.CroppedRevision) : store.ThumbPath(docId, p);
 
 	[RelayCommand]
 	public async Task RefreshAsync()
@@ -48,6 +52,7 @@ public partial class HomeViewModel(DocumentStore store, ImportCoordinator import
 		if (!_resumed)
 		{
 			_resumed = true;
+			foreach (DocumentRecord d in docs) store.EmptyTrash(d.Id); // pages deleted in an earlier run can no longer be undone
 			await Task.Run(queue.ResumePending);
 		}
 	}

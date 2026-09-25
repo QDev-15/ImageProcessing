@@ -8,26 +8,47 @@
     x:DataType="vm:CropViewModel"
     Title="{Binding Title}">
 
-    <Grid RowDefinitions="*,Auto,Auto">
+    <ContentPage.ToolbarItems>
+        <ToolbarItem Text="Xuất PDF" Command="{Binding ExportPdfCommand}" Order="Primary" />
+    </ContentPage.ToolbarItems>
 
-        <!-- The editor draws the picture, the outline, the handles and the magnifier itself. -->
+    <Grid RowDefinitions="*,Auto,Auto,Auto">
+
+        <!-- The editor draws the picture, the outline, the handles and the magnifier itself.
+             A horizontal swipe that starts outside the outline turns the page. -->
         <views:QuadEditor Grid.Row="0"
                           ImagePath="{Binding ImagePath}"
                           Quad="{Binding Quad}"
                           Detected="{Binding Detected}"
                           Manual="{Binding Manual}"
-                          EditedCommand="{Binding EditedCommand}" />
+                          EditedCommand="{Binding EditedCommand}"
+                          SwipeCommand="{Binding GoCommand}" />
 
         <!-- Fixed height: a longer message must not resize the editor while a finger is on it. -->
         <Label Grid.Row="1" Text="{Binding Status}" HorizontalOptions="Center" VerticalOptions="Center"
                HeightRequest="40" MaxLines="2" LineBreakMode="TailTruncation" FontSize="13"
                TextColor="{AppThemeBinding Light=#666666, Dark=#AAAAAA}" />
 
-        <Grid Grid.Row="2" ColumnDefinitions="*,*,*,*" ColumnSpacing="8" Padding="12,0,12,12">
+        <Grid Grid.Row="2" ColumnDefinitions="*,*,*" ColumnSpacing="8" Padding="12,0,12,8">
             <Button Text="Tự động" FontSize="12" Padding="4" IsEnabled="{Binding CanEdit}" Command="{Binding AutoCommand}" />
             <Button Grid.Column="1" Text="Toàn ảnh" FontSize="12" Padding="4" IsEnabled="{Binding CanEdit}" Command="{Binding FullImageCommand}" />
             <Button Grid.Column="2" Text="Xoay 90°" FontSize="12" Padding="4" IsEnabled="{Binding CanEdit}" Command="{Binding RotateCommand}" />
-            <Button Grid.Column="3" Text="Xong" FontSize="12" Padding="4" Command="{Binding DoneCommand}" />
         </Grid>
+
+        <!-- Page turning, like a photo viewer -->
+        <Grid Grid.Row="3" ColumnDefinitions="*,*,*" ColumnSpacing="8" Padding="12,0,12,12">
+            <Button Text="‹ Trước" FontSize="13" Padding="4" IsEnabled="{Binding CanGoPrevious}" Command="{Binding GoCommand}">
+                <Button.CommandParameter><x:Int32>-1</x:Int32></Button.CommandParameter>
+            </Button>
+            <Button Grid.Column="1" Text="Kết quả" FontSize="13" Padding="4" IsEnabled="{Binding CanEdit}" Command="{Binding ShowResultCommand}"
+                    BackgroundColor="Transparent" BorderWidth="1"
+                    BorderColor="{AppThemeBinding Light={StaticResource Primary}, Dark={StaticResource PrimaryDark}}"
+                    TextColor="{AppThemeBinding Light={StaticResource Primary}, Dark={StaticResource PrimaryDark}}" />
+            <Button Grid.Column="2" Text="Sau ›" FontSize="13" Padding="4" IsEnabled="{Binding CanGoNext}" Command="{Binding GoCommand}">
+                <Button.CommandParameter><x:Int32>1</x:Int32></Button.CommandParameter>
+            </Button>
+        </Grid>
+
+        <views:ExportOverlay Grid.RowSpan="4" />
     </Grid>
 </ContentPage>

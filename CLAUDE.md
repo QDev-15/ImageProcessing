@@ -109,8 +109,8 @@
 | 4 | Tự dò mép giấy | **xong**; test mô phỏng PASS, mới thử 2 ảnh thật (1 đúng, 1 sai: tờ bị khung cắt mép) -> còn phải chỉnh cho ảnh thật |
 | 5 | Kéo 4 điểm + kính lúp | **xong, thử trên Note 10+** (riêng nút Xoay 90° mới có unit test, chưa bấm thử trên máy) |
 | 6 | Cắt phối cảnh (homography), khổ A4, kéo điểm ra ngoài ảnh | **xong**; ảnh thật nắn thẳng đúng trên Note 10+; A4 và kéo ra ngoài ảnh chưa được owner xác nhận; chưa thử 48 MP thật |
-| 7 | Đen trắng (Sauvola / Otsu), giới hạn RAM | chưa |
-| 8 | Nhiều trang, sắp xếp, xuất PDF, chia sẻ | chưa |
+| 7 | Đen trắng (Sauvola / Otsu), giới hạn RAM | **xong** (unit test + PC); chưa thử trên máy |
+| 8 | Nhiều trang, sắp xếp, xuất PDF, chia sẻ | **xong** (unit test + PDFium); chưa thử trên máy |
 | 9-10 | Hoàn thiện, test máy thật, phát hành Google Play | chưa |
 
 ### Bước 1: ghi chú
@@ -257,3 +257,75 @@
 - Lưu ý: khổ A4 kéo giãn ảnh cho khớp tỉ lệ (khung gần vuông sẽ bị giãn chiều rộng); nếu tờ giấy không phải A4 thì chọn "theo khung".
 - Test: `DocScanner.Core.Tests` 91 test (thêm khổ A4 dọc / ngang / 300 DPI / ảnh 48 MP, dựng A4 đầu-cuối và chuyển qua "theo khung"),
   `ImageCore.Shared.Tests` 46 test.
+
+### Bước 7: ghi chú (đen trắng, đợt 2026-09-26)
+- `PageRecord` có thêm `ColorMode` (Color / Gray / BlackWhite), `BwDarkness` (0..100, 50 = Sauvola k 0,34), `CleanBackground`; bản dựng ghi
+  lại `Cropped*` tương ứng + `CroppedExtension` (".jpg" / ".png"). `NeedsRender` tính cả kiểu trang, nhưng chỉ những giá trị có ảnh hưởng
+  (`PageRecord.SameLook`: độ đậm chỉ tính khi đen trắng, làm sạch nền chỉ tính khi không phải màu). doc.json cũ đọc ra là trang màu, không phải dựng lại.
+- `CropRenderService`: warp -> `DocumentFilter.Apply` ngay trên `RgbImage` trong RAM (không đọc lại JPEG) -> lưu: màu / xám = JPEG q94
+  (xám ghi dạng RGB vì Android không ghi được JPEG 1 kênh), đen trắng = **PNG 1-bit** do `PngWriter` tự viết (không cần codec nền tảng).
+- `Binarizer.Sauvola` viết lại: tổng trượt theo cột + theo hàng, chạy song song theo dải; bộ nhớ O(rộng); kết quả **giống hệt từng điểm**
+  bản integral cũ (test so với bản tham chiếu, nhiều kích thước). Cả bộ lọc đen trắng trên A4 300 DPI cấp phát ~34 MB (test `FilterMemoryTests`).
+- `BackgroundFlattener`: ước lượng nền trên ảnh ~256 px (max filter + box blur), chia từng điểm cho nền; không làm sáng quá 1/0,3 lần mức giấy
+  (bóng đổ thật có thể còn ~35% độ sáng). Dùng cho Xám và trước Sauvola.
+- UI `ResultPage`: 3 nút kiểu trang, thanh trượt Độ đậm (`DragCompletedCommand`: chỉ dựng lại khi thả tay), công tắc Làm sạch nền, "Áp dụng
+  kiểu này cho mọi trang" (`PageEditService.ApplyFilterToAll`, xếp hàng dựng lại các trang đổi kiểu). Ảnh cũ vẫn hiện trong lúc dựng lại.
+
+### Bước 8: ghi chú (nhiều trang, PDF, chia sẻ)
+- `ImagePdfWriter` (DocScanner.Core/Export): tự ghi PDF 1.7, ghi thẳng ra stream, mỗi lúc chỉ giữ 1 file trang trong RAM, **không giải mã ảnh**:
+  JPEG nhúng nguyên byte (`/DCTDecode`, đọc kích thước / số kênh từ SOF), PNG 1-bit nhúng nguyên dữ liệu IDAT (`/FlateDecode` +
+  `/Predictor 15`). Tiêu đề PDF UTF-16 (tiếng Việt). Không dùng PdfSharp trên điện thoại (tránh rủi ro trimming / phụ thuộc).
+- `PdfExportService`: trang còn đang nhập hoặc chưa có bản dựng mới thì xếp hàng dựng qua `PageIngestQueue` (không tự dựng song song với
+  hàng đợi -> không đụng số revision), chờ bằng polling 150 ms; trang lỗi bị bỏ và báo số trang. Khổ trang: A4 chuẩn 595x842 pt
+  (theo chiều của bản dựng), trang "theo khung" giữ tỉ lệ với cạnh dài = A4. Ghi ra `.partial` rồi đổi tên.
+- File xuất ở `FileSystem.CacheDirectory/exports/<tên tài liệu>.pdf` (`PdfExportService.FileNameFor`). Sau khi xuất: Chia sẻ
+  (`Share.Default`), Lưu vào Tải xuống (`AndroidDownloadsService`, MediaStore.Downloads, Android 10+, ghi ở trạng thái pending rồi mới công bố),
+  Mở (`Launcher`).
+- `DocumentStore`: `Rename`, `MovePage`, `SetOrder` (hoàn tác chuyển trang), `TrashPage` / `RestorePage` / `EmptyTrash` (thư mục
+  `{doc}/.trash`, hoàn tác 1 bước; thùng rác dọn khi thao tác mới, rời tài liệu, hoặc lúc mở app).
+- UI `DocumentPage`: thanh tiêu đề "Xuất PDF" + menu "Đổi tên"; mỗi ô trang có nút ⋯ (mở, đưa lên đầu / trước / sau / cuối, xoá) và
+  kéo thả (`DragGestureRecognizer` / `DropGestureRecognizer`: nhấn giữ một trang rồi thả lên trang khác); thanh "Đã xoá Trang n · Hoàn tác".
+  Lớp phủ bận dùng chung (`ImportViewModelBase.RunBusyAsync`, nút Huỷ).
+- Đã xoá trang giữ chỗ `ExportPage` / route `export`.
+- Test: `DocScanner.Core.Tests` 103 (xuất PDF đọc lại bằng PdfPig: số trang, khổ A4 / theo khung, JPEG nguyên byte, PNG giải nén đúng,
+  tiêu đề tiếng Việt, bỏ trang lỗi, huỷ không để lại file; đổi thứ tự / thùng rác / đổi tên). PDF thật (JPEG + PNG đen trắng) mở đúng bằng PDFium.
+
+### Bước 8b: ghi chú (duyệt trang, menu, PDF đã xuất, icon; đợt 2026-09-26)
+- Màn chỉnh khung (`CropPage`): hàng "‹ Trước · Kết quả · Sau ›" thay nút Xong ("Kết quả" = Xong cũ). `CropViewModel.Go(±1)` giữ lại khung đang
+  hiện (`KeepShownOutline`, như Xong cũ) rồi đổi sang trang kề (`DocumentStore.Neighbor`) ngay trong cùng màn hình. `QuadEditor` có
+  `SwipeCommand`: chạm bắt đầu **ngoài khung** (hoặc khi chưa có khung) rồi vuốt ngang >= 20% bề rộng, chủ yếu theo chiều ngang, thì chuyển trang;
+  chạm trong khung vẫn là kéo khung / góc / cạnh.
+- Màn kết quả (`ResultPage`): "‹ Trước · Chỉnh khung · Sau ›" + `SwipeGestureRecognizer` trái / phải trên ảnh. "Chỉnh khung" quay về bằng
+  `..?docId=&pageId=` để màn chỉnh khung chuyển sang đúng trang đang xem.
+- Xuất PDF: `Services/ExportCoordinator` (singleton, dùng chung cho Document / Crop / Result) + `Views/ExportOverlay` (tự bind vào singleton).
+  PDF lưu ở `AppDataDirectory/exports` (`Core/Export/ExportLibrary`: tên "<tài liệu> yyyy-MM-dd HH.mm.pdf", thêm " (2)" nếu trùng; không còn dùng cache).
+- Menu: `AppShell` bật flyout (header có `Resources/Images/scanner_logo.svg`): "Tài liệu" (Home), "PDF đã xuất" (`ExportsPage` /
+  `ExportsViewModel`: danh sách mới nhất trước, chạm = Mở / Chia sẻ / Lưu vào Tải xuống / Xoá, vuốt = Xoá, kéo xuống = làm mới).
+- Icon: `Resources/AppIcon/appicon.svg` (nền gradient xanh) + `appiconfg.svg` (tờ giấy + 4 góc khung + tia quét; nằm trong vùng an toàn
+  của adaptive icon, `ForegroundScale="1"`), splash cùng hình, màu `#1A5FD6`.
+- Test ổn định hoá: `FilterMemoryTests` đo cấp phát toàn tiến trình nên phải chạy riêng (collection `DisableParallelization`), trước đó
+  thỉnh thoảng báo sai 80-126 MB do test khác chạy song song.
+
+### Chất lượng PDF (đợt 2026-09-26, owner báo PDF 9 trang = 14 MB)
+- Nguyên nhân (đo trên máy): trang màu nhúng nguyên bản dựng trong app, ~230-300 DPI, JPEG q94 = 1,25-2,2 MB / trang; trang đen trắng PNG 1-bit ~140 KB.
+- Sửa: `Core/Export/PdfQuality` (Nhỏ 150 DPI / JPEG 70, **Vừa 200 DPI / JPEG 80 (mặc định)**, Cao 300 DPI / JPEG 90). Khi xuất, `PdfExportService`
+  nén lại riêng các trang JPEG (`IImageService.LoadRgbAsync` với cạnh dài theo DPI, không phóng to; `SaveJpegAsync` theo chất lượng) vào thư mục tạm
+  `.work_*` cạnh file PDF, xoá sau khi xong; trang PNG đen trắng nhúng nguyên. Bản dựng lưu trong app không đổi (vẫn q94).
+- `ExportCoordinator` hỏi chất lượng mỗi lần xuất (action sheet, đánh dấu ✓ lựa chọn trước, nhớ bằng `Preferences` "pdf_quality").
+- Ước lượng trên chính 8 trang màu của tài liệu đó (nén thử trên PC): hiện tại 13,2 MB -> Nhỏ 2,1 MB, Vừa 3,9 MB, Cao 10,7 MB (+0,14 MB trang đen trắng).
+
+### Làm sạch nền màu: đã thử và BỎ (2026-09-26)
+- Owner yêu cầu thử làm sạch nền cho trang màu để PDF nhỏ hơn. Đo trên 6 trang màu thật: không giảm (200 DPI / q72: 434 -> 448 KB/trang;
+  nền trắng hẳn + xám cũng 440-454 KB). Dung lượng JPEG nằm ở nét chữ, không ở nền. Owner quyết định bỏ: trang Màu giữ nguyên ảnh,
+  `BackgroundFlattener.WhitePoint = 1` (Xám / Đen trắng như cũ). Giữ `BackgroundFlattener.Flatten(RgbImage)` theo từng kênh (có test, chưa dùng).
+- Giữ: JPEG khi xuất Nhỏ 150 DPI / q60, Vừa 200 DPI / q72, Cao 300 DPI / q90.
+- Cách thật sự giảm dung lượng trang chữ: **Đen trắng** (đo: 152 KB/trang ở độ phân giải đầy đủ, 6 trang = 0,9 MB).
+
+### Trang 7 bị méo khi xuất (2026-09-26)
+- Owner báo trang 7 "không đúng A4, gần vuông". Dữ liệu thật: tờ giấy bị khung ảnh cắt, khung chỉnh tay có 1 góc ra ngoài ảnh -> hình thang
+  rất lệch (cạnh 1349 / 2576 x 2378 / 2329 px). `PerspectiveWarp.A4Size` chọn dọc / ngang theo cạnh DÀI NHẤT mỗi cặp -> chọn A4 ngang
+  (3344x2365) trong khi dáng trung bình là dọc 1 : 1,2 -> chữ bị kéo giãn ngang 1,7 lần.
+- Sửa: (1) dọc / ngang theo dáng trung bình (`PerspectiveWarp.IsLandscapeShape`); (2) khung không có dáng tờ giấy (tỉ lệ ngoài 1,15-1,75:
+  `IsA4Like`) giữ tỉ lệ thật dù đang ở chế độ A4 (`CropPlanner`), khi xuất PDF được đặt giữa trang A4 có lề trắng (`PdfExportService.PageLayout`,
+  `PdfPageSource.ImageRect`); (3) bản dựng cũ bị méo tự dựng lại (`PageRecord.RenderStretchedToA4` trong `NeedsRender`, chỉ ảnh hưởng trang méo).
+- Kiểm chứng: test với đúng số liệu trang 7; dựng lại trang 7 thật trên PC từ ảnh gốc -> A4 dọc 2481x3508, chữ đúng tỉ lệ (bản sao đã xoá).

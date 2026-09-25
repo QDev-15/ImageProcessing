@@ -40,6 +40,11 @@ public static class CropPlanner
     /// <param name="storedPx">The outline in pixels of the stored (unrotated) original: TL, TR, BR, BL of the upright page.</param>
     public static CropPlan Plan(Quad storedPx, int rawWidth, int rawHeight, CropAspect aspect = CropAspect.A4)
     {
+        // An outline that is not sheet-shaped (a page cut off by the photo frame, a receipt...) keeps its own
+        // proportions even in A4 mode: stretching it to 1 : sqrt 2 distorts the text. The PDF export still puts
+        // such a page on an A4 sheet, fitted with white margins.
+        if (aspect == CropAspect.A4 && !PerspectiveWarp.IsA4Like(storedPx)) aspect = CropAspect.Free;
+
         // The outline's own size in original pixels (what the photo can resolve) ...
         (int fullW, int fullH) = PerspectiveWarp.OutputSize(storedPx, int.MaxValue, long.MaxValue);
         // ... and the page we want, capped at A4 / 300 DPI.

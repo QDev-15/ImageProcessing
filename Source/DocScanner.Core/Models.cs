@@ -94,13 +94,63 @@ public sealed class PageRecord
     /// <summary>Why the last render failed, if it did.</summary>
     public string? RenderError { get; set; }
 
-    /// <summary>True when there is no render yet, or the outline / rotation changed since the last one.</summary>
+    /// <summary>Color / gray / black-and-white. Pages from before this setting existed are color.</summary>
+    [JsonConverter(typeof(JsonStringEnumConverter<PageColorMode>))]
+    public PageColorMode ColorMode { get; set; } = PageColorMode.Color;
+
+    /// <summary>0..100: black-and-white threshold strength (50 = default).</summary>
+    public int BwDarkness { get; set; } = FilterOptions.DefaultDarkness;
+
+    /// <summary>Flatten shadows / yellowed paper in gray and black-and-white modes.</summary>
+    public bool CleanBackground { get; set; } = true;
+
+    /// <summary>The look the current render was made with.</summary>
+    [JsonConverter(typeof(JsonStringEnumConverter<PageColorMode>))]
+    public PageColorMode CroppedColorMode { get; set; } = PageColorMode.Color;
+    public int CroppedBwDarkness { get; set; } = FilterOptions.DefaultDarkness;
+    public bool CroppedCleanBackground { get; set; } = true;
+
+    /// <summary>File type of the current render: ".jpg" (color / gray) or ".png" (black and white).</summary>
+    public string CroppedExtension { get; set; } = ".jpg";
+
+    [JsonIgnore]
+    public FilterOptions Filter => new(ColorMode, BwDarkness, CleanBackground);
+
+    /// <summary>True when there is no render yet, or the outline / rotation / look changed since the last one.</summary>
     [JsonIgnore]
     public bool NeedsRender =>
         CroppedRevision == 0
         || CroppedRotation != UserRotation
         || CroppedFreeAspect != FreeAspect
-        || (CropQuad != null && (CroppedQuad == null || !CropQuad.AsSpan().SequenceEqual(CroppedQuad)));
+        || RenderStretchedToA4
+        || (CropQuad != null && (CroppedQuad == null || !CropQuad.AsSpan().SequenceEqual(CroppedQuad)))
+        || !SameLook(ColorMode, BwDarkness, CleanBackground, CroppedColorMode, CroppedBwDarkness, CroppedCleanBackground);
+
+    /// <summary>An A4 render made by the older rules: turned the wrong way (landscape for a portrait-shaped outline, or the
+    /// reverse) or forced to A4 although the outline is not sheet-shaped, so its content is stretched (owner's page 7,
+    /// 2026-09-26: 1.7x). Such a render is redone.</summary>
+    [JsonIgnore]
+    public bool RenderStretchedToA4
+    {
+        get
+        {
+            if (CroppedFreeAspect || CroppedQuad is not { Length: 8 } || CroppedWidth <= 0 || CroppedHeight <= 0) return false;
+            double r = (double)Math.Max(CroppedWidth, CroppedHeight) / Math.Min(CroppedWidth, CroppedHeight);
+            if (Math.Abs(r - PerspectiveWarp.A4Ratio) > 0.01) return false; // not an A4-shaped render
+            (int w, int h) = UprightSize;
+            if (w <= 0 || h <= 0) return false;
+            Quad outline = Quad.FromValues(CroppedQuad).Scale(w, h);
+            bool renderLandscape = CroppedWidth > CroppedHeight;
+            return !PerspectiveWarp.IsA4Like(outline) || renderLandscape != PerspectiveWarp.IsLandscapeShape(outline);
+        }
+    }
+
+    /// <summary>Two filter settings give the same picture: darkness only matters in black and white, and
+    /// background cleaning only outside color mode.</summary>
+    public static bool SameLook(PageColorMode mode, int darkness, bool clean, PageColorMode mode2, int darkness2, bool clean2) =>
+        mode == mode2
+        && (mode != PageColorMode.BlackWhite || darkness == darkness2)
+        && (mode == PageColorMode.Color || clean == clean2);
 
     /// <summary>Upright size of the original, in pixels.
     [JsonIgnore]
@@ -119,3 +169,6 @@ public sealed class DocumentRecord
 [JsonSourceGenerationOptions(WriteIndented = true, PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(DocumentRecord))]
 internal sealed partial class DocumentJsonContext : JsonSerializerContext;
+
+/// <summary>A page removed with <see cref="DocumentStore.TrashPage"/>: enough to put it back where it was.</summary>
+public sealed record DeletedPage(string DocId, PageRecord Page, int Index);

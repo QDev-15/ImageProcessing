@@ -102,6 +102,29 @@ public static class PerspectiveWarp
     /// <summary>ISO 216 (A4, A3...): long side / short side = sqrt(2).</summary>
     public const double A4Ratio = 1.41421356237;
 
+    /// <summary>Long : short ratio range an outline must fall in to be treated as an A4 sheet (A4 = 1.414; perspective
+    /// and imprecise corners move a real sheet by up to ~20%). Outside it (a sheet cut off by the photo frame, a receipt, a
+    /// card) forcing A4 would visibly stretch the content.</summary>
+    public const double MinA4Like = 1.15, MaxA4Like = 1.75;
+
+    /// <summary>Long : short ratio of the outline's own shape (average of opposite sides).</summary>
+    public static double ShapeRatio(Quad q)
+    {
+        double w = (Dist(q.TopLeft, q.TopRight) + Dist(q.BottomLeft, q.BottomRight)) / 2;
+        double h = (Dist(q.TopLeft, q.BottomLeft) + Dist(q.TopRight, q.BottomRight)) / 2;
+        return Math.Max(w, h) / Math.Max(1e-9, Math.Min(w, h));
+    }
+
+    /// <summary>True when straightening the outline into an A4 sheet would not distort it noticeably.</summary>
+    public static bool IsA4Like(Quad q) => ShapeRatio(q) is >= MinA4Like and <= MaxA4Like;
+
+    /// <summary>True when the outline is wider than tall, judged on the AVERAGE of opposite sides. (The longer of each pair
+    /// would flip the answer for a strongly trapezoidal outline, e.g. a corner dragged beyond the photo: owner's page 7
+    /// had sides 1349 / 2576 x 2378 / 2329 px, average shape portrait 1 : 1.2, and was straightened into landscape A4,
+    /// stretching the text 1.7x.)</summary>
+    public static bool IsLandscapeShape(Quad q) =>
+        Dist(q.TopLeft, q.TopRight) + Dist(q.BottomLeft, q.BottomRight) > Dist(q.TopLeft, q.BottomLeft) + Dist(q.TopRight, q.BottomRight);
+
     /// <summary>
     /// Size of an A4 sheet (ratio 1 : sqrt 2) for straightening a quad: landscape when the outline is wider
     /// than tall, otherwise portrait. The long side keeps the finer resolution of the outline (never less
@@ -112,7 +135,7 @@ public static class PerspectiveWarp
     {
         double w = Math.Max(Dist(q.TopLeft, q.TopRight), Dist(q.BottomLeft, q.BottomRight));
         double h = Math.Max(Dist(q.TopLeft, q.BottomLeft), Dist(q.TopRight, q.BottomRight));
-        bool landscape = w > h;
+        bool landscape = IsLandscapeShape(q);
         double longSide = landscape ? Math.Max(w, h * A4Ratio) : Math.Max(h, w * A4Ratio);
         longSide = Math.Min(longSide, Math.Min(maxLongEdge, Math.Sqrt(maxPixels * A4Ratio)));
         int l = Math.Max(23, (int)Math.Round(longSide));

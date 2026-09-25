@@ -4,32 +4,109 @@
     xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
     xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
     xmlns:vm="clr-namespace:DocScanner.ViewModels"
+    xmlns:views="clr-namespace:DocScanner.Views"
     x:DataType="vm:ResultViewModel"
     Title="{Binding Title}">
 
-    <Grid RowDefinitions="*,Auto,Auto">
+    <ContentPage.ToolbarItems>
+        <ToolbarItem Text="Xuất PDF" Command="{Binding ExportPdfCommand}" Order="Primary" />
+    </ContentPage.ToolbarItems>
 
-        <Grid Grid.Row="0" Margin="12">
+    <ContentPage.Resources>
+        <!-- Segment buttons: outlined; the selected one is filled (see the DataTriggers below). -->
+        <Style x:Key="Segment" TargetType="Button">
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="Padding" Value="0,6" />
+            <Setter Property="CornerRadius" Value="16" />
+            <Setter Property="BorderWidth" Value="1" />
+            <Setter Property="BorderColor" Value="{AppThemeBinding Light=#999999, Dark=#666666}" />
+            <Setter Property="BackgroundColor" Value="Transparent" />
+            <Setter Property="TextColor" Value="{AppThemeBinding Light=#333333, Dark=#DDDDDD}" />
+        </Style>
+    </ContentPage.Resources>
+
+    <Grid RowDefinitions="*,Auto,Auto,Auto">
+
+        <!-- Swipe left / right on the picture: next / previous page. -->
+        <Grid Grid.Row="0" Margin="12" BackgroundColor="Transparent">
+            <Grid.GestureRecognizers>
+                <SwipeGestureRecognizer Direction="Left" Command="{Binding SwipeLeftCommand}" />
+                <SwipeGestureRecognizer Direction="Right" Command="{Binding SwipeRightCommand}" />
+            </Grid.GestureRecognizers>
             <Image Source="{Binding Image}" Aspect="AspectFit" />
             <ActivityIndicator IsRunning="{Binding IsBusy}" IsVisible="{Binding IsBusy}"
                                HorizontalOptions="Center" VerticalOptions="Center" WidthRequest="48" HeightRequest="48" />
         </Grid>
 
-        <HorizontalStackLayout Grid.Row="1" HorizontalOptions="Center" Spacing="12" Padding="0,6">
+        <HorizontalStackLayout Grid.Row="1" HorizontalOptions="Center" Spacing="12" Padding="0,4">
             <Label Text="{Binding Status}" VerticalOptions="Center" FontSize="13"
                    TextColor="{AppThemeBinding Light=#666666, Dark=#AAAAAA}" />
             <Button Text="Thử lại" IsVisible="{Binding HasError}" Command="{Binding RetryCommand}" FontSize="12" Padding="10,2" />
         </HorizontalStackLayout>
 
-        <VerticalStackLayout Grid.Row="2" Spacing="8" Padding="16,0,16,12">
+        <!-- Look of the page: color / gray / black and white -->
+        <VerticalStackLayout Grid.Row="2" Spacing="6" Padding="16,0,16,6">
+            <Grid ColumnDefinitions="*,*,*" ColumnSpacing="8">
+                <Button Style="{StaticResource Segment}" Text="Màu" Command="{Binding SetModeCommand}" CommandParameter="Color">
+                    <Button.Triggers>
+                        <DataTrigger TargetType="Button" Binding="{Binding IsColor}" Value="True">
+                            <Setter Property="BackgroundColor" Value="{StaticResource Primary}" />
+                            <Setter Property="TextColor" Value="White" />
+                        </DataTrigger>
+                    </Button.Triggers>
+                </Button>
+                <Button Grid.Column="1" Style="{StaticResource Segment}" Text="Xám" Command="{Binding SetModeCommand}" CommandParameter="Gray">
+                    <Button.Triggers>
+                        <DataTrigger TargetType="Button" Binding="{Binding IsGray}" Value="True">
+                            <Setter Property="BackgroundColor" Value="{StaticResource Primary}" />
+                            <Setter Property="TextColor" Value="White" />
+                        </DataTrigger>
+                    </Button.Triggers>
+                </Button>
+                <Button Grid.Column="2" Style="{StaticResource Segment}" Text="Đen trắng" Command="{Binding SetModeCommand}" CommandParameter="BlackWhite">
+                    <Button.Triggers>
+                        <DataTrigger TargetType="Button" Binding="{Binding IsBlackWhite}" Value="True">
+                            <Setter Property="BackgroundColor" Value="{StaticResource Primary}" />
+                            <Setter Property="TextColor" Value="White" />
+                        </DataTrigger>
+                    </Button.Triggers>
+                </Button>
+            </Grid>
+
+            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8" IsVisible="{Binding IsBlackWhite}">
+                <Label Text="Độ đậm" VerticalOptions="Center" FontSize="13" />
+                <Slider Grid.Column="1" Minimum="0" Maximum="100" Value="{Binding Darkness}"
+                        DragCompletedCommand="{Binding CommitDarknessCommand}" />
+            </Grid>
+
+            <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding ShowCleanBackground}">
+                <Label Text="Làm sạch nền (xoá bóng, giấy ngả vàng)" VerticalOptions="Center" FontSize="13" />
+                <Switch Grid.Column="1" IsToggled="{Binding CleanBackground}" />
+            </Grid>
+
+            <Button Text="Áp dụng kiểu này cho mọi trang" Command="{Binding ApplyToAllCommand}" FontSize="12"
+                    BackgroundColor="Transparent" Padding="0,2"
+                    TextColor="{AppThemeBinding Light={StaticResource Primary}, Dark={StaticResource PrimaryDark}}" />
+        </VerticalStackLayout>
+
+        <VerticalStackLayout Grid.Row="3" Spacing="8" Padding="16,0,16,12">
             <Button Text="{Binding AspectText}" Command="{Binding ToggleAspectCommand}" FontSize="13"
                     BackgroundColor="Transparent" BorderWidth="1"
                     BorderColor="{AppThemeBinding Light=#999999, Dark=#666666}"
                     TextColor="{AppThemeBinding Light=#333333, Dark=#DDDDDD}" />
-            <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
-                <Button Text="Chỉnh lại" Command="{Binding EditAgainCommand}" />
-                <Button Grid.Column="1" Text="Xong" Command="{Binding DoneCommand}" />
+            <Grid ColumnDefinitions="*,*,*" ColumnSpacing="8">
+                <Button Text="‹ Trước" IsEnabled="{Binding CanGoPrevious}" Command="{Binding GoCommand}">
+                    <Button.CommandParameter><x:Int32>-1</x:Int32></Button.CommandParameter>
+                </Button>
+                <Button Grid.Column="1" Text="Chỉnh khung" Command="{Binding EditAgainCommand}"
+                        BackgroundColor="Transparent" BorderWidth="1"
+                        BorderColor="{AppThemeBinding Light={StaticResource Primary}, Dark={StaticResource PrimaryDark}}"
+                        TextColor="{AppThemeBinding Light={StaticResource Primary}, Dark={StaticResource PrimaryDark}}" />
+                <Button Grid.Column="2" Text="Sau ›" IsEnabled="{Binding CanGoNext}" Command="{Binding GoCommand}">
+                    <Button.CommandParameter><x:Int32>1</x:Int32></Button.CommandParameter>
+                </Button>
             </Grid>
         </VerticalStackLayout>
+        <views:ExportOverlay Grid.RowSpan="4" />
     </Grid>
 </ContentPage>
