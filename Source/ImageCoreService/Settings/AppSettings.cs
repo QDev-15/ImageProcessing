@@ -53,10 +53,10 @@ public sealed class AppSettings
     // ---- Codec (shown as explicit checkboxes on the settings form) ----
 
     /// <summary>Unchecked -> CCITT G4 for black &amp; white pages.</summary>
-    [Browsable(false)] public bool UseJBig2 { get; set; }
+    [Browsable(false)] public bool UseJBig2 { get; set; } = true;
 
     /// <summary>Unchecked -> JPEG for gray / color pages.</summary>
-    [Browsable(false)] public bool UseJpeg2000 { get; set; }
+    [Browsable(false)] public bool UseJpeg2000 { get; set; } = true;
 
     // ---- Chung ----
 
@@ -133,23 +133,23 @@ public sealed class AppSettings
     public ColorOutputMode ColorMode { get; set; } = ColorOutputMode.Auto;
 
     [Category("4. Xuất file"), DisplayName("Chất lượng JPEG (1-100)")]
-    public int JpegQuality { get; set; } = 90;
+    public int JpegQuality { get; set; } = 60;
 
     [Category("4. Xuất file"), DisplayName("Giữ nguyên JPEG gốc"),
      Description("Trang là file JPEG chưa chỉnh sửa thì nhúng nguyên byte vào PDF (không nén lại lần 2).")]
-    public bool PassThroughOriginalJpeg { get; set; } = true;
+    public bool PassThroughOriginalJpeg { get; set; } = false;
 
     [Category("4. Xuất file"), DisplayName("JPEG2000: tỷ lệ nén"),
-     Description("OpenJPEG -r. 20 = khoảng 1/20 kích thước gốc. 0 = không mất dữ liệu.")]
-    public double Jpeg2000Ratio { get; set; } = 20;
+     Description("OpenJPEG -r. 40 = khoảng 1/40 kích thước gốc. 0 = không mất dữ liệu.")]
+    public double Jpeg2000Ratio { get; set; } = 40;
 
     [Category("4. Xuất file"), DisplayName("JBIG2: chế độ"),
      Description("Symbol: nhỏ nhất, có rủi ro thay nhầm ký tự rất giống nhau. Lossless: an toàn tuyệt đối.")]
     public JBig2Mode JBig2Mode { get; set; } = JBig2Mode.Symbol;
 
     [Category("4. Xuất file"), DisplayName("JBIG2: ngưỡng symbol"),
-     Description("0.85-0.97. Cao hơn = an toàn hơn (ít gộp ký tự), file lớn hơn. Mặc định 0.92.")]
-    public double JBig2Threshold { get; set; } = 0.92;
+     Description("0.85-0.97. Thấp hơn = gộp nhiều ký tự hơn, file nhỏ hơn nhưng rủi ro thay nhầm ký tự. Mặc định 0.85.")]
+    public double JBig2Threshold { get; set; } = 0.85;
 
     [Category("4. Xuất file"), DisplayName("PDF/A-2b"),
      Description("Xuất PDF chuẩn lưu trữ PDF/A-2b (ISO 19005-2).")]
@@ -210,7 +210,7 @@ public sealed class AppSettings
         MaxUndoSteps = Math.Clamp(MaxUndoSteps, 1, 500);
         JpegQuality = Math.Clamp(JpegQuality, 1, 100);
         Jpeg2000Ratio = Math.Clamp(Jpeg2000Ratio, 0, 200);
-        JBig2Threshold = Math.Clamp(JBig2Threshold, 0.4, 0.99);
+        JBig2Threshold = Math.Clamp(JBig2Threshold, 0.4, 0.97); // jbig2.exe rejects anything outside 0.4-0.97
         SauvolaK = Math.Clamp(SauvolaK, 0.05, 1.0);
         BlankPageInkPercent = Math.Clamp(BlankPageInkPercent, 0, 5);
         if (string.IsNullOrWhiteSpace(OcrLanguages)) OcrLanguages = "vie+eng";

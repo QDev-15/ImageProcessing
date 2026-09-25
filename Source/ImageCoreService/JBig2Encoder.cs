@@ -45,6 +45,9 @@ public static class JBig2Encoder
     {
         if (inputImagePaths.Count == 0) throw new ArgumentException("No input pages.", nameof(inputImagePaths));
 
+        // jbig2.exe exits 10 for a threshold outside this range (also guards NaN/stale settings).
+        threshold = double.IsNaN(threshold) ? 0.92 : Math.Clamp(threshold, 0.4, 0.97);
+
         string workDir = CreateTempDir();
         try
         {

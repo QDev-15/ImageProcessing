@@ -11,14 +11,14 @@ thương mại, với điều kiện giữ thông báo bản quyền / license (
 
 | Thành phần | Phiên bản | License | Ghi chú |
 |---|---|---|---|
-| .NET Runtime + Windows Forms (self-contained) | 9.0 | MIT | |
-| PDFsharp | 6.2.4 | MIT | Ghi PDF. Có kèm `sRGB2014.icc` (xem bên dưới). |
-| PdfiumViewer | 2.13.0 | Apache-2.0 | ⚠ Project đã ngừng phát triển (archived); nên thay bằng wrapper PDFium khác khi có điều kiện. |
-| PdfiumViewer.Native.x86_64.v8-xfa (`pdfium.dll`) | 2018.4.8 | BSD-3-Clause (PDFium) + các license kiểu BSD của thành phần con (V8, FreeType, libjpeg, zlib...) | |
-| BitMiracle.LibTiff.NET | 2.4.649 | BSD-3-Clause | |
-| NTwain | 4.0.0-beta.4 | MIT | ⚠ Bản beta. |
-| Tesseract (wrapper .NET, charlesw) | 5.2.0 | Apache-2.0 | Kèm `tesseract50.dll` (Apache-2.0) và `leptonica-1.82.0.dll` (Leptonica license, kiểu BSD-2). |
-| ZXing.Net | 0.16.10 | Apache-2.0 | Đọc barcode để tách tài liệu. |
+| .NET Runtime + Windows Forms (self-contained)        | 9.0           | MIT    | |
+| PDFsharp                                             | 6.2.4         | MIT    | Ghi PDF. Có kèm `sRGB2014.icc` (xem bên dưới). |
+| PdfiumViewer                                         | 2.13.0        | Apache-2.0 | ⚠ Project đã ngừng phát triển (archived); nên thay bằng wrapper PDFium khác khi có điều kiện. |
+| PdfiumViewer.Native.x86_64.v8-xfa (`pdfium.dll`)     | 2018.4.8      | BSD-3-Clause (PDFium) + các license kiểu BSD của thành phần con (V8, FreeType, libjpeg, zlib...) | |
+| BitMiracle.LibTiff.NET                               | 2.4.649       | BSD-3-Clause | |
+| NTwain                                               | 4.0.0-beta.4  | MIT    | ⚠ Bản beta. |
+| Tesseract (wrapper .NET, charlesw)                   | 5.2.0         | Apache-2.0 | Kèm `tesseract50.dll` (Apache-2.0) và `leptonica-1.82.0.dll` (Leptonica license, kiểu BSD-2). |
+| ZXing.Net                                            | 0.16.10       | Apache-2.0 | Đọc barcode để tách tài liệu. |
 
 ## Dữ liệu
 

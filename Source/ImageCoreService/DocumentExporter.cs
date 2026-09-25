@@ -7,15 +7,15 @@ namespace ImageCoreService;
 public sealed class ExportOptions
 {
     /// <summary>false -> CCITT G4 for bitonal pages.</summary>
-    public bool UseJBig2 { get; set; }
+    public bool UseJBig2 { get; set; } = true;
     /// <summary>false -> JPEG for gray / color pages.</summary>
-    public bool UseJpeg2000 { get; set; }
+    public bool UseJpeg2000 { get; set; } = true;
     public JBig2Mode JBig2Mode { get; set; } = JBig2Mode.Symbol;
-    public double JBig2Threshold { get; set; } = 0.92;
-    public int JpegQuality { get; set; } = 90;
+    public double JBig2Threshold { get; set; } = 0.85;
+    public int JpegQuality { get; set; } = 60;
     /// <summary>0 = lossless.</summary>
-    public double Jpeg2000Ratio { get; set; } = 20;
-    public bool PassThroughOriginalJpeg { get; set; } = true;
+    public double Jpeg2000Ratio { get; set; } = 40;
+    public bool PassThroughOriginalJpeg { get; set; } = false;
 
     public ColorOutputMode ColorMode { get; set; } = ColorOutputMode.Auto;
     public BinarizationMethod Binarization { get; set; } = BinarizationMethod.Sauvola;
