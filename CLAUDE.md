@@ -90,7 +90,10 @@
 
 ## App mobile (đợt 2026-09-25, kế hoạch đã chốt với owner)
 
-- Framework: **.NET MAUI**, làm **Android trước** (owner không có Mac, iOS để sau).
+- App: `Source/DocScanner` (solution riêng `Source/DocScanner.slnx`, không nằm trong `ImageProcessing.sln`
+  để build app Windows không đòi workload MAUI). Package `btk.docscanner`, tên hiển thị "Doc Scanner"
+  (không dùng tên IMIP, app không liên quan công ty). Máy test thật: Samsung Galaxy Note 10+.
+- Framework: **.NET MAUI** (net10.0-android), làm **Android trước** (owner không có Mac, iOS để sau).
 - Bản đầu: nhập ảnh từ thư viện / chụp camera -> tự dò mép giấy hoặc kéo 4 điểm -> cắt phối cảnh
   -> đen trắng (Sauvola) -> **nhiều trang + xuất PDF**. **Chưa có OCR.**
 - Dò mép giấy tự viết bằng C# sau interface `IEdgeDetector` (không OpenCV / Emgu vì license).
@@ -98,7 +101,7 @@
 | Bước | Nội dung | Trạng thái |
 |---|---|---|
 | 1 | Tách `ImageCore.Shared` khỏi System.Drawing, xUnit | **xong** (SmokeTests ALL PASS, 10 unit test PASS) |
-| 2 | Khung app MAUI, quyền camera / thư viện | chưa |
+| 2 | Khung app MAUI, quyền camera / thư viện | **code xong, build OK; chưa chạy trên máy thật** (chưa có máy / emulator kết nối) |
 | 3 | Nhập ảnh (thư viện, camera, EXIF, giảm ảnh lớn) | chưa |
 | 4 | Tự dò mép giấy | chưa |
 | 5 | Kéo 4 điểm + kính lúp | chưa |
@@ -115,3 +118,17 @@
 - `PageAnalyzer` (IsBlank / Classify) chưa chuyển vì `Classify` còn dùng Bitmap; chuyển khi mobile cần.
 - Cần lưu ý cho bước 7: Sauvola dùng 2 integral image kiểu `long` (~16 byte/pixel). Ảnh 8,7 MP tốn
   ~140 MB, phải xử lý theo dải hoặc dùng bản tiết kiệm RAM trước khi chạy trên máy 3 GB.
+
+### Bước 2: ghi chú
+- `DocScanner`: chỉ target `net10.0-android`, min SDK 26 (Android 8). Đã xoá Platforms iOS / MacCatalyst /
+  Windows của template; khi làm iOS thì tạo lại từ `dotnet new maui`.
+- MVVM (CommunityToolkit.Mvvm, MIT) + DI trong `MauiProgram`; Shell routes `viewer` / `crop` / `export` đang là
+  trang giữ chỗ (`Views/PlaceholderPages.cs`), mỗi bước sau thay bằng trang thật.
+- Quyền: chỉ `CAMERA` (+ `queries` IMAGE_CAPTURE cho Android 11+). Nhập từ thư viện dùng system photo picker
+  nên không cần quyền lưu trữ. Cố ý KHÔNG khai báo INTERNET (ảnh không rời máy; bản Debug tự có INTERNET cho debugger).
+- Màn hình Trang chủ hiển thị dòng "Lõi xử lý ảnh: Sauvola k = 0.34" để xác nhận ImageCore.Shared chạy được trên máy.
+- Chạy trên máy: bật Tuỳ chọn nhà phát triển + Gỡ lỗi USB, cắm cáp, `adb devices` phải thấy máy, rồi
+  `dotnet build Source/DocScanner/DocScanner.csproj -f net10.0-android -t:Run`
+  (adb: `C:\Program Files (x86)\Androidndroid-sdk\platform-tools`).
+- Cần owner kiểm tra tay: mở app trên Note 10+, bấm "Chụp ảnh" (hộp thoại xin quyền camera hiện đúng, từ chối 2 lần
+  thì có nút mở Cài đặt), bấm 3 nút chuyển màn hình, thấy dòng "Lõi xử lý ảnh".

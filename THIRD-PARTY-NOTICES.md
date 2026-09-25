@@ -19,6 +19,9 @@ thương mại, với điều kiện giữ thông báo bản quyền / license (
 | NTwain                                               | 4.0.0-beta.4  | MIT    | ⚠ Bản beta. |
 | Tesseract (wrapper .NET, charlesw)                   | 5.2.0         | Apache-2.0 | Kèm `tesseract50.dll` (Apache-2.0) và `leptonica-1.82.0.dll` (Leptonica license, kiểu BSD-2). |
 | ZXing.Net                                            | 0.16.10       | Apache-2.0 | Đọc barcode để tách tài liệu. |
+| .NET MAUI (Microsoft.Maui.Controls), app mobile `DocScanner` | 10.x | MIT | Chỉ app Android, không nằm trong app WinForms. |
+| CommunityToolkit.Mvvm                                | 8.4.0         | MIT    | App mobile `DocScanner`. |
+| xUnit / Microsoft.NET.Test.Sdk (chỉ project test)    | 2.9.2 / 17.12.0 | Apache-2.0 / MIT | Không phân phối kèm app. |
 
 ## Dữ liệu
 

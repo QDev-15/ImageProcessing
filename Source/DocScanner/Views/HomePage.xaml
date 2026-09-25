@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage
+    x:Class="DocScanner.Views.HomePage"
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    xmlns:vm="clr-namespace:DocScanner.ViewModels"
+    x:DataType="vm:HomeViewModel"
+    Title="Doc Scanner">
+
+    <Grid RowDefinitions="*,Auto,Auto" Padding="16">
+
+        <VerticalStackLayout Grid.Row="0" VerticalOptions="Center" Spacing="8">
+            <Label Text="Chưa có tài liệu nào" FontSize="22" HorizontalOptions="Center" />
+            <Label Text="Chụp hoặc nhập ảnh để bắt đầu quét."
+                   HorizontalOptions="Center" TextColor="{AppThemeBinding Light=#666666, Dark=#AAAAAA}" />
+            <Label Text="{Binding Status}" HorizontalOptions="Center" HorizontalTextAlignment="Center"
+                   Margin="0,16,0,0" />
+        </VerticalStackLayout>
+
+        <!-- Temporary entry points to the placeholder screens (removed as the real flow lands). -->
+        <HorizontalStackLayout Grid.Row="1" HorizontalOptions="Center" Spacing="8" Margin="0,0,0,12">
+            <Button Text="Xem trang" Command="{Binding OpenCommand}" CommandParameter="viewer" FontSize="12" />
+            <Button Text="Cắt" Command="{Binding OpenCommand}" CommandParameter="crop" FontSize="12" />
+            <Button Text="Xuất PDF" Command="{Binding OpenCommand}" CommandParameter="export" FontSize="12" />
+        </HorizontalStackLayout>
+
+        <VerticalStackLayout Grid.Row="2" Spacing="10">
+            <Button Text="Chụp ảnh" Command="{Binding CaptureCommand}" />
+            <Button Text="Nhập từ thư viện" Command="{Binding PickFromGalleryCommand}" />
+            <Label Text="{Binding CoreInfo}" FontSize="11" HorizontalOptions="Center"
+                   TextColor="{AppThemeBinding Light=#888888, Dark=#777777}" />
+        </VerticalStackLayout>
+    </Grid>
+</ContentPage>
