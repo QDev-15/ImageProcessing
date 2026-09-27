@@ -49,9 +49,7 @@ public sealed class AndroidImageService : IImageService
 			using Bitmap decoded = Decode(path, rawW, rawH, maxEdge);
 			ct.ThrowIfCancellationRequested();
 			using Bitmap scaled = Resize(decoded, w, h);
-			var pixels = new int[w * h];
-			scaled.GetPixels(pixels, 0, w, 0, 0, w, h);
-			return RgbImage.FromArgb(pixels, w, h);
+			return BitmapPixels.ToRgb(scaled);
 		}, ct);
 
 	public Task<RgbImage> LoadRegionAsync(string originalPath, int x, int y, int width, int height, int sample, CancellationToken ct) =>
@@ -59,25 +57,14 @@ public sealed class AndroidImageService : IImageService
 		{
 			using Bitmap region = DecodeRegion(originalPath, x, y, width, height, sample);
 			ct.ThrowIfCancellationRequested();
-			var pixels = new int[region.Width * region.Height];
-			region.GetPixels(pixels, 0, region.Width, 0, 0, region.Width, region.Height);
-			return RgbImage.FromArgb(pixels, region.Width, region.Height);
+			return BitmapPixels.ToRgb(region);
 		}, ct);
 
 	public Task SaveJpegAsync(RgbImage image, string path, int quality, CancellationToken ct) =>
 		Task.Run(() =>
 		{
-			int w = image.Width, h = image.Height;
-			var colors = new int[w * h];
-			byte[] data = image.Data;
-			Parallel.For(0, h, y =>
-			{
-				int o = y * w * 3, c = y * w;
-				for (int x = 0; x < w; x++, o += 3, c++)
-					colors[c] = unchecked((int)0xFF000000) | (data[o] << 16) | (data[o + 1] << 8) | data[o + 2];
-			});
 			ct.ThrowIfCancellationRequested();
-			using Bitmap bmp = Bitmap.CreateBitmap(colors, w, h, Bitmap.Config.Argb8888!)!;
+			using Bitmap bmp = BitmapPixels.FromRgb(image);
 			SaveJpeg(bmp, path, quality);
 		}, ct);
 
@@ -138,14 +125,37 @@ public sealed class AndroidImageService : IImageService
 		(int outW, int outH) = ImageGeometry.FitLongEdge(upW, upH, maxEdge);
 		ct.ThrowIfCancellationRequested();
 
-		using Bitmap decoded = Decode(path, rawW, rawH, maxEdge);
-		ct.ThrowIfCancellationRequested();
+		// Each step makes a new bitmap only when it changes something (an upright opaque JPEG decoded straight at the
+		// right size goes through untouched): every copy of a 1600 px bitmap is ~10 MB written and a GC later.
+		Bitmap current = Decode(path, rawW, rawH, maxEdge);
+		try
+		{
+			ct.ThrowIfCancellationRequested();
 
-		// Resize while still in the stored orientation, then rotate the small result.
-		(int scaleW, int scaleH) = ImageGeometry.IsTransposed(exif) ? (outH, outW) : (outW, outH);
-		using Bitmap scaled = Resize(decoded, scaleW, scaleH);
-		using Bitmap upright = Orient(scaled, exif);
-		return FlattenAlpha(upright);
+			// Resize while still in the stored orientation, then rotate the small result.
+			(int scaleW, int scaleH) = ImageGeometry.IsTransposed(exif) ? (outH, outW) : (outW, outH);
+			if (current.Width != scaleW || current.Height != scaleH)
+				current = Replace(current, Bitmap.CreateScaledBitmap(current, scaleW, scaleH, true)!);
+			if (exif != 1)
+			{
+				using Matrix m = OrientationMatrix(exif);
+				current = Replace(current, Bitmap.CreateBitmap(current, 0, 0, current.Width, current.Height, m, true)!);
+			}
+			if (current.HasAlpha) current = Replace(current, FlattenAlpha(current));
+			return current;
+		}
+		catch
+		{
+			current.Dispose();
+			throw;
+		}
+	}
+
+	/// <summary>Disposes <paramref name="old"/> and returns <paramref name="next"/> (they are always different bitmaps here).</summary>
+	private static Bitmap Replace(Bitmap old, Bitmap next)
+	{
+		old.Dispose();
+		return next;
 	}
 
 	private static Bitmap Decode(string path, int rawW, int rawH, int targetEdge)
@@ -190,9 +200,10 @@ public sealed class AndroidImageService : IImageService
 			? src.Copy(src.GetConfig() ?? Bitmap.Config.Argb8888!, false)!
 			: Bitmap.CreateScaledBitmap(src, width, height, true)!;
 
-	private static Bitmap Orient(Bitmap src, int exifOrientation)
+	/// <summary>The transform that turns a picture stored with this EXIF orientation (2..8) upright.</summary>
+	private static Matrix OrientationMatrix(int exifOrientation)
 	{
-		using var m = new Matrix();
+		var m = new Matrix();
 		switch (exifOrientation)
 		{
 			case 2: m.PostScale(-1, 1); break;
@@ -202,15 +213,14 @@ public sealed class AndroidImageService : IImageService
 			case 6: m.PostRotate(90); break;
 			case 7: m.PostRotate(270); m.PostScale(-1, 1); break;
 			case 8: m.PostRotate(270); break;
-			default: return src.Copy(src.GetConfig() ?? Bitmap.Config.Argb8888!, false)!;
 		}
-		return Bitmap.CreateBitmap(src, 0, 0, src.Width, src.Height, m, true)!;
+		return m;
 	}
 
-	/// <summary>JPEG has no alpha: a transparent PNG would come out black, so put it on white.</summary>
+	/// <summary>JPEG has no alpha: a transparent PNG would come out black, so put it on white. Only called for bitmaps
+	/// that have alpha.</summary>
 	private static Bitmap FlattenAlpha(Bitmap src)
 	{
-		if (!src.HasAlpha) return src.Copy(src.GetConfig() ?? Bitmap.Config.Argb8888!, false)!;
 		Bitmap flat = Bitmap.CreateBitmap(src.Width, src.Height, Bitmap.Config.Argb8888!)!;
 		using var canvas = new Canvas(flat);
 		canvas.DrawColor(Android.Graphics.Color.White);
@@ -218,10 +228,19 @@ public sealed class AndroidImageService : IImageService
 		return flat;
 	}
 
+	/// <summary>The encoder writes straight into a Java file stream (buffered): wrapped in OutputStreamInvoker, the
+	/// binding hands the Java stream itself to Bitmap.compress, instead of calling back into a managed FileStream
+	/// for every few KB.</summary>
 	private static void SaveJpeg(Bitmap bmp, string path, int quality)
 	{
-		using FileStream fs = File.Create(path);
-		if (!bmp.Compress(Bitmap.CompressFormat.Jpeg!, quality, fs))
-			throw new IOException("Không ghi được ảnh JPEG.");
+		bool ok;
+		using (var file = new Java.IO.FileOutputStream(path))
+		using (var buffered = new Java.IO.BufferedOutputStream(new Android.Runtime.OutputStreamInvoker(file), 1 << 16))
+		using (var stream = new Android.Runtime.OutputStreamInvoker(buffered))
+		{
+			ok = bmp.Compress(Bitmap.CompressFormat.Jpeg!, quality, stream);
+			buffered.Flush();
+		}
+		if (!ok) throw new IOException("Không ghi được ảnh JPEG.");
 	}
 }

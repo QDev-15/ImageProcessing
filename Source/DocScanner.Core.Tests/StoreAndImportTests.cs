@@ -327,7 +327,8 @@ public class StoreAndImportTests
         using var rig = new Rig();
         DocumentRecord doc = rig.Store.Create();
         var seen = new List<int>();
-        var progress = new SyncProgress<ImportProgress>(p => seen.Add(new DocumentStore(rig.Root.Path).Get(doc.Id)!.Pages.Count));
+        // Placeholders are all saved first; then each page is saved filled as soon as its photo is in.
+        var progress = new SyncProgress<ImportProgress>(p => seen.Add(new DocumentStore(rig.Root.Path).Get(doc.Id)!.Pages.Count(x => x.State != PageState.Importing)));
 
         await rig.Import.ImportAsync(doc, [Src("1.jpg"), Src("2.jpg"), Src("3.jpg")], progress);
 

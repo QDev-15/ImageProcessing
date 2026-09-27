@@ -1,3 +1,5 @@
+using ImageCoreService;
+
 namespace DocScanner.Core;
 
 /// <summary>Something about a page changed (state, thumbnail, outline...); the UI re-reads it.</summary>
@@ -14,13 +16,25 @@ public sealed record PageUpdate(string DocId, string PageId);
 /// multi-core phone busy without holding many decoded bitmaps in RAM at once. Progress is saved
 /// in doc.json after every step, so <see cref="ResumePending"/> can continue after the app was
 /// killed mid-batch.
+///
+/// With <see cref="Prerender"/> on, a page that has its outline is then straightened and filtered
+/// in the background too (the lowest priority, on one worker at most, so the other stays free for
+/// what the user is waiting on): opening its result and exporting it are then immediate. A page is
+/// never rendered by two workers at once; a render the user asks for overtakes a queued prerender.
 /// </summary>
 public sealed class PageIngestQueue
 {
     public const int ThumbEdge = 512;
     public const int ProxyEdge = 1600;
 
-    private enum Stage { Render, Thumb, Proxy, Detect }
+    private enum Stage { Render, Thumb, Proxy, Detect, Prerender }
+
+    /// <summary>Background renders running at once: one, so a worker is always left for user-driven work.</summary>
+    private const int MaxPrerenders = 1;
+
+    /// <summary>Threads one background job may use for its image loops: a quarter of the cores (2 on an 8-core phone,
+    /// so two workers leave half the cores to the screen).</summary>
+    private static readonly int BackgroundThreads = Math.Max(1, Environment.ProcessorCount / 4);
 
     private readonly record struct Job(string DocId, string PageId, Stage Stage);
 
@@ -31,8 +45,11 @@ public sealed class PageIngestQueue
     private readonly int _maxWorkers;
 
     private readonly object _lock = new();
-    private readonly Queue<Job> _renders = new(), _thumbs = new(), _proxies = new(), _detects = new();
+    private readonly Queue<Job> _renders = new(), _thumbs = new(), _proxies = new(), _detects = new(), _prerenders = new();
     private readonly Dictionary<string, int> _jobsPerPage = [];
+    private readonly Dictionary<string, int> _renderJobsPerPage = []; // the render / prerender share of _jobsPerPage
+    private readonly HashSet<string> _rendering = []; // pages with a render or prerender running
+    private int _prerendersRunning;
     private int _running;
     private int _outstanding;
     private TaskCompletionSource _idle = NewCompleted();
@@ -45,6 +62,10 @@ public sealed class PageIngestQueue
         _render = render;
         _maxWorkers = Math.Max(1, workers);
     }
+
+    /// <summary>Straighten and filter pages in the background once they have an outline (off by default: tests
+    /// of the other stages expect the queue to stop after detection).</summary>
+    public bool Prerender { get; init; }
 
     /// <summary>Raised on a worker thread after any change to a page.</summary>
     public event Action<PageUpdate>? PageUpdated;
@@ -61,6 +82,13 @@ public sealed class PageIngestQueue
         lock (_lock) return _jobsPerPage.ContainsKey(pageId);
     }
 
+    /// <summary>True while the page still has import work (thumbnail, proxy, outline detection) queued or running;
+    /// renders do not count. A render asked for now would be made before the outline is known.</summary>
+    public bool IsPreparing(string pageId)
+    {
+        lock (_lock) return _jobsPerPage.GetValueOrDefault(pageId) > _renderJobsPerPage.GetValueOrDefault(pageId);
+    }
+
     /// <summary>Completes when nothing is queued or running (mainly for tests).</summary>
     public Task WaitIdleAsync()
     {
@@ -68,8 +96,48 @@ public sealed class PageIngestQueue
     }
 
     /// <summary>Straightens the page from the original photo. The user is waiting for it (they just
-    /// pressed Done), so it goes ahead of everything else in the queue.</summary>
-    public void EnqueueRender(string docId, string pageId) => Add(new Job(docId, pageId, Stage.Render));
+    /// pressed Done), so it goes ahead of everything else in the queue: a queued prerender of the page
+    /// is promoted, and a render already waiting is not queued twice. Safe to call repeatedly.</summary>
+    public void EnqueueRender(string docId, string pageId)
+    {
+        lock (_lock)
+        {
+            if (_renders.Any(j => j.PageId == pageId)) return;
+            if (Remove(_prerenders, pageId)) Forget(new Job(docId, pageId, Stage.Prerender));
+            Add(new Job(docId, pageId, Stage.Render));
+        }
+    }
+
+    /// <summary>Queues a background render of the page (when <see cref="Prerender"/> is on), e.g. after the user
+    /// moved on from editing its outline. Does nothing when a render of the page is already waiting.</summary>
+    public void EnqueuePrerender(string docId, string pageId)
+    {
+        if (!Prerender || _render == null) return;
+        lock (_lock)
+        {
+            if (_renders.Any(j => j.PageId == pageId) || _prerenders.Any(j => j.PageId == pageId)) return;
+            Add(new Job(docId, pageId, Stage.Prerender));
+        }
+    }
+
+    /// <summary>Removes the page's job from a queue (under the lock); true if there was one.</summary>
+    private static bool Remove(Queue<Job> queue, string pageId)
+    {
+        if (!queue.Any(j => j.PageId == pageId)) return false;
+        Job[] keep = queue.Where(j => j.PageId != pageId).ToArray();
+        queue.Clear();
+        foreach (Job j in keep) queue.Enqueue(j);
+        return true;
+    }
+
+    /// <summary>Bookkeeping for a job that finished, or was taken out of its queue without running (under the lock).</summary>
+    private void Forget(Job job)
+    {
+        string pageId = job.PageId;
+        if (--_jobsPerPage[pageId] == 0) _jobsPerPage.Remove(pageId);
+        if (IsRender(job.Stage) && --_renderJobsPerPage[pageId] == 0) _renderJobsPerPage.Remove(pageId);
+        if (--_outstanding == 0) _idle.TrySetResult();
+    }
 
     /// <summary>Starts the pipeline for a page that was just added.
     public void Enqueue(string docId, string pageId) => Add(new Job(docId, pageId, Stage.Thumb));
@@ -90,6 +158,9 @@ public sealed class PageIngestQueue
                     case PageState.Ready when page.CropQuad == null && _detection != null:
                         Add(new Job(doc.Id, page.Id, Stage.Detect));
                         break;
+                    case PageState.Ready when page.CropQuad != null && page.NeedsRender && page.RenderError == null:
+                        EnqueuePrerender(doc.Id, page.Id);
+                        break;
                 }
             }
         }
@@ -102,7 +173,11 @@ public sealed class PageIngestQueue
             if (_outstanding == 0) _idle = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             _outstanding++;
             _jobsPerPage[job.PageId] = _jobsPerPage.GetValueOrDefault(job.PageId) + 1;
-            (job.Stage switch { Stage.Render => _renders, Stage.Thumb => _thumbs, Stage.Proxy => _proxies, _ => _detects }).Enqueue(job);
+            if (IsRender(job.Stage)) _renderJobsPerPage[job.PageId] = _renderJobsPerPage.GetValueOrDefault(job.PageId) + 1;
+            (job.Stage switch
+            {
+                Stage.Render => _renders, Stage.Thumb => _thumbs, Stage.Proxy => _proxies, Stage.Detect => _detects, _ => _prerenders,
+            }).Enqueue(job);
 
             if (_running < _maxWorkers)
             {
@@ -112,11 +187,30 @@ public sealed class PageIngestQueue
         }
     }
 
+    private static bool IsRender(Stage stage) => stage is Stage.Render or Stage.Prerender;
+
+    /// <summary>Next job to run (under the lock). Strict priority: nothing starts a later stage while an earlier one
+    /// has runnable work waiting. A render of a page that is being rendered right now waits for that one to finish
+    /// (two renders of a page would both write revision n + 1); the worker running it picks the job up afterwards.</summary>
     private bool TryDequeue(out Job job)
     {
-        // Strict priority: nothing starts a later stage while an earlier one has work waiting.
-        foreach (Queue<Job> q in new[] { _renders, _thumbs, _proxies, _detects })
-            if (q.TryDequeue(out job)) return true;
+        foreach (Queue<Job> q in new[] { _renders, _thumbs, _proxies, _detects, _prerenders })
+        {
+            if (q == _prerenders && _prerendersRunning >= MaxPrerenders) break;
+            for (int n = q.Count; n > 0; n--)
+            {
+                Job next = q.Dequeue();
+                if (IsRender(next.Stage) && _rendering.Contains(next.PageId))
+                {
+                    q.Enqueue(next);
+                    continue;
+                }
+                if (IsRender(next.Stage)) _rendering.Add(next.PageId);
+                if (next.Stage == Stage.Prerender) _prerendersRunning++;
+                job = next;
+                return true;
+            }
+        }
         job = default;
         return false;
     }
@@ -137,7 +231,10 @@ public sealed class PageIngestQueue
 
             try
             {
-                await RunAsync(job);
+                // Background work keeps to a share of the cores: the page the user is editing gets the rest and stays smooth.
+                using (ParallelScope.Limit(BackgroundThreads))
+                using (Perf.Measure($"stage {job.Stage}"))
+                    await RunAsync(job);
             }
             catch (Exception ex)
             {
@@ -148,8 +245,9 @@ public sealed class PageIngestQueue
             {
                 lock (_lock)
                 {
-                    if (--_jobsPerPage[job.PageId] == 0) _jobsPerPage.Remove(job.PageId);
-                    if (--_outstanding == 0) _idle.TrySetResult();
+                    if (IsRender(job.Stage)) _rendering.Remove(job.PageId);
+                    if (job.Stage == Stage.Prerender) _prerendersRunning--;
+                    Forget(job);
                 }
             }
         }
@@ -189,6 +287,7 @@ public sealed class PageIngestQueue
                 bool kept = Change(job, p => p.State = PageState.Ready);
                 // A page that already has an outline (rotated by the user, or edited by hand) keeps it.
                 if (kept && _detection != null && page.CropQuad == null) Add(new Job(job.DocId, job.PageId, Stage.Detect));
+                else if (kept && page.CropQuad != null) EnqueuePrerender(job.DocId, job.PageId);
                 break;
             }
 
@@ -196,6 +295,10 @@ public sealed class PageIngestQueue
                 try
                 {
                     await _render.RenderAsync(job.DocId, job.PageId);
+                }
+                catch (OperationCanceledException)
+                {
+                    break; // the page changed while it was being rendered: that render was out of date, not failed
                 }
                 catch (Exception ex)
                 {
@@ -213,6 +316,21 @@ public sealed class PageIngestQueue
                 catch (Exception)
                 {
                     // The outline is a convenience: the page works without it and gets it again when opened.
+                }
+                Raise(job);
+                EnqueuePrerender(job.DocId, job.PageId);
+                break;
+
+            case Stage.Prerender when _render != null && page.State == PageState.Ready && page.CropQuad != null
+                                      && page.NeedsRender && page.RenderError == null:
+                try
+                {
+                    await _render.RenderAsync(job.DocId, job.PageId);
+                }
+                catch (Exception)
+                {
+                    // Only a head start: the render the user asks for later retries and reports the error.
+                    break;
                 }
                 Raise(job);
                 break;
@@ -238,7 +356,7 @@ public sealed class PageIngestQueue
         Change(job, p =>
         {
             // Only the decode stages can fail a page; a failed detection just leaves it without an outline.
-            if (job.Stage == Stage.Detect) return;
+            if (job.Stage is Stage.Detect or Stage.Prerender) return;
             if (job.Stage == Stage.Render) { p.RenderError = ex.Message; return; }
             p.State = PageState.Failed;
             p.Error = ex.Message;

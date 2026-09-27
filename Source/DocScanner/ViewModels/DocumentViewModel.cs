@@ -8,8 +8,9 @@ namespace DocScanner.ViewModels;
 
 /// <summary>One document: its pages (filling in as the background pipeline works), adding more photos,
 /// reordering / deleting pages with one level of undo, renaming, and exporting a PDF.</summary>
-public partial class DocumentViewModel(DocumentStore store, ImportCoordinator importer, PageIngestQueue queue, ExportCoordinator exports)
-	: ImportViewModelBase, IQueryAttributable
+public partial class DocumentViewModel(DocumentStore store, ImportCoordinator importer, BackgroundImporter imports,
+	PageIngestQueue queue, ExportCoordinator exports)
+	: ObservableObject, IQueryAttributable
 {
 	private string? _docId;
 	private PageItem? _dragged;
@@ -22,12 +23,24 @@ public partial class DocumentViewModel(DocumentStore store, ImportCoordinator im
 	[ObservableProperty]
 	private string title = "";
 
-	/// <summary>"Đang xử lý n ảnh..." while pages are still being prepared in the background.</summary>
+	/// <summary>"Đang nhập ảnh 23/100 · đang xử lý 12" while photos are copied / pages prepared in the background, or
+	/// what is left to report once the import ended (failures, stopped).</summary>
 	[ObservableProperty]
 	private string progressText = "";
 
 	[ObservableProperty]
 	private bool hasProgress;
+
+	/// <summary>The button next to the status: "Dừng" while importing, "Đóng" / "Xem" for a finished import's report.</summary>
+	[ObservableProperty]
+	private string importActionText = "";
+
+	[ObservableProperty]
+	private bool hasImportAction;
+
+	/// <summary>Photos are being copied in right now (spinner on the status line).</summary>
+	[ObservableProperty]
+	private bool isImporting;
 
 	/// <summary>Text of the undo bar ("Đã xoá Trang 3"); the bar shows while it is not empty.</summary>
 	[ObservableProperty]
@@ -40,7 +53,12 @@ public partial class DocumentViewModel(DocumentStore store, ImportCoordinator im
 	{
 		if (query.TryGetValue("docId", out object? id) && id is string s)
 		{
-			if (s != _docId) ClearUndo();
+			if (s == _docId)
+			{
+				Sync();
+				return;
+			}
+			ClearUndo();
 			_docId = s;
 			Reload();
 		}
@@ -50,20 +68,80 @@ public partial class DocumentViewModel(DocumentStore store, ImportCoordinator im
 	public void Attach()
 	{
 		queue.PageUpdated += OnPageUpdated;
-		Reload();
+		imports.Changed += OnImportChanged;
+		imports.PageChanged += OnImportPageChanged;
+		Sync(); // back from another screen: update the tiles in place instead of rebuilding them all
 	}
 
-	public void Detach() => queue.PageUpdated -= OnPageUpdated;
+	public void Detach()
+	{
+		queue.PageUpdated -= OnPageUpdated;
+		imports.Changed -= OnImportChanged;
+		imports.PageChanged -= OnImportPageChanged;
+	}
 
-	private void OnPageUpdated(PageUpdate update) =>
+	/// <summary>Tiles by page id: the background work reports one page at a time, and with 100 tiles a linear search per
+	/// report adds up.</summary>
+	private readonly Dictionary<string, PageItem> _items = [];
+
+	private void OnPageUpdated(PageUpdate update) => RefreshPageLater(update.DocId, update.PageId);
+
+	/// <summary>A placeholder's photo is being copied, or it was filled / failed.</summary>
+	private void OnImportPageChanged(string docId, string pageId) => RefreshPageLater(docId, pageId);
+
+	/// <summary>Updates only that tile, in place: the list itself is not touched, so it does not jump or flicker.</summary>
+	private void RefreshPageLater(string docId, string pageId) =>
 		MainThread.BeginInvokeOnMainThread(() =>
 		{
-			if (update.DocId != _docId) return;
-			Pages.FirstOrDefault(p => p.Record.Id == update.PageId)?.Refresh();
+			if (docId != _docId) return;
+			if (_items.TryGetValue(pageId, out PageItem? item)) item.Refresh();
+			else Sync();
 			UpdateProgress();
 		});
 
-	/// <summary>Rebuilds the tiles from the document.</summary>
+	/// <summary>Placeholders were added (a pick) or taken away (a stop), or the import's status changed.</summary>
+	private void OnImportChanged(string docId) =>
+		MainThread.BeginInvokeOnMainThread(() =>
+		{
+			if (docId != _docId) return;
+			Sync();
+			UpdateProgress();
+		});
+
+	/// <summary>Brings the tiles in line with the document with as little change to the list as possible: the same pages
+	/// in the same order = refresh each tile in place; pages only added at the end (a pick adds all its placeholders at
+	/// once) = append; anything else (reorder, removal) = rebuild.</summary>
+	private void Sync()
+	{
+		if (_docId == null) return;
+		DocumentRecord? doc = store.Get(_docId);
+		if (doc == null) return;
+		Title = doc.Name;
+		IReadOnlyList<PageRecord> pages = store.Pages(_docId);
+		bool prefix = Pages.Count <= pages.Count;
+		for (int i = 0; prefix && i < Pages.Count; i++)
+			prefix = ReferenceEquals(Pages[i].Record, pages[i]);
+		if (!prefix)
+		{
+			Reload();
+			return;
+		}
+		foreach (PageItem item in Pages) item.Refresh();
+		for (int i = Pages.Count; i < pages.Count; i++) Add(NewItem(pages[i], i + 1));
+		UpdateProgress();
+	}
+
+	private void Add(PageItem item)
+	{
+		Pages.Add(item);
+		_items[item.Record.Id] = item;
+	}
+
+	private PageItem NewItem(PageRecord p, int number) =>
+		new(p, number, ThumbFor, OpenPage, DeletePage, ShowPageMenu, x => _dragged = x, DropOn,
+			imports.CopyProgress, queue.IsPreparing);
+
+	/// <summary>Rebuilds the tiles from the document (after a reorder or a deletion).</summary>
 	public void Reload()
 	{
 		if (_docId == null) return;
@@ -73,11 +151,11 @@ public partial class DocumentViewModel(DocumentStore store, ImportCoordinator im
 		Title = doc.Name;
 		IReadOnlyList<PageRecord> pages = store.Pages(_docId);
 		Pages.Clear();
+		_items.Clear();
 		for (int i = 0; i < pages.Count; i++)
-			Pages.Add(new PageItem(pages[i], i + 1, ThumbFor, OpenPage, DeletePage, ShowPageMenu, p => _dragged = p, DropOn));
+			Add(NewItem(pages[i], i + 1));
 		UpdateProgress();
 	}
-
 	/// <summary>The straightened thumbnail once there is a current one, else the plain thumbnail.</summary>
 	private string ThumbFor(PageRecord p) =>
 		p.CroppedRevision > 0 && !p.NeedsRender
@@ -87,8 +165,55 @@ public partial class DocumentViewModel(DocumentStore store, ImportCoordinator im
 	private void UpdateProgress()
 	{
 		int busy = Pages.Count(p => p.Record.State is PageState.Pending or PageState.Preview);
-		HasProgress = busy > 0;
-		ProgressText = busy > 0 ? $"Đang xử lý {busy} ảnh..." : "";
+		string preparing = busy > 0 ? $"đang xử lý {busy} ảnh" : "";
+		ImportStatus? import = _docId == null ? null : imports.Status(_docId);
+
+		if (import is { Running: true })
+		{
+			ProgressText = $"Đang nhập ảnh {Math.Min(import.Done + 1, import.Total)}/{import.Total}"
+				+ (import.Stopped ? " · đang dừng..." : "") + (busy > 0 ? " · " + preparing : "");
+			ImportActionText = "Dừng";
+			HasImportAction = !import.Stopped;
+		}
+		else if (import != null)
+		{
+			int copied = import.Done - import.Failures.Count;
+			string report = import.Stopped
+				? $"Đã dừng: nhập {copied}/{import.Total} ảnh"
+				: $"Không nhập được {import.Failures.Count}/{import.Total} ảnh";
+			ProgressText = report + (busy > 0 ? " · " + preparing : "");
+			ImportActionText = import.Failures.Count > 0 ? "Xem" : "Đóng";
+			HasImportAction = true;
+		}
+		else
+		{
+			ProgressText = busy > 0 ? $"Đang xử lý {busy} ảnh..." : "";
+			HasImportAction = false;
+		}
+		IsImporting = import is { Running: true } || busy > 0;
+		HasProgress = ProgressText.Length > 0;
+	}
+
+	/// <summary>"Dừng" stops the import (pages already added stay); "Xem" / "Đóng" shows what failed and clears the report.</summary>
+	[RelayCommand]
+	private async Task ImportActionAsync()
+	{
+		if (_docId == null) return;
+		string docId = _docId;
+		ImportStatus? import = imports.Status(docId);
+		if (import == null) return;
+		if (import.Running)
+		{
+			imports.Stop(docId);
+			return;
+		}
+		if (import.Failures.Count > 0)
+		{
+			string names = string.Join("\n", import.Failures.Take(8).Select(f => "• " + (f.Name.Length > 0 ? f.Name : f.Message)));
+			string more = import.Failures.Count > 8 ? $"\n... và {import.Failures.Count - 8} ảnh khác" : "";
+			await Shell.Current.DisplayAlertAsync("Ảnh không nhập được", $"{import.Failures.Count} ảnh không đọc được:\n{names}{more}", "OK");
+		}
+		imports.Dismiss(docId);
 	}
 
 	[RelayCommand]
@@ -97,14 +222,14 @@ public partial class DocumentViewModel(DocumentStore store, ImportCoordinator im
 	[RelayCommand]
 	private Task AddFromCameraAsync() => AddAsync(importer.FromCameraAsync);
 
-	private async Task AddAsync(
-		Func<Func<DocumentRecord>, IProgress<ImportProgress>, CancellationToken, Task<ImportOutcome?>> pick)
+	/// <summary>Picks and returns: the photos are copied in the background and appear one by one.</summary>
+	private async Task AddAsync(Func<Func<DocumentRecord>, Task<DocumentRecord?>> pick)
 	{
 		if (_docId == null) return;
 		DocumentRecord? doc = store.Get(_docId);
 		if (doc == null) return;
-		await RunImportAsync((progress, ct) => pick(() => doc, progress, ct));
-		Reload();
+		await pick(() => doc);
+		UpdateProgress();
 	}
 
 	private void OpenPage(PageItem item)
@@ -118,6 +243,15 @@ public partial class DocumentViewModel(DocumentStore store, ImportCoordinator im
 		_ = Shell.Current.GoToAsync($"{AppShell.Routes.Crop}?docId={_docId}&pageId={item.Record.Id}");
 	}
 
+	/// <summary>"Chỉnh sửa" on the bottom bar: the editor on the first page that can be edited (then ‹ › through the rest).</summary>
+	[RelayCommand]
+	private void EditPages()
+	{
+		PageItem? first = Pages.FirstOrDefault(p => p.Record.State == PageState.Ready)
+			?? Pages.FirstOrDefault(p => p.Record.State != PageState.Failed);
+		if (first != null) OpenPage(first);
+	}
+
 	#region Reorder / delete / undo
 
 	/// <summary>Deletes at once (no confirmation): the undo bar can bring the page back.</summary>
@@ -129,7 +263,11 @@ public partial class DocumentViewModel(DocumentStore store, ImportCoordinator im
 		DeletedPage? deleted = store.TrashPage(docId, item.Record.Id);
 		if (deleted == null) return;
 		SetUndo($"Đã xoá {item.Label}", () => store.RestorePage(deleted));
-		Reload();
+		// Only that tile leaves the list (the rest are renumbered in place): no rebuild, no flicker.
+		Pages.Remove(item);
+		_items.Remove(item.Record.Id);
+		Renumber();
+		UpdateProgress();
 	}
 
 	private void MovePage(PageItem item, int newIndex)
@@ -139,7 +277,16 @@ public partial class DocumentViewModel(DocumentStore store, ImportCoordinator im
 		if (!store.MovePage(_docId, item.Record.Id, newIndex)) return;
 		string docId = _docId;
 		SetUndo($"Đã chuyển {item.Label}", () => store.SetOrder(docId, before));
-		Reload();
+		int oldIndex = Pages.IndexOf(item);
+		int target = Math.Clamp(newIndex, 0, Pages.Count - 1);
+		if (oldIndex >= 0 && oldIndex != target) Pages.Move(oldIndex, target);
+		Renumber();
+		Sync(); // falls back to a rebuild if the store's order differs from the list's
+	}
+
+	private void Renumber()
+	{
+		for (int i = 0; i < Pages.Count; i++) Pages[i].SetNumber(i + 1);
 	}
 
 	/// <summary>Drag and drop: the dragged tile takes the place of the tile it is dropped on.</summary>

@@ -21,13 +21,17 @@ public sealed class RgbImage
     {
         if (argb.Length < width * height) throw new ArgumentException("Pixel buffer too small.", nameof(argb));
         var img = new RgbImage(width, height);
-        for (int i = 0, o = 0; i < width * height; i++, o += 3)
+        byte[] d = img.Data;
+        Parallel.For(0, height, ParallelScope.Options, y =>
         {
-            int p = argb[i];
-            img.Data[o] = (byte)(p >> 16);
-            img.Data[o + 1] = (byte)(p >> 8);
-            img.Data[o + 2] = (byte)p;
-        }
+            for (int i = y * width, o = i * 3, end = i + width; i < end; i++, o += 3)
+            {
+                int p = argb[i];
+                d[o] = (byte)(p >> 16);
+                d[o + 1] = (byte)(p >> 8);
+                d[o + 2] = (byte)p;
+            }
+        });
         return img;
     }
 
@@ -35,16 +39,26 @@ public sealed class RgbImage
     public static RgbImage FromGray(GrayImage gray)
     {
         var img = new RgbImage(gray.Width, gray.Height);
-        for (int i = 0, o = 0; i < gray.Data.Length; i++, o += 3)
-            img.Data[o] = img.Data[o + 1] = img.Data[o + 2] = gray.Data[i];
+        byte[] src = gray.Data, d = img.Data;
+        int w = gray.Width;
+        Parallel.For(0, gray.Height, ParallelScope.Options, y =>
+        {
+            for (int i = y * w, o = i * 3, end = i + w; i < end; i++, o += 3)
+                d[o] = d[o + 1] = d[o + 2] = src[i];
+        });
         return img;
     }
 
     public GrayImage ToGray()
     {
         var g = new GrayImage(Width, Height);
-        for (int i = 0, o = 0; i < g.Data.Length; i++, o += 3)
-            g.Data[i] = (byte)((Data[o] * 299 + Data[o + 1] * 587 + Data[o + 2] * 114 + 500) / 1000);
+        byte[] src = Data, d = g.Data;
+        int w = Width;
+        Parallel.For(0, Height, ParallelScope.Options, y =>
+        {
+            for (int i = y * w, o = i * 3, end = i + w; i < end; i++, o += 3)
+                d[i] = (byte)((src[o] * 299 + src[o + 1] * 587 + src[o + 2] * 114 + 500) / 1000);
+        });
         return g;
     }
 
@@ -57,7 +71,7 @@ public sealed class RgbImage
         RgbImage s = Downscale(factor);
         var dst = new RgbImage(width, height);
         double kx = (double)s.Width / width, ky = (double)s.Height / height;
-        for (int y = 0; y < height; y++)
+        Parallel.For(0, height, ParallelScope.Options, y =>
         {
             double sy = (y + 0.5) * ky - 0.5;
             int y0 = Math.Clamp((int)Math.Floor(sy), 0, s.Height - 1), y1 = Math.Min(y0 + 1, s.Height - 1);
@@ -74,7 +88,36 @@ public sealed class RgbImage
                     dst.Data[(y * width + x) * 3 + c] = (byte)(top * (1 - fy) + bot * fy + 0.5);
                 }
             }
-        }
+        });
+        return dst;
+    }
+
+    /// <summary>Turned clockwise by <paramref name="turns"/> x 90 degrees (any integer; 0 returns this image).</summary>
+    public RgbImage RotateClockwise(int turns)
+    {
+        turns = ((turns % 4) + 4) % 4;
+        if (turns == 0) return this;
+        int w = Width, h = Height;
+        var dst = turns == 2 ? new RgbImage(w, h) : new RgbImage(h, w);
+        int dw = dst.Width;
+        byte[] s = Data, d = dst.Data;
+        Parallel.For(0, dst.Height, ParallelScope.Options, y =>
+        {
+            for (int x = 0; x < dw; x++)
+            {
+                // Source pixel of destination (x, y).
+                (int sx, int sy) = turns switch
+                {
+                    1 => (y, h - 1 - x),         // clockwise: (x, y) -> (h - 1 - y, x)
+                    2 => (w - 1 - x, h - 1 - y),
+                    _ => (w - 1 - y, x),         // counter-clockwise: (x, y) -> (y, w - 1 - x)
+                };
+                int o = (y * dw + x) * 3, i = (sy * w + sx) * 3;
+                d[o] = s[i];
+                d[o + 1] = s[i + 1];
+                d[o + 2] = s[i + 2];
+            }
+        });
         return dst;
     }
 
@@ -85,7 +128,7 @@ public sealed class RgbImage
         int w = Math.Max(1, Width / factor), h = Math.Max(1, Height / factor);
         var dst = new RgbImage(w, h);
         int area = factor * factor;
-        Parallel.For(0, h, y =>
+        Parallel.For(0, h, ParallelScope.Options, y =>
         {
             for (int x = 0; x < w; x++)
             {

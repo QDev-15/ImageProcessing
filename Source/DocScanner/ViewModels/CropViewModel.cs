@@ -64,7 +64,18 @@ public partial class CropViewModel(DocumentStore store, CropDetectionService det
 		Refresh();
 	}
 
-	public void Detach() => queue.PageUpdated -= OnPageUpdated;
+	public void Detach()
+	{
+		queue.PageUpdated -= OnPageUpdated;
+		PrerenderLeftPage();
+	}
+
+	/// <summary>The user is done with this page's outline: straighten it in the background, so its result
+	/// and the export are ready sooner (a render the result screen asks for overtakes it).</summary>
+	private void PrerenderLeftPage()
+	{
+		if (_docId != null && _pageId != null) queue.EnqueuePrerender(_docId, _pageId);
+	}
 
 	private void OnPageUpdated(PageUpdate update)
 	{
@@ -92,6 +103,14 @@ public partial class CropViewModel(DocumentStore store, CropDetectionService det
 			case PageState.Failed:
 				CanEdit = false;
 				Status = "Không đọc được ảnh: " + page.Error;
+				return;
+
+			case PageState.Importing:
+				// A placeholder: the photo is not in the document yet. Everything stays locked until it is.
+				ImagePath = null;
+				Quad = null;
+				CanEdit = false;
+				Status = "Ảnh đang được tải vào, chờ một chút...";
 				return;
 
 			case PageState.Pending:
@@ -205,6 +224,7 @@ public partial class CropViewModel(DocumentStore store, CropDetectionService det
 		var next = store.Neighbor(_docId, _pageId, delta);
 		if (next == null) return;
 		KeepShownOutline();
+		PrerenderLeftPage();
 		_pageId = next.Value.PageId;
 		_detecting = false;
 		Refresh();

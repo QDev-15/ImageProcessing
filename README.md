@@ -13,6 +13,25 @@
   [CLAUDE.md](CLAUDE.md).
 - Trạng thái app mobile và việc còn lại: [MOBILE-STATUS.md](MOBILE-STATUS.md).
   Hiện đã xong bước 1-8 (đến đen trắng, quản lý trang, xuất PDF, chia sẻ); còn bước 9 (hoàn thiện) và 10 (phát hành).
+- **Đợt tối ưu tốc độ app mobile (2026-09-26)**: dò mép nhanh ~3,8 lần (kết quả giữ nguyên từng bit), bộ lọc
+  Xám / Đen trắng nhanh ~1,3-1,8 lần, trang được **dựng sẵn ở nền** sau khi dò mép (mở "Kết quả" / xuất PDF gần như tức thì),
+  đọc / ghi điểm ảnh Android không qua mảng trung gian. Đo lại bằng `dotnet run -c Release --project Source/MobileBench`.
+  Chi tiết: MOBILE-STATUS.md mục "Tối ưu tốc độ".
+- **Nhập ảnh chạy nền (2026-09-27)**: chọn ảnh xong vào ngay tài liệu, ảnh được chép ở nền (không còn spinner chặn),
+  trạng thái "Đang nhập x/y" + nút Dừng trong tài liệu, vẫn còn khi thoát ra vào lại (thêm 100 ảnh không treo app).
+  Trình chọn ảnh riêng (MAUI chép mọi ảnh vào cache trên luồng UI). Chi tiết: MOBILE-STATUS.md mục 5c.
+- **Đợt 2026-09-27b**: ô "Đang tải..." cho từng ảnh ngay khi chọn (cập nhật tại chỗ, có thanh tiến trình, không giật
+  danh sách; trang chưa tải xong bị khoá chỉnh sửa); màn kết quả xem trước tức thì khi đổi Màu / Xám / Đen trắng, thêm thanh
+  Độ sáng / Độ tương phản kéo mượt (ColorMatrix GPU), nút Xoay trái / phải ở màn kết quả. Chi tiết: MOBILE-STATUS.md mục 5d.
+- **Thiết kế lại giao diện (2026-09-27c)**: gọn theo phong cách app TapScanner (chỉ tham khảo bố cục / luồng, không dùng
+  tên, logo, hình ảnh của họ): thanh công cụ biểu tượng + chữ nhỏ, nút chụp tròn ở giữa màn chính, ảnh chiếm phần lớn màn hình khi chỉnh.
+  Biểu tượng: font Material Icons (Apache-2.0). Chi tiết: MOBILE-STATUS.md mục 5e.
+- **Đợt 2026-09-27d**: so với TapScanner (thêm thẻ bộ lọc có ảnh xem trước) + đo bản Release, tối ưu: chép ảnh nhập ~4x, proxy ~4x,
+  mở màn kết quả ~4x (dùng lại bản dựng sẵn), Release AOT + LLVM (dò mép -40%). Log thời gian: `adb logcat -s DocScanPerf`. Chi tiết: MOBILE-STATUS.md mục 5f.
+- **Đợt 2026-09-27e**: mượt hơn khi chỉnh ảnh: pipeline xem trước có bộ nhớ đệm từng bước (đổi độ đậm / độ sáng chỉ
+  so lại ngưỡng), xoay tức thì (hoán vị dữ liệu + hiệu ứng GPU), việc nền giới hạn lõi CPU và huỷ khi lỗi thời, tái sử dụng bitmap;
+  thêm Độ sáng cho chế độ Đen trắng. **Đo tốc độ bằng bản Release** (Debug chạy trình thông dịch, chậm 10-30 lần; đã chuyển Debug sang JIT).
+  Chi tiết: MOBILE-STATUS.md mục 5g.
 - License bên thứ ba: [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 
 ```

@@ -17,6 +17,10 @@ public enum PageState
     Ready,
     /// <summary>The photo could not be decoded (see <see cref="PageRecord.Error"/>).</summary>
     Failed,
+    /// <summary>A placeholder: the photo was picked and holds its place in the document, but has not been copied in yet
+    /// (<see cref="BackgroundImporter"/>). No file exists; nothing can be done with the page until it becomes
+    /// <see cref="Pending"/>. Placeholders left by an app that was killed are removed at the next start.</summary>
+    Importing,
 }
 
 /// <summary>
@@ -85,6 +89,14 @@ public sealed class PageRecord
     public double[]? CroppedQuad { get; set; }
     public int CroppedRotation { get; set; }
 
+    /// <summary>Turn of the straightened page, in degrees clockwise (0, 90, 180, 270), chosen on the result screen. Unlike
+    /// <see cref="UserRotation"/> it does not touch the photo or the outline: the finished page is simply turned (a
+    /// landscape table on a portrait sheet...).</summary>
+    public int OutputRotation { get; set; }
+
+    /// <summary>The <see cref="OutputRotation"/> the current render was made with.</summary>
+    public int CroppedOutputRotation { get; set; }
+
     /// <summary>False (default) = the straightened page is an A4 sheet; true = it keeps the proportions of the outline.</summary>
     public bool FreeAspect { get; set; }
 
@@ -104,27 +116,49 @@ public sealed class PageRecord
     /// <summary>Flatten shadows / yellowed paper in gray and black-and-white modes.</summary>
     public bool CleanBackground { get; set; } = true;
 
+    /// <summary>-100..100, color and gray pages (see <see cref="ToneAdjust"/>).</summary>
+    public int Brightness { get; set; }
+    public int Contrast { get; set; }
+
     /// <summary>The look the current render was made with.</summary>
     [JsonConverter(typeof(JsonStringEnumConverter<PageColorMode>))]
     public PageColorMode CroppedColorMode { get; set; } = PageColorMode.Color;
     public int CroppedBwDarkness { get; set; } = FilterOptions.DefaultDarkness;
     public bool CroppedCleanBackground { get; set; } = true;
+    public int CroppedBrightness { get; set; }
+    public int CroppedContrast { get; set; }
 
     /// <summary>File type of the current render: ".jpg" (color / gray) or ".png" (black and white).</summary>
     public string CroppedExtension { get; set; } = ".jpg";
 
     [JsonIgnore]
-    public FilterOptions Filter => new(ColorMode, BwDarkness, CleanBackground);
+    public FilterOptions Filter => new(ColorMode, BwDarkness, CleanBackground) { Tone = new ToneAdjust(Brightness, Contrast) };
+
+    /// <summary>The look of the current render.</summary>
+    [JsonIgnore]
+    public FilterOptions CroppedFilter =>
+        new(CroppedColorMode, CroppedBwDarkness, CroppedCleanBackground) { Tone = new ToneAdjust(CroppedBrightness, CroppedContrast) };
 
     /// <summary>True when there is no render yet, or the outline / rotation / look changed since the last one.</summary>
     [JsonIgnore]
     public bool NeedsRender =>
         CroppedRevision == 0
         || CroppedRotation != UserRotation
+        || CroppedOutputRotation != OutputRotation
         || CroppedFreeAspect != FreeAspect
         || RenderStretchedToA4
         || (CropQuad != null && (CroppedQuad == null || !CropQuad.AsSpan().SequenceEqual(CroppedQuad)))
-        || !SameLook(ColorMode, BwDarkness, CleanBackground, CroppedColorMode, CroppedBwDarkness, CroppedCleanBackground);
+        || !FilterOptions.SameLook(Filter, CroppedFilter);
+
+    /// <summary>The saved render is the straightened page as it stands now (same outline, rotations and shape) with no
+    /// filter at all (color, neutral brightness / contrast): it can serve as the result screen's unfiltered preview.</summary>
+    [JsonIgnore]
+    public bool HasPlainColorRender =>
+        CroppedRevision > 0
+        && CroppedColorMode == PageColorMode.Color && CroppedBrightness == 0 && CroppedContrast == 0
+        && CroppedRotation == UserRotation && CroppedOutputRotation == OutputRotation && CroppedFreeAspect == FreeAspect
+        && CropQuad != null && CroppedQuad != null && CropQuad.AsSpan().SequenceEqual(CroppedQuad)
+        && !RenderStretchedToA4;
 
     /// <summary>An A4 render made by the older rules: turned the wrong way (landscape for a portrait-shaped outline, or the
     /// reverse) or forced to A4 although the outline is not sheet-shaped, so its content is stretched (owner's page 7,
@@ -140,17 +174,12 @@ public sealed class PageRecord
             (int w, int h) = UprightSize;
             if (w <= 0 || h <= 0) return false;
             Quad outline = Quad.FromValues(CroppedQuad).Scale(w, h);
-            bool renderLandscape = CroppedWidth > CroppedHeight;
+            // The shape before the page was turned on the result screen (a quarter turn swaps landscape and portrait).
+            bool renderLandscape = (CroppedWidth > CroppedHeight) ^ (CroppedOutputRotation % 180 != 0);
             return !PerspectiveWarp.IsA4Like(outline) || renderLandscape != PerspectiveWarp.IsLandscapeShape(outline);
         }
     }
 
-    /// <summary>Two filter settings give the same picture: darkness only matters in black and white, and
-    /// background cleaning only outside color mode.</summary>
-    public static bool SameLook(PageColorMode mode, int darkness, bool clean, PageColorMode mode2, int darkness2, bool clean2) =>
-        mode == mode2
-        && (mode != PageColorMode.BlackWhite || darkness == darkness2)
-        && (mode == PageColorMode.Color || clean == clean2);
 
     /// <summary>Upright size of the original, in pixels.
     [JsonIgnore]

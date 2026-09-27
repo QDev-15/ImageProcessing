@@ -8,6 +8,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <RootNamespace>DocScanner.Core</RootNamespace>
+    <!-- Optimized even in Debug (see ImageCore.Shared.csproj): the render / preview pipeline lives here. -->
+    <Optimize>true</Optimize>
   </PropertyGroup>
 
   <ItemGroup>

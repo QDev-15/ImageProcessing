@@ -9,6 +9,9 @@ public partial class App : Application
 
 	protected override Window CreateWindow(IActivationState? activationState)
 	{
-		return new Window(new AppShell());
+		Core.Perf.Log("startup: CreateWindow");
+		var shell = new AppShell();
+		Core.Perf.Log("startup: AppShell created");
+		return new Window(shell);
 	}
 }

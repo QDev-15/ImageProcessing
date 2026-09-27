@@ -32,6 +32,7 @@ thương mại, với điều kiện giữ thông báo bản quyền / license (
 | `tessdata/osd.traineddata` | Apache-2.0 | github.com/tesseract-ocr/tessdata |
 | `Resources/pdf.ttf` (GlyphLessFont, font vô hình cho lớp chữ OCR) | Apache-2.0 | github.com/tesseract-ocr/tesseract (tessdata/pdf.ttf) |
 | `sRGB2014.icc` (OutputIntent PDF/A, lấy từ resource của PDFsharp) | License của ICC: được dùng, sao chép, phân phối miễn phí | color.org |
+| `DocScanner/Resources/Fonts/MaterialIcons-Regular.ttf` (biểu tượng giao diện app mobile) | Apache-2.0 (Google) | github.com/google/material-design-icons (thư mục `font/`) |
 
 ## Công cụ chạy ngoài (thư mục `tools\`)
 

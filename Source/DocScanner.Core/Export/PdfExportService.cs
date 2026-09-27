@@ -127,7 +127,7 @@ public sealed class PdfExportService(DocumentStore store, PageIngestQueue queue,
                 if (p.State != PageState.Ready) { waiting++; continue; } // import still running: the queue will finish it
                 if (!p.NeedsRender || p.RenderError != null) continue;
                 waiting++;
-                if (!queue.IsBusy(p.Id)) queue.EnqueueRender(docId, p.Id);
+                if (!queue.IsPreparing(p.Id)) queue.EnqueueRender(docId, p.Id); // promotes a waiting prerender; never queued twice
             }
             progress?.Report(new ExportProgress("Đang chuẩn bị trang", total - waiting, total));
             if (waiting == 0) return;

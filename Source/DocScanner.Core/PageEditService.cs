@@ -23,12 +23,15 @@ public sealed class PageEditService(DocumentStore store, PageIngestQueue queue, 
 
     /// <summary>Changes how the page looks (color / gray / black and white, darkness, background
     /// cleaning). Arguments left null keep their current value. The page then needs a new render.</summary>
-    public bool SetFilter(string docId, string pageId, PageColorMode? mode = null, int? darkness = null, bool? cleanBackground = null) =>
+    public bool SetFilter(string docId, string pageId, PageColorMode? mode = null, int? darkness = null, bool? cleanBackground = null,
+        int? brightness = null, int? contrast = null) =>
         Change(docId, pageId, p =>
         {
             if (mode != null) p.ColorMode = mode.Value;
             if (darkness != null) p.BwDarkness = Math.Clamp(darkness.Value, 0, 100);
             if (cleanBackground != null) p.CleanBackground = cleanBackground.Value;
+            if (brightness != null) p.Brightness = Math.Clamp(brightness.Value, -100, 100);
+            if (contrast != null) p.Contrast = Math.Clamp(contrast.Value, -100, 100);
         });
 
     /// <summary>Gives every page of the document the same look. Returns the ids of the pages whose look
@@ -40,11 +43,13 @@ public sealed class PageEditService(DocumentStore store, PageIngestQueue queue, 
         {
             foreach (PageRecord p in d.Pages)
             {
-                bool same = PageRecord.SameLook(p.ColorMode, p.BwDarkness, p.CleanBackground, filter.Mode, filter.Darkness, filter.CleanBackground);
+                bool same = FilterOptions.SameLook(p.Filter, filter);
                 // Copy every value (not only the visible ones) so a later mode switch behaves the same on all pages.
                 p.ColorMode = filter.Mode;
                 p.BwDarkness = Math.Clamp(filter.Darkness, 0, 100);
                 p.CleanBackground = filter.CleanBackground;
+                p.Brightness = Math.Clamp(filter.Tone.Brightness, -100, 100);
+                p.Contrast = Math.Clamp(filter.Tone.Contrast, -100, 100);
                 if (!same) changed.Add(p.Id);
             }
         });
@@ -83,6 +88,11 @@ public sealed class PageEditService(DocumentStore store, PageIngestQueue queue, 
         if (rotated) queue.Enqueue(docId, pageId);
         return rotated;
     }
+
+    /// <summary>Turns the straightened page (not the photo, not the outline) by a multiple of 90 degrees, e.g. from the
+    /// result screen. The page then needs a new render; nothing else is rebuilt, so the page stays editable.</summary>
+    public bool RotateOutput(string docId, string pageId, int clockwiseDegrees = 90) =>
+        Change(docId, pageId, p => p.OutputRotation = (((p.OutputRotation + clockwiseDegrees) % 360) + 360) % 360 / 90 * 90);
 
     private bool Change(string docId, string pageId, Action<PageRecord> change)
     {

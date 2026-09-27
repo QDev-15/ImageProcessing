@@ -17,8 +17,14 @@ public sealed class CropDetectionService(DocumentStore store, IImageService imag
         if (page == null || page.State != PageState.Ready) return null;
         int rotation = page.UserRotation;
 
-        RgbImage rgb = await images.LoadRgbAsync(store.ProxyPath(docId, page), AnalysisEdge, ct);
-        QuadDetection result = await Task.Run(() => detector.Detect(rgb), ct);
+        RgbImage rgb;
+        using (Perf.Measure("detect: load proxy"))
+            rgb = await images.LoadRgbAsync(store.ProxyPath(docId, page), AnalysisEdge, ct);
+        QuadDetection result = await Task.Run(() =>
+        {
+            using (Perf.Measure("detect: detector"))
+                return detector.Detect(rgb);
+        }, ct);
 
         store.Update(docId, d =>
         {

@@ -329,3 +329,45 @@
   `IsA4Like`) giữ tỉ lệ thật dù đang ở chế độ A4 (`CropPlanner`), khi xuất PDF được đặt giữa trang A4 có lề trắng (`PdfExportService.PageLayout`,
   `PdfPageSource.ImageRect`); (3) bản dựng cũ bị méo tự dựng lại (`PageRecord.RenderStretchedToA4` trong `NeedsRender`, chỉ ảnh hưởng trang méo).
 - Kiểm chứng: test với đúng số liệu trang 7; dựng lại trang 7 thật trên PC từ ảnh gốc -> A4 dọc 2481x3508, chữ đúng tỉ lệ (bản sao đã xoá).
+
+### Tối ưu tốc độ (đợt 2026-09-26, chi tiết: MOBILE-STATUS.md mục 5b)
+- Công cụ đo: `Source/MobileBench` (không nằm trong sln; `dotnet run -c Release --project Source/MobileBench [số lần]`,
+  `... -- detect-dump <file>` để so kết quả bộ dò trước / sau khi sửa, `... -- scene-bmp <file>` tạo ảnh chụp giả lập 12 MP).
+- Dò mép nhanh ~3,8 lần, kết quả giống hệt từng bit; `ToGray` / `FromGray` / `Resize` / làm phẳng nền nhanh hơn, kết quả giống hệt.
+- `PageIngestQueue.Prerender`: dựng trang ở nền sau khi dò mép (1 luồng, ưu tiên thấp nhất); `EnqueueRender` vượt hàng, không dựng trùng một trang.
+  Màn kết quả / xuất PDF dùng `IsPreparing` thay cho `IsBusy`.
+- Android: `BitmapPixels` (AndroidBitmap_lockPixels) thay GetPixels / CreateBitmap(int[]); JPEG ghi thẳng FileOutputStream Java.
+- Đã chạy trên máy ảo Android (Debug): dựng nền 3 trang đúng, màu đúng kênh. **Chưa đo trên Note 10+ bản Release.**
+- Mẹo adb trong Git Bash: đặt `MSYS_NO_PATHCONV=1`, nếu không `/data/local/tmp` bị đổi thành đường dẫn Windows.
+
+### Nhập ảnh chạy nền (đợt 2026-09-27, chi tiết: MOBILE-STATUS.md mục 5c)
+- `BackgroundImporter` (Core, singleton) thay spinner nhập ảnh: `Start` trả về ngay, 1 worker chép lần lượt, trạng thái theo tài liệu
+  (`Status` / `Changed` / `Stop` / `Dismiss`). Màn tài liệu thêm ô trang dần + dòng "Đang nhập x/y" + Dừng; Home hiện "đang nhập x/y".
+- `AndroidPhotoPicker` thay `MediaPicker.PickPhotosAsync` (MAUI chép mọi ảnh vào cache trên luồng UI -> treo với 100 ảnh). Camera vẫn dùng MediaPicker.
+- Đã xoá `BusyOverlay` và `ImportViewModelBase`. 125 test PASS. Bản Debug đã cài lên Note 10+ (06:30 27/09), chưa bấm thử trên máy.
+
+### Ô "Đang tải..." + xem trước tức thì (đợt 2026-09-27b, chi tiết: MOBILE-STATUS.md mục 5d)
+- `PageState.Importing` = ô chờ: `ImportService.AddPlaceholders` / `FillAsync` (điền tại chỗ, lỗi -> `Failed` tại chỗ); dọn ô sót khi mở app
+  (`DocumentStore.RemoveUnfinishedImports`). Tiến trình từng ô: `BackgroundImporter.PageChanged` / `CopyProgress`. `DocumentViewModel` chỉ làm mới đúng ô.
+- Màn kết quả xem trên bản nắn cỡ màn hình trong RAM (`CropRenderService.RenderPreviewAsync`, 1800 px); đổi kiểu lọc lại bản nhỏ; độ sáng / tương phản
+  = `ToneAdjust` (ColorMatrix khi xem, LUT khi lưu, cùng công thức). Bản đầy đủ lưu nền 0,8 s sau lần chỉnh cuối.
+- 133 + 78 test PASS, SmokeTests ALL PASS. Bản Debug đã cài Note 10+ (07:19 27/09), chưa bấm thử.
+- Xoay ở màn kết quả = `PageRecord.OutputRotation` (xoay trang đã nắn, không đụng ảnh gốc / khung; `PageEditService.RotateOutput`); bản xem trước xoay
+  trong RAM, bản đầy đủ nắn -> xoay -> lọc. 134 + 80 test PASS; cài Note 10+ 07:32 27/09.
+
+### Giao diện kiểu TapScanner (đợt 2026-09-27c, chi tiết: MOBILE-STATUS.md mục 5e)
+- Font biểu tượng Material Icons ("Icons", `Views/Icons.cs`), control `Views/ToolButton.cs` (biểu tượng + chữ nhỏ). Màu thương hiệu #1A5FD6.
+- Không còn menu trượt; thanh dưới ở mọi màn; màn kết quả có bảng Bộ lọc / Điều chỉnh (một bảng mỗi lúc), nút Xong ✓.
+- Thử trên máy ảo Pixel 7 API 36 (`emulator -avd pixel_7_-_api_36_0`): 4 màn đúng, luồng lọc / xoay / Xong chạy. Chưa cài Note 10+.
+
+### So với TapScanner + tốc độ bản Release (đợt 2026-09-27d, chi tiết: MOBILE-STATUS.md mục 5f)
+- `Perf` (Core) ghi thời gian các khâu ra logcat tag `DocScanPerf`; đo trên máy thật bằng `adb logcat -s DocScanPerf` (thụ động).
+- Release: AOT toàn bộ + LLVM (csproj). Chép ảnh qua file descriptor; bỏ copy bitmap thừa; mở màn kết quả dùng lại bản dựng Màu (`HasPlainColorRender`).
+- Thẻ bộ lọc có ảnh xem trước của trang. Còn thiếu so với TapScanner: camera trong app (chụp liên tục, dò mép trực tiếp), tìm kiếm / thư mục, chọn nhiều trang.
+- Lưu ý đo: bản Release không `run-as` được; máy ảo hay hiện "System UI isn't responding" (bấm Wait ở 322,1368).
+
+### Mượt khi chỉnh ảnh (đợt 2026-09-27e, chi tiết: MOBILE-STATUS.md mục 5g)
+- **Đánh giá tốc độ bằng bản Release.** Debug của MAUI mặc định chạy trình thông dịch (chậm 10-30 lần); csproj đã đặt Debug `UseInterpreter=false`.
+- `LookPreview` (pipeline xem trước có bộ nhớ đệm), `ParallelScope` (giới hạn lõi cho việc nền), dựng lỗi thời tự huỷ, xoay bằng hoán vị + hiệu ứng GPU,
+  bitmap dùng lại. Đen trắng có Độ sáng (`Binarizer.Sauvola(..., offset)`).
+- Release đã cài Note 10+ 11:04 27/09 (owner yêu cầu). Log thời gian: `adb logcat -s DocScanPerf`.

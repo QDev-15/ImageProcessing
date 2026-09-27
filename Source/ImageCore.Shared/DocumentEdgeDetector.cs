@@ -110,17 +110,17 @@ public sealed class DocumentEdgeDetector : IEdgeDetector
         {
             int w = img.Width, h = img.Height, n = w * h;
             var chan = new float[3][];
-            for (int c = 0; c < 3; c++)
+            Parallel.For(0, 3, ParallelScope.Options, c =>
             {
                 var f = new float[n];
                 for (int i = 0; i < n; i++) f[i] = img.Data[i * 3 + c];
                 chan[c] = Blur(f, w, h);
-            }
+            });
 
             var mag = new float[n];
             var gxBest = new float[n];
             var gyBest = new float[n];
-            for (int y = 1; y < h - 1; y++)
+            Parallel.For(1, h - 1, ParallelScope.Options, y =>
             {
                 for (int x = 1; x < w - 1; x++)
                 {
@@ -138,12 +138,11 @@ public sealed class DocumentEdgeDetector : IEdgeDetector
                     gxBest[i] = bx;
                     gyBest[i] = by;
                 }
-            }
+            });
 
             // Non-maximum suppression along the (quantized) gradient direction.
             var nms = new float[n];
-            var strengths = new List<float>();
-            for (int y = 1; y < h - 1; y++)
+            Parallel.For(1, h - 1, ParallelScope.Options, y =>
             {
                 for (int x = 1; x < w - 1; x++)
                 {
@@ -154,13 +153,12 @@ public sealed class DocumentEdgeDetector : IEdgeDetector
                     int sector = (int)Math.Round(a / (Math.PI / 4));
                     sector = ((sector % 4) + 4) % 4;
                     int o1 = sector switch { 0 => 1, 1 => w + 1, 2 => w, _ => w - 1 };
-                    if (m >= mag[i + o1] && m >= mag[i - o1])
-                    {
-                        nms[i] = m;
-                        strengths.Add(m);
-                    }
+                    if (m >= mag[i + o1] && m >= mag[i - o1]) nms[i] = m;
                 }
-            }
+            });
+            var strengths = new List<float>();
+            foreach (float m in nms)
+                if (m > 0) strengths.Add(m);
 
             // Adaptive thresholds: edges above the given percentile of thin-edge strengths seed
             // the hysteresis. The floor keeps a smooth, noisy background from being mistaken
@@ -313,7 +311,7 @@ public sealed class DocumentEdgeDetector : IEdgeDetector
 
         int minVotes = Math.Max(20, (int)(0.2 * Math.Min(e.W, e.H)));
         int minPeak = minVotes * 2; // accumulator cells hold weighted votes
-        var lines = new List<Line>();
+        var peaks = new List<Line>();
         for (int k = 0; k < MaxLines; k++)
         {
             int bestIdx = 0, bestVal = 0;
@@ -335,7 +333,16 @@ public sealed class DocumentEdgeDetector : IEdgeDetector
                 }
             }
 
-            Line refined = Refine(new Line(bt * PiOver180, br, bestVal, false), e);
+            peaks.Add(new Line(bt * PiOver180, br, bestVal, false));
+        }
+
+        // Refining (a pass over every edge pixel per peak) does not affect the peak search, so the
+        // peaks are refined in parallel and filtered afterwards in their original order.
+        var refinedPeaks = new Line[peaks.Count];
+        Parallel.For(0, peaks.Count, ParallelScope.Options, k => refinedPeaks[k] = Refine(peaks[k], e));
+        var lines = new List<Line>();
+        foreach (Line refined in refinedPeaks)
+        {
             // Two neighbouring peaks can refine onto the same physical line; keep the first.
             bool duplicate = lines.Any(l => AngleDiff(l.Theta, refined.Theta) < 1.5 * PiOver180 && SameRho(l, refined) < 3);
             if (refined.Votes >= minVotes && !duplicate) lines.Add(refined);
@@ -362,10 +369,10 @@ public sealed class DocumentEdgeDetector : IEdgeDetector
             double nx = Math.Cos(theta), ny = Math.Sin(theta);
             double sx = 0, sy = 0, sxx = 0, sxy = 0, syy = 0, sm = 0;
             int n = 0;
-            foreach ((int x, int y, float t, float m) in e.Points)
+            foreach ((int x, int y, float t, float m) in System.Runtime.InteropServices.CollectionsMarshal.AsSpan(e.Points))
             {
-                if (AngleDiff(t, theta) > 20 * PiOver180) continue;
                 if (Math.Abs(x * nx + y * ny - rho) > tol) continue;
+                if (AngleDiff(t, theta) > 20 * PiOver180) continue;
                 n++;
                 sm += m;
                 sx += x; sy += y; sxx += (double)x * x; sxy += (double)x * y; syy += (double)y * y;
@@ -400,7 +407,10 @@ public sealed class DocumentEdgeDetector : IEdgeDetector
     /// <summary>Smallest angle between two orientations folded to [0, pi), in radians.</summary>
     private static double AngleDiff(double a, double b)
     {
-        double d = Math.Abs(a - b) % Math.PI;
+        // Every orientation here lies in [0, pi], so |a - b| < 2 pi and one subtraction is the
+        // exact fmod (Sterbenz), at a fraction of its cost: this runs millions of times per photo.
+        double d = Math.Abs(a - b);
+        if (d >= Math.PI) d -= Math.PI;
         return Math.Min(d, Math.PI - d);
     }
 
@@ -479,17 +489,25 @@ public sealed class DocumentEdgeDetector : IEdgeDetector
         }
         if (candidates.Count == 0) return null;
 
-        var scored = new List<Scored>();
-        double bestScore = 0;
-        foreach (Candidate c in candidates.OrderByDescending(c => c.PreScore).Take(MaxScoredCandidates))
+        // Scored in parallel. Anything that cannot get within reach of the best so far is dropped
+        // early (kept when tracing, so the diagnostics can list runners-up). The bound is an upper
+        // bound of the candidate's score, so a dropped candidate could never be picked below, and
+        // which ones get dropped (it depends on thread timing) does not change the result.
+        Candidate[] ranked = candidates.OrderByDescending(c => c.PreScore).Take(MaxScoredCandidates).ToArray();
+        var results = new Scored[ranked.Length];
+        long bestBits = BitConverter.DoubleToInt64Bits(0.0);
+        Parallel.For(0, ranked.Length, ParallelScope.Options, i =>
         {
-            // Anything that cannot get within reach of the best so far is dropped early (kept
-            // when tracing, so the diagnostics can list runners-up).
-            Scored r = Evaluate(c, lines, e, trace == null ? bestScore * NearBest : 0);
-            if (r.Score <= 0) continue;
-            scored.Add(r);
-            bestScore = Math.Max(bestScore, r.Score);
-        }
+            double bestSoFar = BitConverter.Int64BitsToDouble(Interlocked.Read(ref bestBits));
+            Scored r = Evaluate(ranked[i], lines, e, trace == null ? bestSoFar * NearBest : 0);
+            results[i] = r;
+            if (r.Score <= 0) return;
+            // Positive doubles order like their bit patterns: a lock-free max.
+            long bits = BitConverter.DoubleToInt64Bits(r.Score), seen;
+            while (bits > (seen = Interlocked.Read(ref bestBits)) && Interlocked.CompareExchange(ref bestBits, bits, seen) != seen) { }
+        });
+        // In ranking order, as the sequential loop produced them (MaxBy keeps the first of equals).
+        var scored = results.Where(r => r.Score > 0).ToList();
         if (scored.Count == 0) return null;
 
         // Several near-identical outlines often score alike: the sheet itself, and the same

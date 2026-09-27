@@ -20,7 +20,7 @@ public static class PngWriter
     {
         int rowBytes = (img.Width + 7) / 8;
         var raw = new byte[(rowBytes + 1) * img.Height];
-        Parallel.For(0, img.Height, y =>
+        Parallel.For(0, img.Height, ParallelScope.Options, y =>
         {
             int o = y * (rowBytes + 1); // raw[o] = 0: filter "None"
             int src = y * img.Width;

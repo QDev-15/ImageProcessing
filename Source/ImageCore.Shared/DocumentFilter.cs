@@ -23,6 +23,19 @@ public sealed record FilterOptions(
     BinarizationMethod Method = BinarizationMethod.Sauvola)
 {
     public const int DefaultDarkness = 50;
+
+    /// <summary>Brightness / contrast: color and gray pages use both; black and white uses the brightness only (a lighter
+    /// or darker page before the threshold, next to <see cref="Darkness"/>).</summary>
+    public ToneAdjust Tone { get; init; }
+
+    /// <summary>Whether two settings give the same picture: darkness only matters in black and white, background
+    /// cleaning only outside color, brightness / contrast only outside black and white.</summary>
+    public static bool SameLook(FilterOptions a, FilterOptions b) =>
+        a.Mode == b.Mode
+        && (a.Mode != PageColorMode.BlackWhite || a.Darkness == b.Darkness)
+        && (a.Mode == PageColorMode.Color || a.CleanBackground == b.CleanBackground)
+        // black and white uses brightness only (it moves the threshold); the others use brightness and contrast
+        && (a.Mode == PageColorMode.BlackWhite ? a.Tone.Brightness == b.Tone.Brightness : a.Tone == b.Tone);
 }
 
 /// <summary>A filtered page: either color (<see cref="Color"/>) or gray / black-and-white (<see cref="Gray"/>).</summary>
@@ -55,12 +68,15 @@ public static class DocumentFilter
         switch (o.Mode)
         {
             case PageColorMode.Color:
+                o.Tone.Apply(page); // in place: the page is the fresh warp result
                 return new FilteredPage { Color = page }; // the photo's own colors (cleaning measured no size gain on real pages)
 
             case PageColorMode.Gray:
             {
                 GrayImage gray = page.ToGray();
-                return new FilteredPage { Gray = o.CleanBackground ? BackgroundFlattener.Flatten(gray) : gray };
+                if (o.CleanBackground) gray = BackgroundFlattener.Flatten(gray);
+                o.Tone.Apply(gray);
+                return new FilteredPage { Gray = gray };
             }
 
             default:
@@ -68,8 +84,8 @@ public static class DocumentFilter
                 GrayImage gray = page.ToGray();
                 if (o.CleanBackground) gray = BackgroundFlattener.Flatten(gray);
                 GrayImage bin = o.Method == BinarizationMethod.Otsu
-                    ? Binarizer.Threshold(gray, Math.Clamp(Binarizer.OtsuThreshold(gray) + OtsuOffsetFor(o.Darkness), 1, 254))
-                    : Binarizer.Sauvola(gray, Binarizer.DefaultWindow(dpi), SauvolaKFor(o.Darkness));
+                    ? Binarizer.Threshold(gray, Math.Clamp(Binarizer.OtsuThreshold(gray) + OtsuOffsetFor(o.Darkness) - (int)MathF.Round(o.Tone.BrightnessLevels), 1, 254))
+                    : Binarizer.Sauvola(gray, Binarizer.DefaultWindow(dpi), SauvolaKFor(o.Darkness), o.Tone.BrightnessLevels);
                 if (o.Despeckle) DocumentCleanup.Despeckle(bin, DocumentCleanup.DefaultSpeckleArea(dpi));
                 return new FilteredPage { Gray = bin, IsBilevel = true };
             }

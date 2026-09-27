@@ -11,6 +11,8 @@
 		<SingleProject>true</SingleProject>
 		<ImplicitUsings>enable</ImplicitUsings>
 		<Nullable>enable</Nullable>
+		<!-- Platforms/Android/BitmapPixels.cs reads and writes bitmap memory directly (AndroidBitmap_lockPixels). -->
+		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 
 		<!-- Enable XAML source generation for faster build times and improved performance.
 		     This generates C# code from XAML at compile time instead of runtime inflation.
@@ -31,6 +33,22 @@
 		<ApplicationVersion>1</ApplicationVersion>
 
 		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">26.0</SupportedOSPlatformVersion>
+	</PropertyGroup>
+
+	<!-- Release: every assembly compiled ahead of time with LLVM. Mono JIT / plain AOT code is slow for the image loops
+	     (measured 2026-09-27, Release, emulator: edge detector 815 -> 481 ms per page, thumbnail 243 -> 153 ms); startup unchanged.
+	     Cost: Release build ~12 min instead of ~4, APK 29 -> 42 MB for two ABIs (~21 MB per ABI in a Play bundle). Debug unaffected. -->
+	<!-- Debug: JIT instead of the Mono interpreter MAUI turns on for C# Hot Reload. Interpreted, the image loops ran 10-30x
+	     slower than Release (Note 10+ Debug build: 1-5 s per black-and-white preview; emulator: warp 2.7-7.3 s vs 0.2 s), so
+	     editing felt slow whenever the app was started from Visual Studio. XAML Hot Reload still works; set true to get C#
+	     Hot Reload back. -->
+	<PropertyGroup Condition="'$(Configuration)' == 'Debug'">
+		<UseInterpreter>false</UseInterpreter>
+	</PropertyGroup>
+
+	<PropertyGroup Condition="'$(Configuration)' == 'Release'">
+		<AndroidEnableProfiledAot>false</AndroidEnableProfiledAot>
+		<EnableLLVM>true</EnableLLVM>
 	</PropertyGroup>
 
 	<ItemGroup>

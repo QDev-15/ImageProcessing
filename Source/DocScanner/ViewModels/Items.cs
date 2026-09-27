@@ -10,12 +10,13 @@ public partial class DocumentItem : ObservableObject
 {
 	private string? _thumbPath;
 
-	public DocumentItem(DocumentRecord record, Action<DocumentItem> open, Action<DocumentItem> delete)
+	public DocumentItem(DocumentRecord record, Action<DocumentItem> open, Action<DocumentItem> delete, Action<DocumentItem>? menu = null)
 	{
 		Record = record;
 		Name = record.Name;
 		OpenCommand = new Command(() => open(this));
 		DeleteCommand = new Command(() => delete(this));
+		MenuCommand = new Command(() => menu?.Invoke(this));
 	}
 
 	public DocumentRecord Record { get; }
@@ -24,6 +25,8 @@ public partial class DocumentItem : ObservableObject
 
 	public ICommand OpenCommand { get; }
 	public ICommand DeleteCommand { get; }
+	/// <summary>The row's â‹® menu (rename, export, delete).</summary>
+	public ICommand MenuCommand { get; }
 
 	[ObservableProperty]
 	private string subtitle = "";
@@ -33,11 +36,14 @@ public partial class DocumentItem : ObservableObject
 
 	/// <param name="pages">Snapshot of the document's pages.</param>
 	/// <param name="firstThumbPath">Where the first page's thumbnail will be, once it exists.</param>
-	public void Refresh(IReadOnlyList<PageRecord> pages, string? firstThumbPath)
+	/// <param name="import">The document's background import, if any.</param>
+	public void Refresh(IReadOnlyList<PageRecord> pages, string? firstThumbPath, ImportStatus? import = null)
 	{
 		int busy = pages.Count(p => p.State is PageState.Pending or PageState.Preview);
 		string date = Record.CreatedUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm");
-		Subtitle = busy > 0 ? $"{pages.Count} trang · đang xử lý {busy} · {date}" : $"{pages.Count} trang · {date}";
+		string activity = import is { Running: true } ? $" · đang nhập {import.Done}/{import.Total}"
+			: busy > 0 ? $" · đang xử lý {busy}" : "";
+		Subtitle = $"{pages.Count} trang{activity} · {date}";
 
 		Name = Record.Name; // may have been renamed
 		if (firstThumbPath != null && firstThumbPath != _thumbPath && File.Exists(firstThumbPath))
@@ -54,16 +60,23 @@ public partial class DocumentItem : ObservableObject
 public partial class PageItem : ObservableObject
 {
 	private readonly Func<PageRecord, string> _thumbPath;
+	private readonly Func<string, double?> _copyProgress;
+	private readonly Func<string, bool> _preparing;
 	private string? _loadedKey;
 
 	/// <param name="thumbPath">Which file to show for the page (the straightened thumbnail once there is a
 	/// current one, otherwise the plain thumbnail).</param>
+	/// <param name="copyProgress">Share of the page's photo copied so far, while it is being imported.</param>
+	/// <param name="preparing">True while the page still has background work before it can be edited.</param>
 	public PageItem(PageRecord record, int number, Func<PageRecord, string> thumbPath, Action<PageItem> open, Action<PageItem> delete,
-		Action<PageItem>? menu = null, Action<PageItem>? dragStart = null, Action<PageItem>? drop = null)
+		Action<PageItem>? menu = null, Action<PageItem>? dragStart = null, Action<PageItem>? drop = null,
+		Func<string, double?>? copyProgress = null, Func<string, bool>? preparing = null)
 	{
 		Record = record;
 		_thumbPath = thumbPath;
-		Label = $"Trang {number}";
+		_copyProgress = copyProgress ?? (_ => null);
+		_preparing = preparing ?? (_ => false);
+		SetNumber(number);
 		OpenCommand = new Command(() => open(this));
 		DeleteCommand = new Command(() => delete(this));
 		MenuCommand = new Command(() => menu?.Invoke(this));
@@ -73,7 +86,19 @@ public partial class PageItem : ObservableObject
 	}
 
 	public PageRecord Record { get; }
-	public string Label { get; }
+	/// <summary>"Trang n": renumbered in place when pages are moved or deleted.</summary>
+	[ObservableProperty]
+	private string label = "";
+
+	/// <summary>The bare number, for the badge on the tile.</summary>
+	[ObservableProperty]
+	private string numberText = "";
+
+	public void SetNumber(int number)
+	{
+		Label = $"Trang {number}";
+		NumberText = number.ToString();
+	}
 	public ICommand OpenCommand { get; }
 	public ICommand DeleteCommand { get; }
 	/// <summary>Page actions (move, delete...).</summary>
@@ -88,8 +113,9 @@ public partial class PageItem : ObservableObject
 	[ObservableProperty]
 	private bool showThumb;
 
+	/// <summary>No picture yet: the tile shows "Đang tải..." with a spinner in its place.</summary>
 	[ObservableProperty]
-	private bool showSpinner;
+	private bool showPlaceholder;
 
 	[ObservableProperty]
 	private bool isFailed;
@@ -97,14 +123,30 @@ public partial class PageItem : ObservableObject
 	[ObservableProperty]
 	private string statusText = "";
 
-	/// <summary>Re-reads the page state (called when the pipeline reports a change).</summary>
+	/// <summary>0..1 through the page's preparation: copying the photo, thumbnail, screen copy, paper outline.</summary>
+	[ObservableProperty]
+	private double progress;
+
+	[ObservableProperty]
+	private bool showProgress;
+
+	/// <summary>The page number badge (hidden while the progress strip is shown).</summary>
+	[ObservableProperty]
+	private bool showNumber;
+
+	/// <summary>What the page is waiting for ("Đang tải 40%", "Đang dò mép giấy"...).</summary>
+	[ObservableProperty]
+	private string stageText = "";
+
+	/// <summary>Re-reads the page state (called when the import or the pipeline reports a change). Only properties that
+	/// really changed notify the view, so a tile updates in place without disturbing the list.</summary>
 	public void Refresh()
 	{
 		PageState state = Record.State;
 		IsFailed = state == PageState.Failed;
 		StatusText = IsFailed ? "Không đọc được ảnh" : "";
 
-		if (state == PageState.Pending)
+		if (state is PageState.Pending or PageState.Importing)
 		{
 			Thumb = null; // being (re)built: do not keep showing the old picture
 			_loadedKey = null;
@@ -121,7 +163,21 @@ public partial class PageItem : ObservableObject
 			}
 		}
 
+		(double progress, string stage, bool working) = state switch
+		{
+			PageState.Importing when _copyProgress(Record.Id) is double f => (0.05 + 0.45 * f, $"Đang tải {f:P0}", true),
+			PageState.Importing => (0.0, "Đang chờ tải...", true),
+			PageState.Pending => (0.55, "Đang tạo ảnh xem trước", true),
+			PageState.Preview => (0.75, "Đang xử lý ảnh", true),
+			PageState.Ready when Record.CropQuad == null && _preparing(Record.Id) => (0.9, "Đang dò mép giấy", true),
+			_ => (1.0, "", false),
+		};
+		Progress = progress;
+		StageText = stage;
+		ShowProgress = working;
+		ShowNumber = !working;
+
 		ShowThumb = Thumb != null && !IsFailed;
-		ShowSpinner = state == PageState.Pending || (state == PageState.Preview && Thumb == null);
+		ShowPlaceholder = Thumb == null && !IsFailed;
 	}
 }

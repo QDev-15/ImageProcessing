@@ -12,6 +12,10 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <AssemblyName>ImageCore.Shared</AssemblyName>
     <RootNamespace>ImageCoreService</RootNamespace>
+    <!-- Optimized even in Debug: the pixel loops run 5-20x slower unoptimized under the Android debug runtime (measured
+         2026-09-27 on a Note 10+ Debug build: 1-5 s per black-and-white preview), which made every edit feel slow when
+         the app is run from Visual Studio. Set to false only to step through an algorithm. -->
+    <Optimize>true</Optimize>
   </PropertyGroup>
 
 </Project>

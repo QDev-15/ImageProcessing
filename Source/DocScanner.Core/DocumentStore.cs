@@ -192,9 +192,37 @@ public sealed class DocumentStore(string root)
             string trash = TrashFolder(deleted.DocId, deleted.Page.Id);
             if (doc == null || !Directory.Exists(trash) || doc.Pages.Any(p => p.Id == deleted.Page.Id)) return false;
             Directory.Move(trash, PageFolder(deleted.DocId, deleted.Page.Id));
+            if (deleted.Page.State == PageState.Importing)
+            {
+                // Deleted while its photo was being copied: the import gave up on it, the copy may be partial.
+                deleted.Page.State = PageState.Failed;
+                deleted.Page.Error = "Ảnh bị xoá khi đang nhập; hãy nhập lại.";
+            }
             doc.Pages.Insert(Math.Clamp(deleted.Index, 0, doc.Pages.Count), deleted.Page);
             SaveLocked(doc);
             return true;
+        }
+    }
+
+    /// <summary>Takes out the placeholder pages (<see cref="PageState.Importing"/>) of an import that never finished: the
+    /// app was killed with photos still waiting, and the picker's permission to read them died with it. Call once at
+    /// start-up, before any import runs. Returns how many were removed.</summary>
+    public int RemoveUnfinishedImports(string docId)
+    {
+        lock (_gate)
+        {
+            DocumentRecord? doc = GetLocked(docId);
+            if (doc == null) return 0;
+            List<PageRecord> left = doc.Pages.Where(p => p.State == PageState.Importing).ToList();
+            if (left.Count == 0) return 0;
+            doc.Pages.RemoveAll(p => p.State == PageState.Importing);
+            SaveLocked(doc);
+            foreach (PageRecord p in left)
+            {
+                try { if (Directory.Exists(PageFolder(docId, p.Id))) Directory.Delete(PageFolder(docId, p.Id), recursive: true); }
+                catch (IOException) { }
+            }
+            return left.Count;
         }
     }
 

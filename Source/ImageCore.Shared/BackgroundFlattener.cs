@@ -99,17 +99,29 @@ public static class BackgroundFlattener
     /// interpolated to that row (one set of row buffers per worker).</summary>
     private static void ForEachRow(int width, int height, GrayImage[] bgs, int factor, Action<int, float[][]> row)
     {
-        Parallel.For(0, height, () => bgs.Select(_ => new float[width]).ToArray(), (y, _, bufs) =>
+        // The column taps are the same on every row: computed once.
+        GrayImage first = bgs[0];
+        var xs0 = new int[width];
+        var xs1 = new int[width];
+        var fxs = new float[width];
+        for (int x = 0; x < width; x++)
         {
-            GrayImage first = bgs[0];
+            double sx = (x + 0.5) / factor - 0.5;
+            int x0 = Math.Clamp((int)Math.Floor(sx), 0, first.Width - 1);
+            xs0[x] = x0;
+            xs1[x] = Math.Min(x0 + 1, first.Width - 1);
+            fxs[x] = (float)Math.Clamp(sx - x0, 0, 1);
+        }
+
+        Parallel.For(0, height, ParallelScope.Options, () => bgs.Select(_ => new float[width]).ToArray(), (y, _, bufs) =>
+        {
             double sy = (y + 0.5) / factor - 0.5;
             int y0 = Math.Clamp((int)Math.Floor(sy), 0, first.Height - 1), y1 = Math.Min(y0 + 1, first.Height - 1);
             float fy = (float)Math.Clamp(sy - y0, 0, 1);
             for (int x = 0; x < width; x++)
             {
-                double sx = (x + 0.5) / factor - 0.5;
-                int x0 = Math.Clamp((int)Math.Floor(sx), 0, first.Width - 1), x1 = Math.Min(x0 + 1, first.Width - 1);
-                float fx = (float)Math.Clamp(sx - x0, 0, 1);
+                int x0 = xs0[x], x1 = xs1[x];
+                float fx = fxs[x];
                 for (int c = 0; c < bgs.Length; c++)
                 {
                     GrayImage bg = bgs[c];

@@ -4,25 +4,29 @@
     xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
     xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
     xmlns:vm="clr-namespace:DocScanner.ViewModels"
+    xmlns:views="clr-namespace:DocScanner.Views"
     x:DataType="vm:ExportsViewModel"
-    Title="PDF đã xuất">
+    Title="PDF đã xuất"
+    BackgroundColor="{AppThemeBinding Light=#F5F7FA, Dark=#121212}">
 
     <Grid RowDefinitions="Auto,*">
-        <Label Text="{Binding Summary}" Margin="16,8,16,0" FontSize="13"
+        <Label Text="{Binding Summary}" Margin="16,8,16,6" FontSize="12"
                TextColor="{AppThemeBinding Light=#666666, Dark=#AAAAAA}" />
 
         <RefreshView Grid.Row="1" Command="{Binding RefreshCommand}" IsRefreshing="{Binding IsRefreshing}">
-            <CollectionView ItemsSource="{Binding Files}" Margin="16,8,16,0">
+            <CollectionView ItemsSource="{Binding Files}">
                 <CollectionView.EmptyView>
                     <VerticalStackLayout VerticalOptions="Center" Spacing="8" Padding="24">
-                        <Label Text="Chưa có PDF nào" FontSize="22" HorizontalOptions="Center" />
-                        <Label Text="Mở một tài liệu và bấm &quot;Xuất PDF&quot; ở thanh trên cùng."
+                        <Label Text="{x:Static views:Icons.Pdf}" FontFamily="Icons" FontSize="64" HorizontalOptions="Center"
+                               TextColor="{AppThemeBinding Light=#B8C4D6, Dark=#4A5568}" />
+                        <Label Text="Chưa có PDF nào" FontSize="18" FontAttributes="Bold" HorizontalOptions="Center" />
+                        <Label Text="Mở một tài liệu và bấm &quot;Xuất PDF&quot; ở thanh dưới."
                                HorizontalOptions="Center" HorizontalTextAlignment="Center"
                                TextColor="{AppThemeBinding Light=#666666, Dark=#AAAAAA}" />
                     </VerticalStackLayout>
                 </CollectionView.EmptyView>
                 <CollectionView.ItemsLayout>
-                    <LinearItemsLayout Orientation="Vertical" ItemSpacing="8" />
+                    <LinearItemsLayout Orientation="Vertical" ItemSpacing="1" />
                 </CollectionView.ItemsLayout>
                 <CollectionView.ItemTemplate>
                     <DataTemplate x:DataType="vm:ExportItem">
@@ -32,26 +36,15 @@
                                     <SwipeItem Text="Xoá" BackgroundColor="#D32F2F" Command="{Binding DeleteCommand}" />
                                 </SwipeItems>
                             </SwipeView.RightItems>
-                            <Border StrokeThickness="1" Padding="12,10"
-                                    Stroke="{AppThemeBinding Light=#DDDDDD, Dark=#444444}"
-                                    BackgroundColor="{AppThemeBinding Light=White, Dark=#222222}">
-                                <Border.StrokeShape>
-                                    <RoundRectangle CornerRadius="10" />
-                                </Border.StrokeShape>
+                            <Border StrokeThickness="0" Padding="16,10"
+                                    BackgroundColor="{AppThemeBinding Light=White, Dark=#1C1C1E}">
                                 <Border.GestureRecognizers>
                                     <TapGestureRecognizer Command="{Binding OpenCommand}" />
                                 </Border.GestureRecognizers>
                                 <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
-                                    <!-- PDF badge -->
-                                    <Border WidthRequest="40" HeightRequest="48" StrokeThickness="0" BackgroundColor="#E53935" VerticalOptions="Center">
-                                        <Border.StrokeShape>
-                                            <RoundRectangle CornerRadius="6" />
-                                        </Border.StrokeShape>
-                                        <Label Text="PDF" TextColor="White" FontSize="12" FontAttributes="Bold"
-                                               HorizontalOptions="Center" VerticalOptions="Center" />
-                                    </Border>
+                                    <Label Text="{x:Static views:Icons.Pdf}" FontFamily="Icons" FontSize="32" TextColor="#E53935" VerticalOptions="Center" />
                                     <VerticalStackLayout Grid.Column="1" VerticalOptions="Center" Spacing="2">
-                                        <Label Text="{Binding Name}" FontSize="15" LineBreakMode="MiddleTruncation" />
+                                        <Label Text="{Binding Name}" FontSize="14" FontFamily="OpenSansSemibold" LineBreakMode="MiddleTruncation" />
                                         <Label Text="{Binding Details}" FontSize="12"
                                                TextColor="{AppThemeBinding Light=#666666, Dark=#AAAAAA}" />
                                     </VerticalStackLayout>

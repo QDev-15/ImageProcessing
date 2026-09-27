@@ -34,7 +34,7 @@ public sealed class GrayImage
         int w = Math.Max(1, Width / factor), h = Math.Max(1, Height / factor);
         var dst = new GrayImage(w, h);
         int area = factor * factor;
-        Parallel.For(0, h, y =>
+        Parallel.For(0, h, ParallelScope.Options, y =>
         {
             for (int x = 0; x < w; x++)
             {
@@ -50,6 +50,14 @@ public sealed class GrayImage
         return dst;
     }
 
+    /// <summary>Turned clockwise by <paramref name="turns"/> x 90 degrees (any integer; 0 returns this image).</summary>
+    public GrayImage RotateClockwise(int turns)
+    {
+        turns = ((turns % 4) + 4) % 4;
+        if (turns == 0) return this;
+        (int w, int h) = turns == 2 ? (Width, Height) : (Height, Width);
+        return new GrayImage(w, h, Rotation.Turn(Data, Width, Height, turns));
+    }
     public GrayImage Crop(Rectangle r)
     {
         var dst = new GrayImage(r.Width, r.Height);

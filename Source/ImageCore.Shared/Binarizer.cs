@@ -78,29 +78,100 @@ public static class Binarizer
         return dst;
     }
 
+    /// <summary>Sauvola threshold with a square <paramref name="window"/>, borders clipped (window sums: see <see cref="Scan"/>).</summary>
+    public static GrayImage Sauvola(GrayImage src, int window, double k) => Sauvola(src, window, k, 0);
+
+    /// <param name="offset">Brightness shift in gray levels, applied as if every pixel (and so every local mean) were
+    /// <paramref name="offset"/> brighter: t = (m + b)(1 + k(s/R - 1)) - b. Positive = fewer, thinner strokes (lighter page);
+    /// negative = more ink. 0 is plain Sauvola, bit for bit.</param>
+    public static GrayImage Sauvola(GrayImage src, int window, double k, double offset)
+    {
+        var dst = new GrayImage(src.Width, src.Height);
+        var sink = new ThresholdSink(src.Data, dst.Data, k, offset);
+        Scan(src, window, ref sink);
+        return dst;
+    }
+
+    /// <summary>The local statistics Sauvola thresholds against, kept so that a new darkness or brightness costs one
+    /// comparison per pixel (<see cref="Threshold(GrayImage, SauvolaStats, double, double, GrayImage)"/>) instead of
+    /// another pass of window sums: what makes the darkness slider live on the result screen.
+    /// 8 bytes per pixel (float mean and standard deviation): meant for screen-size previews.</summary>
+    public static SauvolaStats Stats(GrayImage src, int window)
+    {
+        var stats = new SauvolaStats(src.Width, src.Height);
+        var sink = new StatsSink(stats.Mean, stats.Deviation);
+        Scan(src, window, ref sink);
+        return stats;
+    }
+
+    /// <summary>Sauvola with precomputed <paramref name="stats"/> of <paramref name="src"/>, into <paramref name="dst"/>.</summary>
+    public static void Threshold(GrayImage src, SauvolaStats stats, double k, double offset, GrayImage dst)
+    {
+        byte[] data = src.Data, output = dst.Data;
+        float[] mean = stats.Mean, dev = stats.Deviation;
+        int w = src.Width;
+        Parallel.For(0, src.Height, ParallelScope.Options, y =>
+        {
+            for (int i = y * w, end = i + w; i < end; i++)
+            {
+                double t = (mean[i] + offset) * (1 + k * (dev[i] / SauvolaRange - 1)) - offset;
+                output[i] = data[i] <= t ? (byte)0 : (byte)255;
+            }
+        });
+    }
+
+    /// <summary>Dynamic range of the standard deviation for 8-bit input (Sauvola's R).</summary>
+    private const double SauvolaRange = 128.0;
+
+    /// <summary>Receives each pixel's window mean and variance from <see cref="Scan"/>. A struct type argument, so the
+    /// call is inlined into the loop (no delegate per pixel).</summary>
+    private interface IWindowSink
+    {
+        void Put(int index, double mean, double variance);
+    }
+
+    private readonly struct ThresholdSink(byte[] data, byte[] output, double k, double offset) : IWindowSink
+    {
+        public void Put(int i, double mean, double variance)
+        {
+            double t = (mean + offset) * (1 + k * (Math.Sqrt(variance) / SauvolaRange - 1)) - offset;
+            output[i] = data[i] <= t ? (byte)0 : (byte)255;
+        }
+    }
+
+    private readonly struct StatsSink(float[] mean, float[] deviation) : IWindowSink
+    {
+        public void Put(int i, double m, double variance)
+        {
+            mean[i] = (float)m;
+            deviation[i] = (float)Math.Sqrt(variance);
+        }
+    }
+
     /// <summary>
-    /// Sauvola threshold with a square <paramref name="window"/>, borders clipped. Memory is
-    /// O(width): each horizontal band of rows keeps running per-column sums of v and v^2 and slides
-    /// them down one row at a time (add the row entering the window, drop the one leaving it); the
-    /// window sum along a row is another running sum over those columns. An 8.7 MP A4 page therefore
-    /// needs a few KB of working memory instead of the ~140 MB two full integral images would take.
-    /// The sums are exact integers, so the result is bit-identical to the integral-image version.
+    /// Mean and variance of the square <paramref name="window"/> around every pixel, borders clipped. Memory is
+    /// O(width): each horizontal band of rows keeps running per-column sums of v and v^2 and slides them down one row
+    /// at a time (add the row entering the window, drop the one leaving it); the window sum along a row is another
+    /// running sum over those columns. An 8.7 MP A4 page therefore needs a few KB of working memory instead of the
+    /// ~140 MB two full integral images would take. The sums are exact integers, so the result is bit-identical to
+    /// the integral-image version.
     /// </summary>
-    public static GrayImage Sauvola(GrayImage src, int window, double k)
+    private static void Scan<TSink>(GrayImage src, int window, ref TSink sink) where TSink : struct, IWindowSink
     {
         int w = src.Width, h = src.Height;
         int half = Math.Max(0, window / 2);
-        var dst = new GrayImage(w, h);
-        if (w == 0 || h == 0) return dst;
+        if (w == 0 || h == 0) return;
 
         // Bands run in parallel; each needs to prime its column sums over ~window rows, so keep
         // bands several windows tall.
         int bands = Math.Clamp(Environment.ProcessorCount, 1, Math.Max(1, h / Math.Max(64, 4 * half)));
         int bandHeight = (h + bands - 1) / bands;
-        byte[] data = src.Data, output = dst.Data;
+        byte[] data = src.Data;
+        TSink s0 = sink;
 
-        Parallel.For(0, bands, b =>
+        Parallel.For(0, bands, ParallelScope.Options, b =>
         {
+            TSink local = s0;
             int yStart = b * bandHeight, yEnd = Math.Min(h, yStart + bandHeight);
             if (yStart >= yEnd) return;
 
@@ -120,7 +191,6 @@ public static class Binarizer
             int top = Math.Max(0, yStart - half), bottom = Math.Min(h - 1, yStart + half);
             for (int r = top; r <= bottom; r++) AddRow(r, +1);
 
-            const double R = 128.0; // dynamic range of the standard deviation for 8-bit input
             for (int y = yStart; y < yEnd; y++)
             {
                 if (y > yStart)
@@ -150,11 +220,9 @@ public static class Binarizer
                     long n = (long)(x1 - x0 + 1) * rows;
                     double mean = s / (double)n;
                     double variance = Math.Max(0, s2 / (double)n - mean * mean);
-                    double t = mean * (1 + k * (Math.Sqrt(variance) / R - 1));
-                    output[o + x] = data[o + x] <= t ? (byte)0 : (byte)255;
+                    local.Put(o + x, mean, variance);
                 }
             }
         });
-        return dst;
     }
 }

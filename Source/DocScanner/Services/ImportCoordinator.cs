@@ -2,33 +2,36 @@ using DocScanner.Core;
 
 namespace DocScanner.Services;
 
-/// <summary>Result of one pick / capture: the document that received the pages, and how the
-/// import went.</summary>
-public sealed record ImportOutcome(DocumentRecord Document, ImportResult Result);
-
 /// <summary>
-/// Glue between the system pickers (gallery / camera) and <see cref="ImportService"/>.
-/// The target document is created lazily, only after the user actually picked something, so
-/// cancelling a picker never leaves an empty document behind.
+/// Glue between the system pickers (gallery / camera) and <see cref="BackgroundImporter"/>. Picking only collects the
+/// photos; the copying runs in the background, so the caller opens the document at once and watches it fill in.
+/// The target document is created lazily, only after the user actually picked something, so backing out of a picker
+/// never leaves an empty document behind.
 /// </summary>
-public sealed class ImportCoordinator(ImportService import, PermissionService permissions)
+public sealed class ImportCoordinator(BackgroundImporter importer, IPhotoPicker picker, PermissionService permissions)
 {
-	public async Task<ImportOutcome?> FromGalleryAsync(Func<DocumentRecord> document,
-		IProgress<ImportProgress> progress, CancellationToken ct)
-	{
-		// SelectionLimit 0 = no limit. Android's photo picker shows no storage permission prompt.
-		List<FileResult> picked = await MediaPicker.Default.PickPhotosAsync(
-			new MediaPickerOptions { Title = "Chọn ảnh tài liệu", SelectionLimit = 0 });
-		List<FileResult> files = picked.OfType<FileResult>().ToList();
-		if (files.Count == 0) return null;
+	private bool _picking;
 
-		DocumentRecord doc = document();
-		var sources = files.Select(f => new ImportSource(f.FileName, _ => f.OpenReadAsync())).ToList();
-		return new ImportOutcome(doc, await import.ImportAsync(doc, sources, progress, ct));
+	/// <summary>The document the picked photos are going into, or null when nothing was picked.</summary>
+	public async Task<DocumentRecord?> FromGalleryAsync(Func<DocumentRecord> document)
+	{
+		if (_picking) return null; // a second tap while the picker is opening
+		_picking = true;
+		try
+		{
+			IReadOnlyList<ImportSource> sources = await picker.PickAsync();
+			if (sources.Count == 0) return null;
+			DocumentRecord doc = document();
+			importer.Start(doc.Id, sources);
+			return doc;
+		}
+		finally
+		{
+			_picking = false;
+		}
 	}
 
-	public async Task<ImportOutcome?> FromCameraAsync(Func<DocumentRecord> document,
-		IProgress<ImportProgress> progress, CancellationToken ct)
+	public async Task<DocumentRecord?> FromCameraAsync(Func<DocumentRecord> document)
 	{
 		if (!MediaPicker.Default.IsCaptureSupported)
 		{
@@ -39,16 +42,11 @@ public sealed class ImportCoordinator(ImportService import, PermissionService pe
 
 		FileResult? photo = await MediaPicker.Default.CapturePhotoAsync();
 		if (photo == null) return null;
-		try
-		{
-			DocumentRecord doc = document();
-			var sources = new List<ImportSource> { new(photo.FileName, _ => photo.OpenReadAsync()) };
-			return new ImportOutcome(doc, await import.ImportAsync(doc, sources, progress, ct));
-		}
-		finally
-		{
-			// The camera app leaves its JPEG in our cache; the document now owns a copy.
-			try { File.Delete(photo.FullPath); } catch (IOException) { }
-		}
+		DocumentRecord doc = document();
+		string path = photo.FullPath;
+		// The camera app leaves its JPEG in our cache; it is deleted once the document has its own copy.
+		importer.Start(doc.Id, [new ImportSource(photo.FileName, _ => Task.FromResult<Stream>(
+			new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete, 1 << 16, FileOptions.DeleteOnClose)))]);
+		return doc;
 	}
 }

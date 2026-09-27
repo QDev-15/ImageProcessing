@@ -11,6 +11,9 @@ public static class MauiProgram
 {
 	public static MauiApp CreateMauiApp()
 	{
+		// Stage timings to logcat (adb logcat -s DocScanPerf): cheap, and the only way to see real speeds on a phone.
+		Perf.Sink = line => Android.Util.Log.Info("DocScanPerf", line);
+		Perf.Log("startup: CreateMauiApp");
 		var builder = MauiApp.CreateBuilder();
 		builder
 			.UseMauiApp<App>()
@@ -18,6 +21,7 @@ public static class MauiProgram
 			{
 				fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular");
 				fonts.AddFont("OpenSans-Semibold.ttf", "OpenSansSemibold");
+				fonts.AddFont("MaterialIcons-Regular.ttf", "Icons"); // Material Icons (Apache-2.0): glyphs in Views/Icons.cs
 			});
 
 		builder.Services.AddSingleton(_ => new DocumentStore(Path.Combine(FileSystem.AppDataDirectory, "documents")));
@@ -25,9 +29,13 @@ public static class MauiProgram
 		builder.Services.AddSingleton<IEdgeDetector, DocumentEdgeDetector>();
 		builder.Services.AddSingleton<CropDetectionService>();
 		builder.Services.AddSingleton<CropRenderService>();
-		builder.Services.AddSingleton<PageIngestQueue>();
+		builder.Services.AddSingleton(sp => new PageIngestQueue(
+			sp.GetRequiredService<DocumentStore>(), sp.GetRequiredService<IImageService>(), sp.GetRequiredService<CropDetectionService>(),
+			render: sp.GetRequiredService<CropRenderService>()) { Prerender = true });
 		builder.Services.AddSingleton<PageEditService>();
 		builder.Services.AddSingleton<ImportService>();
+		builder.Services.AddSingleton<BackgroundImporter>();
+		builder.Services.AddSingleton<IPhotoPicker, AndroidPhotoPicker>();
 		builder.Services.AddSingleton<PdfExportService>();
 		builder.Services.AddSingleton(_ => new ExportLibrary(Path.Combine(FileSystem.AppDataDirectory, "exports")));
 		builder.Services.AddSingleton<ExportCoordinator>();
@@ -50,6 +58,8 @@ public static class MauiProgram
 		builder.Logging.AddDebug();
 #endif
 
-		return builder.Build();
+		MauiApp app = builder.Build();
+		Perf.Log("startup: MauiApp built");
+		return app;
 	}
 }

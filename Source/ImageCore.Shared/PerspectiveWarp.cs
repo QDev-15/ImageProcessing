@@ -40,7 +40,7 @@ public static class PerspectiveWarp
         byte[] sData = src.Data;
         byte[] dData = dst.Data;
 
-        Parallel.For(0, outHeight, y =>
+        Parallel.For(0, outHeight, ParallelScope.Options, y =>
         {
             int o = y * outWidth * 3;
             for (int x = 0; x < outWidth; x++, o += 3)

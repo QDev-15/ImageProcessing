@@ -37,9 +37,17 @@ public static class CropPlanner
 
     private const int RegionMargin = 2;
 
+    /// <summary>Long edge of the result screen's live preview: sharp on a phone showing the whole page, small enough
+    /// (about 2 MP) to re-filter in a fraction of a second.</summary>
+    public const int PreviewLongEdge = 1800;
+
     /// <param name="storedPx">The outline in pixels of the stored (unrotated) original: TL, TR, BR, BL of the upright page.</param>
-    public static CropPlan Plan(Quad storedPx, int rawWidth, int rawHeight, CropAspect aspect = CropAspect.A4)
+    /// <param name="maxLongEdge">Cap of the page's long edge; smaller for a screen preview (see <see cref="PreviewLongEdge"/>).</param>
+    public static CropPlan Plan(Quad storedPx, int rawWidth, int rawHeight, CropAspect aspect = CropAspect.A4,
+        int maxLongEdge = MaxLongEdge)
     {
+        long maxPixels = maxLongEdge >= MaxLongEdge ? MaxPixels : (long)maxLongEdge * maxLongEdge; // the A4 budget scales with it
+        maxLongEdge = Math.Min(maxLongEdge, MaxLongEdge);
         // An outline that is not sheet-shaped (a page cut off by the photo frame, a receipt...) keeps its own
         // proportions even in A4 mode: stretching it to 1 : sqrt 2 distorts the text. The PDF export still puts
         // such a page on an A4 sheet, fitted with white margins.
@@ -49,8 +57,8 @@ public static class CropPlanner
         (int fullW, int fullH) = PerspectiveWarp.OutputSize(storedPx, int.MaxValue, long.MaxValue);
         // ... and the page we want, capped at A4 / 300 DPI.
         (int cappedW, int cappedH) = aspect == CropAspect.A4
-            ? PerspectiveWarp.A4Size(storedPx, MaxLongEdge, MaxPixels)
-            : PerspectiveWarp.OutputSize(storedPx, MaxLongEdge, MaxPixels);
+            ? PerspectiveWarp.A4Size(storedPx, maxLongEdge, maxPixels)
+            : PerspectiveWarp.OutputSize(storedPx, maxLongEdge, maxPixels);
         // Fraction of the original resolution the output needs along its more demanding axis (never above 1:
         // a photo cannot resolve more than it has).
         double wanted = Math.Min(1.0, Math.Max((double)cappedW / fullW, (double)cappedH / fullH));
