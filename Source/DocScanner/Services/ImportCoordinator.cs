@@ -8,7 +8,8 @@ namespace DocScanner.Services;
 /// The target document is created lazily, only after the user actually picked something, so backing out of a picker
 /// never leaves an empty document behind.
 /// </summary>
-public sealed class ImportCoordinator(BackgroundImporter importer, IPhotoPicker picker, PermissionService permissions)
+public sealed class ImportCoordinator(BackgroundImporter importer, IPhotoPicker picker, IPhotoCapture camera,
+	IDocumentCamera scanner, PermissionService permissions)
 {
 	private bool _picking;
 
@@ -25,6 +26,11 @@ public sealed class ImportCoordinator(BackgroundImporter importer, IPhotoPicker 
 			importer.Start(doc.Id, sources);
 			return doc;
 		}
+		catch (Exception ex)
+		{
+			await ReportAsync("Không mở được thư viện ảnh", ex);
+			return null;
+		}
 		finally
 		{
 			_picking = false;
@@ -33,6 +39,23 @@ public sealed class ImportCoordinator(BackgroundImporter importer, IPhotoPicker 
 
 	public async Task<DocumentRecord?> FromCameraAsync(Func<DocumentRecord> document)
 	{
+		try
+		{
+			return await CaptureIntoAsync(document);
+		}
+		catch (Exception ex)
+		{
+			// A camera problem must never take the app down (it did: MAUI's capture threw on Android 12).
+			await ReportAsync("Không chụp được ảnh", ex);
+			return null;
+		}
+	}
+
+	private static Task ReportAsync(string title, Exception ex) =>
+		Shell.Current.DisplayAlertAsync(title, ex.Message, "OK");
+
+	private async Task<DocumentRecord?> CaptureIntoAsync(Func<DocumentRecord> document)
+	{
 		if (!MediaPicker.Default.IsCaptureSupported)
 		{
 			await Shell.Current.DisplayAlertAsync("Không có camera", "Thiết bị này không hỗ trợ chụp ảnh.", "OK");
@@ -40,13 +63,24 @@ public sealed class ImportCoordinator(BackgroundImporter importer, IPhotoPicker 
 		}
 		if (!await permissions.EnsureCameraAsync()) return null;
 
-		FileResult? photo = await MediaPicker.Default.CapturePhotoAsync();
-		if (photo == null) return null;
+		// The in-app document camera (live outline, automatic capture, several pages); the system camera app only when
+		// it cannot start (no usable back camera, CameraX failure...).
+		IReadOnlyList<string> photos;
+		DocumentCameraResult scan = await scanner.ScanAsync();
+		if (scan.Error == null) photos = scan.Photos;
+		else
+		{
+			string? path = await camera.CaptureAsync();
+			photos = path == null ? [] : [path];
+		}
+		if (photos.Count == 0) return null;
+
 		DocumentRecord doc = document();
-		string path = photo.FullPath;
-		// The camera app leaves its JPEG in our cache; it is deleted once the document has its own copy.
-		importer.Start(doc.Id, [new ImportSource(photo.FileName, _ => Task.FromResult<Stream>(
-			new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete, 1 << 16, FileOptions.DeleteOnClose)))]);
+		// The camera leaves its JPEGs in our cache; each is deleted once the document has its own copy.
+		importer.Start(doc.Id, photos.Select(Source).ToArray());
 		return doc;
 	}
+
+	private static ImportSource Source(string path) => new(Path.GetFileName(path), _ => Task.FromResult<Stream>(
+		new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete, 1 << 16, FileOptions.DeleteOnClose)));
 }

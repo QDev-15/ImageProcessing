@@ -36,6 +36,8 @@ public static class MauiProgram
 		builder.Services.AddSingleton<ImportService>();
 		builder.Services.AddSingleton<BackgroundImporter>();
 		builder.Services.AddSingleton<IPhotoPicker, AndroidPhotoPicker>();
+		builder.Services.AddSingleton<IPhotoCapture, AndroidPhotoCapture>();
+		builder.Services.AddSingleton<IDocumentCamera, AndroidDocumentCamera>();
 		builder.Services.AddSingleton<PdfExportService>();
 		builder.Services.AddSingleton(_ => new ExportLibrary(Path.Combine(FileSystem.AppDataDirectory, "exports")));
 		builder.Services.AddSingleton<ExportCoordinator>();

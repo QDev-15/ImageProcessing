@@ -371,3 +371,14 @@
 - `LookPreview` (pipeline xem trước có bộ nhớ đệm), `ParallelScope` (giới hạn lõi cho việc nền), dựng lỗi thời tự huỷ, xoay bằng hoán vị + hiệu ứng GPU,
   bitmap dùng lại. Đen trắng có Độ sáng (`Binarizer.Sauvola(..., offset)`).
 - Release đã cài Note 10+ 11:04 27/09 (owner yêu cầu). Log thời gian: `adb logcat -s DocScanPerf`.
+
+### Camera trong app + nắn thẳng đúng tỉ lệ (đợt 2026-09-27f, chi tiết: MOBILE-STATUS.md mục 5h)
+- Crash camera: `MediaPicker.CapturePhotoAsync` đòi WRITE_EXTERNAL_STORAGE trên Android 12 -> `AndroidPhotoCapture` (ACTION_IMAGE_CAPTURE + FileProvider),
+  giờ chỉ là dự phòng.
+- Tỉ lệ thật: `PageGeometry` (Zhang & He 2007). Cạnh cong: `PageOutlineRefiner` + `PageBends` (`PageRecord.CropBend`), `PerspectiveWarp` nắn cong;
+  `PageRecord.GeometryVersion` (bản dựng cũ tự dựng lại). `QuadEditor.Bend` vẽ cạnh cong.
+- Camera: `Platforms/Android/Camera/DocumentCameraActivity` (CameraX 1.6.2), `DocumentEdgeDetector.Live()` trên khung 320 px, tự chụp
+  `DocScanner.Core/Camera/CaptureStabilizer`. Mã request Activity: picker 0x5043, camera hệ thống 0x5044, camera trong app 0x5045 (trùng mã = kết quả bị nuốt).
+- Bộ dò dùng lại mảng lớn theo luồng (`DocumentEdgeDetector.Scratch`): GC mảng lớn trên Android dừng cả Java. Kết quả giống hệt (detect-dump).
+- Máy ảo có camera cảnh 3D (`hw.camera.back=virtualscene`) để thử camera khi không có máy thật.
+- Bản Release (có camera mới) đã cài Note 10+ lúc 13:51 27/09 theo yêu cầu owner; camera mới chưa được thử trên máy.

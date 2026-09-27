@@ -71,6 +71,43 @@ public class EdgeDetectorTests(ITestOutputHelper output)
         Assert.True(err <= 0.03, $"{name}: corner error {err:P1} of the diagonal");
     }
 
+    /// <summary>The live camera setting (<see cref="DocumentEdgeDetector.Live"/>) on every scene with the whole sheet in view:
+    /// same accuracy, and confident enough for the camera's automatic capture.</summary>
+    [Theory]
+    [MemberData(nameof(Scenarios))]
+    public void Live_mode_finds_a_sheet_that_is_wholly_in_view(string name, int w, int h, Quad truth, SceneBuilder.Options opts)
+    {
+        if (truth.ToArray().Any(p => p.X < 0 || p.Y < 0 || p.X > w || p.Y > h)) return; // cut off: not a live-camera case
+        RgbImage scene = SceneBuilder.Render(w, h, truth, opts);
+        QuadDetection d = DocumentEdgeDetector.Live().Detect(LiveFrame(scene));
+        (double err, double iou) = SceneBuilder.Score(truth, d.Quad, w, h);
+        output.WriteLine($"{name}: detected={d.Detected} confidence={d.Confidence:0.00} IoU={iou:0.000} cornerErr={err:P1}");
+
+        Assert.True(d.Detected, $"{name}: not detected (confidence {d.Confidence:0.00})");
+        Assert.True(iou >= 0.92, $"{name}: IoU {iou:0.000}");
+        Assert.True(d.Confidence >= LiveCameraThreshold, $"{name}: confidence {d.Confidence:0.00}");
+    }
+
+    /// <summary>A frame as the live camera hands it over: long edge <see cref="DocumentEdgeDetector.LiveAnalysisEdge"/>.</summary>
+    private static RgbImage LiveFrame(RgbImage scene)
+    {
+        double s = (double)DocumentEdgeDetector.LiveAnalysisEdge / Math.Max(scene.Width, scene.Height);
+        return scene.Resize((int)Math.Round(scene.Width * s), (int)Math.Round(scene.Height * s));
+    }
+
+    /// <summary>What the live camera requires for an automatic capture (CaptureStabilizer.MinConfidence).</summary>
+    private const double LiveCameraThreshold = 0.5;
+
+    [Fact]
+    public void Live_mode_does_not_take_a_cluttered_table_for_a_sheet()
+    {
+        var far = new Quad(new PointD(-5000, -5000), new PointD(-4900, -5000), new PointD(-4900, -4900), new PointD(-5000, -4900));
+        RgbImage scene = SceneBuilder.Render(800, 600, far, new SceneBuilder.Options((150, 105, 70), Sheet, Stripes: true, Clutter: true, Noise: 6, Seed: 4));
+        QuadDetection d = DocumentEdgeDetector.Live().Detect(LiveFrame(scene));
+        output.WriteLine($"no sheet (live): detected={d.Detected} confidence={d.Confidence:0.00}");
+        Assert.True(!d.Detected || d.Confidence < LiveCameraThreshold);
+    }
+
     [Fact]
     public void A_table_with_clutter_but_no_sheet_is_not_reported_as_a_sheet()
     {

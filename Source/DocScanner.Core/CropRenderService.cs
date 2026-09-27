@@ -23,6 +23,7 @@ public sealed class CropRenderService(DocumentStore store, IImageService images)
 
         // What the render is for: remembered so a later edit is recognised as making it stale.
         double[] quadValues = page.CropQuad ?? Quad.Inset(0.03).ToValues();
+        double[]? bendValues = page.CropBend;
         int rotation = page.UserRotation;
         int outputRotation = page.OutputRotation;
         bool freeAspect = page.FreeAspect;
@@ -38,6 +39,7 @@ public sealed class CropRenderService(DocumentStore store, IImageService images)
             bool current = now != null && now.State == PageState.Ready
                 && now.UserRotation == rotation && now.OutputRotation == outputRotation && now.FreeAspect == freeAspect
                 && (now.CropQuad ?? Quad.Inset(0.03).ToValues()).AsSpan().SequenceEqual(quadValues)
+                && PageRecord.SameBends(now.CropBend, bendValues)
                 && FilterOptions.SameLook(now.Filter, filter);
             if (!current) throw new OperationCanceledException("The page changed while it was being rendered.");
         }
@@ -45,7 +47,7 @@ public sealed class CropRenderService(DocumentStore store, IImageService images)
         FilteredPage result = await Task.Run(async () =>
         {
             // Straighten, turn, then filter: the same order as the result screen's preview.
-            RgbImage flat = (await WarpAsync(docId, page, quadValues, CropPlanner.MaxLongEdge, ct)).RotateClockwise(outputRotation / 90);
+            RgbImage flat = (await WarpAsync(docId, page, quadValues, bendValues, CropPlanner.MaxLongEdge, ct)).RotateClockwise(outputRotation / 90);
             ThrowIfStale();
             using (Perf.Measure($"render filter {filter.Mode} {flat.Width}x{flat.Height}"))
                 return DocumentFilter.Apply(flat, filter, PageDpi(flat.Width, flat.Height));
@@ -81,6 +83,8 @@ public sealed class CropRenderService(DocumentStore store, IImageService images)
             p.CroppedWidth = outWidth;
             p.CroppedHeight = outHeight;
             p.CroppedQuad = quadValues;
+            p.CroppedBend = bendValues;
+            p.CroppedGeometry = PageRecord.GeometryVersion;
             p.CroppedRotation = rotation;
             p.CroppedOutputRotation = outputRotation;
             p.CroppedFreeAspect = freeAspect;
@@ -130,16 +134,21 @@ public sealed class CropRenderService(DocumentStore store, IImageService images)
 
         double[] quadValues = page.CropQuad ?? Quad.Inset(0.03).ToValues();
         int turns = page.OutputRotation / 90;
-        return await Task.Run(async () => (await WarpAsync(docId, page, quadValues, maxLongEdge, ct)).RotateClockwise(turns), ct);
+        double[]? bendValues = page.CropBend;
+        return await Task.Run(async () => (await WarpAsync(docId, page, quadValues, bendValues, maxLongEdge, ct)).RotateClockwise(turns), ct);
     }
 
     /// <summary>Decodes only the part of the original that holds the page (outline mapped back to the stored, possibly
     /// rotated file) and warps it into a rectangle whose long edge is at most <paramref name="maxLongEdge"/>.</summary>
-    private async Task<RgbImage> WarpAsync(string docId, PageRecord page, double[] quadValues, int maxLongEdge, CancellationToken ct)
+    private async Task<RgbImage> WarpAsync(string docId, PageRecord page, double[] quadValues, double[]? bendValues, int maxLongEdge,
+        CancellationToken ct)
     {
         Quad upright = Quad.FromValues(quadValues);
         Quad stored = ImageGeometry.UprightToStored(upright, page.EffectiveOrientation).Scale(page.RawWidth, page.RawHeight);
-        CropPlan plan = CropPlanner.Plan(stored, page.RawWidth, page.RawHeight, page.FreeAspect ? CropAspect.Free : CropAspect.A4, maxLongEdge);
+        // Bends are relative to each side and measured from the page middle: they hold unchanged in the stored, turned
+        // or mirrored, pixel frame of the original.
+        PageBends? bends = PageBends.FromValues(bendValues);
+        CropPlan plan = CropPlanner.Plan(stored, page.RawWidth, page.RawHeight, page.FreeAspect ? CropAspect.Free : CropAspect.A4, maxLongEdge, bends);
 
         RgbImage region;
         using (Perf.Measure($"decode region {plan.RegionWidth}x{plan.RegionHeight} /{plan.Sample}"))
@@ -152,7 +161,7 @@ public sealed class CropRenderService(DocumentStore store, IImageService images)
         var source = new Quad(Local(stored.TopLeft), Local(stored.TopRight), Local(stored.BottomRight), Local(stored.BottomLeft));
         ct.ThrowIfCancellationRequested();
         using (Perf.Measure($"warp -> {plan.OutWidth}x{plan.OutHeight}"))
-            return PerspectiveWarp.Warp(region, source, plan.OutWidth, plan.OutHeight);
+            return PerspectiveWarp.Warp(region, source, plan.OutWidth, plan.OutHeight, bends);
     }
 
     /// <summary>Resolution of a straightened page, taking its long side as an A4 sheet's (11.69 in). Exact

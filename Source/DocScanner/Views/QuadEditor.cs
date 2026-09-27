@@ -29,6 +29,13 @@ public sealed class QuadEditor : GraphicsView, IDrawable
 	public static readonly BindableProperty QuadProperty = BindableProperty.Create(
 		nameof(Quad), typeof(double[]), typeof(QuadEditor), null, propertyChanged: (b, _, n) => ((QuadEditor)b).SetQuad((double[]?)n));
 
+	/// <summary>Curved sides of the detected outline (8 numbers, see ImageCoreService.PageBends), drawn as curves; null =
+	/// straight. The page is straightened along these curves, so the screen shows exactly what will be cut.</summary>
+	public static readonly BindableProperty BendProperty = BindableProperty.Create(
+		nameof(Bend), typeof(double[]), typeof(QuadEditor), null, propertyChanged: (b, _, _) => ((QuadEditor)b).Invalidate());
+
+	public double[]? Bend { get => (double[]?)GetValue(BendProperty); set => SetValue(BendProperty, value); }
+
 	public static readonly BindableProperty DetectedProperty = BindableProperty.Create(
 		nameof(Detected), typeof(bool), typeof(QuadEditor), true, propertyChanged: (b, _, _) => ((QuadEditor)b).Invalidate());
 
@@ -335,6 +342,26 @@ public sealed class QuadEditor : GraphicsView, IDrawable
 
 	#region Drawing
 
+	/// <summary>The outline as a polygon: the four corners, or with curved sides (<see cref="Bend"/>) 24 points per side.</summary>
+	private PointF[] OutlinePoints(PointF[] corners)
+	{
+		ImageCoreService.PageBends? bends = ImageCoreService.PageBends.FromValues(Bend);
+		if (bends is null or { IsFlat: true }) return corners;
+		// Only the outline as detected is curved: once the user moves it, it is a plain quadrilateral again.
+		if (Quad is not { Length: 8 } || !Quad.AsSpan().SequenceEqual(_q)) return corners;
+		var q = new ImageCoreService.Quad(
+			new ImageCoreService.PointD(corners[0].X, corners[0].Y), new ImageCoreService.PointD(corners[1].X, corners[1].Y),
+			new ImageCoreService.PointD(corners[2].X, corners[2].Y), new ImageCoreService.PointD(corners[3].X, corners[3].Y));
+		var points = new List<PointF>(96);
+		for (int side = 0; side < 4; side++)
+			for (int i = 0; i < 24; i++)
+			{
+				ImageCoreService.PointD pt = bends.PointOnSide(q, side, i / 24.0);
+				points.Add(new PointF((float)pt.X, (float)pt.Y));
+			}
+		return points.ToArray();
+	}
+
 	public void Draw(ICanvas canvas, RectF dirtyRect)
 	{
 		canvas.FillColor = Color.FromArgb("#101010");
@@ -355,17 +382,18 @@ public sealed class QuadEditor : GraphicsView, IDrawable
 		Color colour = Manual ? Colors.DeepSkyBlue : Detected ? Colors.LimeGreen : Colors.Orange;
 
 		// Darken everything outside the outline (even-odd: picture and margin minus the outline).
+		PointF[] border = OutlinePoints(p);
 		var dim = new PathF();
 		dim.AppendRectangle(ox - padX, oy - padY, w + 2 * padX, h + 2 * padY);
-		dim.MoveTo(p[0]);
-		for (int i = 1; i < 4; i++) dim.LineTo(p[i]);
+		dim.MoveTo(border[0]);
+		for (int i = 1; i < border.Length; i++) dim.LineTo(border[i]);
 		dim.Close();
 		canvas.FillColor = Colors.Black.WithAlpha(0.5f);
 		canvas.FillPath(dim, WindingMode.EvenOdd);
 
 		var outline = new PathF();
-		outline.MoveTo(p[0]);
-		for (int i = 1; i < 4; i++) outline.LineTo(p[i]);
+		outline.MoveTo(border[0]);
+		for (int i = 1; i < border.Length; i++) outline.LineTo(border[i]);
 		outline.Close();
 		canvas.StrokeColor = colour;
 		canvas.StrokeSize = 2.5f;

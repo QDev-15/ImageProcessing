@@ -22,7 +22,11 @@ public static class PerspectiveWarp
     /// should appear upright.</param>
     /// <param name="outWidth">Width of the result.</param>
     /// <param name="outHeight">Height of the result.</param>
-    public static RgbImage Warp(RgbImage src, Quad srcQuad, int outWidth, int outHeight)
+    /// <param name="bends">Curved sides of a page that was not flat (null or flat = the plain projective warp). Each
+    /// output point is then the projective point plus a displacement blended from the four sides' bulges (a Coons patch
+    /// on top of the perspective): the curved edges land exactly on the output borders and the paper between them is
+    /// stretched along, so a bent page comes out with straight edges and (nearly) straight lines.</param>
+    public static RgbImage Warp(RgbImage src, Quad srcQuad, int outWidth, int outHeight, PageBends? bends = null)
     {
         if (outWidth < 1 || outHeight < 1) throw new ArgumentOutOfRangeException(nameof(outWidth));
 
@@ -35,6 +39,16 @@ public static class PerspectiveWarp
         double ratio = (Dist(srcQuad.TopLeft, srcQuad.TopRight) / outWidth + Dist(srcQuad.TopLeft, srcQuad.BottomLeft) / outHeight) / 2;
         bool supersample = ratio > 1.25;
 
+        // Bulge displacement of each side, per output column (top, bottom) and per output row (left, right).
+        double[]? topX = null, topY = null, botX = null, botY = null, leftX = null, leftY = null, rightX = null, rightY = null;
+        if (bends is { IsFlat: false })
+        {
+            (topX, topY) = SideOffsets(h, srcQuad, bends, 0, outWidth, alongX: true, fixedCoord: 0);
+            (botX, botY) = SideOffsets(h, srcQuad, bends, 2, outWidth, alongX: true, fixedCoord: outHeight);
+            (leftX, leftY) = SideOffsets(h, srcQuad, bends, 3, outHeight, alongX: false, fixedCoord: 0);
+            (rightX, rightY) = SideOffsets(h, srcQuad, bends, 1, outHeight, alongX: false, fixedCoord: outWidth);
+        }
+
         var dst = new RgbImage(outWidth, outHeight);
         int sw = src.Width, sh = src.Height;
         byte[] sData = src.Data;
@@ -43,21 +57,29 @@ public static class PerspectiveWarp
         Parallel.For(0, outHeight, ParallelScope.Options, y =>
         {
             int o = y * outWidth * 3;
+            double v = (y + 0.5) / outHeight;
             for (int x = 0; x < outWidth; x++, o += 3)
             {
                 double r = 0, g = 0, b = 0;
+                double ox = 0, oy = 0;
+                if (topX != null)
+                {
+                    double u = (x + 0.5) / outWidth;
+                    ox = (1 - v) * topX[x] + v * botX![x] + (1 - u) * leftX![y] + u * rightX![y];
+                    oy = (1 - v) * topY![x] + v * botY![x] + (1 - u) * leftY![y] + u * rightY![y];
+                }
                 if (supersample)
                 {
                     for (int k = 0; k < 4; k++)
                     {
                         double px = x + 0.25 + (k & 1) * 0.5, py = y + 0.25 + (k >> 1) * 0.5;
-                        Sample(sData, sw, sh, h0, h1, h2, h3, h4, h5, h6, h7, h8, px, py, ref r, ref g, ref b);
+                        Sample(sData, sw, sh, h0, h1, h2, h3, h4, h5, h6, h7, h8, px, py, ox, oy, ref r, ref g, ref b);
                     }
                     r *= 0.25; g *= 0.25; b *= 0.25;
                 }
                 else
                 {
-                    Sample(sData, sw, sh, h0, h1, h2, h3, h4, h5, h6, h7, h8, x + 0.5, y + 0.5, ref r, ref g, ref b);
+                    Sample(sData, sw, sh, h0, h1, h2, h3, h4, h5, h6, h7, h8, x + 0.5, y + 0.5, ox, oy, ref r, ref g, ref b);
                 }
                 dData[o] = (byte)(r + 0.5);
                 dData[o + 1] = (byte)(g + 0.5);
@@ -70,12 +92,12 @@ public static class PerspectiveWarp
     /// <summary>Adds the bilinear sample of the source at the position (px, py) of the output.</summary>
     private static void Sample(byte[] s, int sw, int sh,
         double h0, double h1, double h2, double h3, double h4, double h5, double h6, double h7, double h8,
-        double px, double py, ref double r, ref double g, ref double b)
+        double px, double py, double ox, double oy, ref double r, ref double g, ref double b)
     {
         double w = h6 * px + h7 * py + h8;
         // Pixel i is centred at i + 0.5, so shift by half a pixel before interpolating.
-        double sx = (h0 * px + h1 * py + h2) / w - 0.5;
-        double sy = (h3 * px + h4 * py + h5) / w - 0.5;
+        double sx = (h0 * px + h1 * py + h2) / w - 0.5 + ox;
+        double sy = (h3 * px + h4 * py + h5) / w - 0.5 + oy;
 
         // Beyond the outermost pixel centres by half a pixel = not in the photo: paper white.
         if (sx < -0.5 || sy < -0.5 || sx > sw - 0.5 || sy > sh - 0.5)
@@ -95,6 +117,31 @@ public static class PerspectiveWarp
         r += s[i00] * w00 + s[i10] * w10 + s[i01] * w01 + s[i11] * w11;
         g += s[i00 + 1] * w00 + s[i10 + 1] * w10 + s[i01 + 1] * w01 + s[i11 + 1] * w11;
         b += s[i00 + 2] * w00 + s[i10 + 2] * w10 + s[i01 + 2] * w01 + s[i11 + 2] * w11;
+    }
+
+    /// <summary>For each output column (top / bottom side) or row (left / right side), the bulge of that side at the
+    /// point the plain projective map sends the border pixel to: where that point sits on the chord gives the chord
+    /// parameter, and the bend there, pushed along the side's outward normal, is the displacement to add.</summary>
+    private static (double[] X, double[] Y) SideOffsets(Homography h, Quad quad, PageBends bends, int side, int count,
+        bool alongX, double fixedCoord)
+    {
+        PointD[] c = quad.ToArray();
+        PointD a = c[side], bEnd = c[(side + 1) % 4];
+        double dx = bEnd.X - a.X, dy = bEnd.Y - a.Y, len2 = dx * dx + dy * dy;
+        (double nx, double ny, double length) = PageBends.OutwardNormal(quad, side);
+        SideBend bend = bends[side];
+        var xs = new double[count];
+        var ys = new double[count];
+        for (int i = 0; i < count; i++)
+        {
+            double p = i + 0.5;
+            PointD s = alongX ? h.Apply(p, fixedCoord) : h.Apply(fixedCoord, p);
+            double t = len2 < 1e-9 ? 0 : Math.Clamp(((s.X - a.X) * dx + (s.Y - a.Y) * dy) / len2, 0, 1);
+            double d = bend.Offset(t) * length;
+            xs[i] = nx * d;
+            ys[i] = ny * d;
+        }
+        return (xs, ys);
     }
 
     private static double Dist(PointD a, PointD b) => Math.Sqrt((a.X - b.X) * (a.X - b.X) + (a.Y - b.Y) * (a.Y - b.Y));

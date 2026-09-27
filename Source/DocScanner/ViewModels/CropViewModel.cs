@@ -28,6 +28,10 @@ public partial class CropViewModel(DocumentStore store, CropDetectionService det
 	[ObservableProperty]
 	private double[]? quad;
 
+	/// <summary>Curved sides of the detected outline (PageRecord.CropBend); null once the outline was moved by hand.</summary>
+	[ObservableProperty]
+	private double[]? bend;
+
 	[ObservableProperty]
 	private bool detected = true;
 
@@ -136,6 +140,7 @@ public partial class CropViewModel(DocumentStore store, CropDetectionService det
 		if (page.CropQuad == null)
 		{
 			// No outline yet: start from the whole frame so the handles can already be used.
+			Bend = null;
 			Quad = ImageCoreService.Quad.Inset(0.03).ToValues();
 			Detected = false;
 			Manual = false;
@@ -145,6 +150,7 @@ public partial class CropViewModel(DocumentStore store, CropDetectionService det
 			return;
 		}
 
+		Bend = page.CropManual ? null : page.CropBend;
 		Quad = page.CropQuad;
 		Detected = page.CropDetected;
 		Manual = page.CropManual;
@@ -179,6 +185,7 @@ public partial class CropViewModel(DocumentStore store, CropDetectionService det
 	{
 		if (_docId == null || _pageId == null || values is not { Length: 8 }) return;
 		edit.SetCrop(_docId, _pageId, ImageCoreService.Quad.FromValues(values));
+		Bend = null;
 		Manual = true;
 		Status = "Đã chỉnh tay";
 	}

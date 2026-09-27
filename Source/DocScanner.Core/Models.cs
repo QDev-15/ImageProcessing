@@ -146,8 +146,9 @@ public sealed class PageRecord
         || CroppedRotation != UserRotation
         || CroppedOutputRotation != OutputRotation
         || CroppedFreeAspect != FreeAspect
-        || RenderStretchedToA4
+        || RenderIsOutdated
         || (CropQuad != null && (CroppedQuad == null || !CropQuad.AsSpan().SequenceEqual(CroppedQuad)))
+        || !SameBends(CropBend, CroppedBend)
         || !FilterOptions.SameLook(Filter, CroppedFilter);
 
     /// <summary>The saved render is the straightened page as it stands now (same outline, rotations and shape) with no
@@ -158,29 +159,35 @@ public sealed class PageRecord
         && CroppedColorMode == PageColorMode.Color && CroppedBrightness == 0 && CroppedContrast == 0
         && CroppedRotation == UserRotation && CroppedOutputRotation == OutputRotation && CroppedFreeAspect == FreeAspect
         && CropQuad != null && CroppedQuad != null && CropQuad.AsSpan().SequenceEqual(CroppedQuad)
-        && !RenderStretchedToA4;
+        && SameBends(CropBend, CroppedBend)
+        && !RenderIsOutdated;
 
-    /// <summary>An A4 render made by the older rules: turned the wrong way (landscape for a portrait-shaped outline, or the
-    /// reverse) or forced to A4 although the outline is not sheet-shaped, so its content is stretched (owner's page 7,
-    /// 2026-09-26: 1.7x). Such a render is redone.</summary>
+    /// <summary>How pages are shaped and straightened now: 2 = true proportions from the perspective
+    /// (<see cref="PageGeometry"/>, A4 only when the sheet really is A4) and curved sides (<see cref="CropBend"/>). Renders
+    /// made by older rules (1 = side-length proportions, straight sides only: squashed or stretched pages, bent pages with
+    /// curved lines) are redone once, in the background.</summary>
+    public const int GeometryVersion = 2;
+
+    /// <summary>The rules the current render was made with (<see cref="GeometryVersion"/>); 0 for renders from before
+    /// this was recorded.</summary>
+    public int CroppedGeometry { get; set; }
+
+    /// <summary>A render made by older straightening rules (see <see cref="GeometryVersion"/>).</summary>
     [JsonIgnore]
-    public bool RenderStretchedToA4
-    {
-        get
-        {
-            if (CroppedFreeAspect || CroppedQuad is not { Length: 8 } || CroppedWidth <= 0 || CroppedHeight <= 0) return false;
-            double r = (double)Math.Max(CroppedWidth, CroppedHeight) / Math.Min(CroppedWidth, CroppedHeight);
-            if (Math.Abs(r - PerspectiveWarp.A4Ratio) > 0.01) return false; // not an A4-shaped render
-            (int w, int h) = UprightSize;
-            if (w <= 0 || h <= 0) return false;
-            Quad outline = Quad.FromValues(CroppedQuad).Scale(w, h);
-            // The shape before the page was turned on the result screen (a quarter turn swaps landscape and portrait).
-            bool renderLandscape = (CroppedWidth > CroppedHeight) ^ (CroppedOutputRotation % 180 != 0);
-            return !PerspectiveWarp.IsA4Like(outline) || renderLandscape != PerspectiveWarp.IsLandscapeShape(outline);
-        }
-    }
+    public bool RenderIsOutdated => CroppedRevision > 0 && CroppedGeometry < GeometryVersion;
 
+    /// <summary>Curved sides of a page that was not lying flat (<see cref="PageBends"/>, 8 numbers), found with the
+    /// outline; null = straight sides. Cleared when the user moves the outline by hand.</summary>
+    public double[]? CropBend { get; set; }
 
+    /// <summary>The bends the current render was made with.</summary>
+    public double[]? CroppedBend { get; set; }
+
+    [JsonIgnore]
+    public PageBends? Bends => PageBends.FromValues(CropBend);
+
+    internal static bool SameBends(double[]? a, double[]? b) =>
+        (a == null || a.All(v => v == 0)) ? (b == null || b.All(v => v == 0)) : b != null && a.AsSpan().SequenceEqual(b);
     /// <summary>Upright size of the original, in pixels.
     [JsonIgnore]
     public (int Width, int Height) UprightSize => ImageGeometry.UprightSize(RawWidth, RawHeight, EffectiveOrientation);

@@ -107,13 +107,17 @@ public class CropPlannerTests
     [Fact]
     public void A4_pages_have_the_standard_ratio_portrait_or_landscape_following_the_outline()
     {
-        CropPlan portrait = CropPlanner.Plan(Rect(1000, 1300, 100, 100), 3000, 2000);   // taller than wide
+        CropPlan portrait = CropPlanner.Plan(Rect(1000, 1400, 100, 100), 3000, 2000);   // an A4 sheet seen front on, taller than wide
         Assert.True(portrait.OutHeight > portrait.OutWidth);
         Assert.Equal(1.41421, (double)portrait.OutHeight / portrait.OutWidth, 2);
 
-        CropPlan landscape = CropPlanner.Plan(Rect(1300, 1000, 100, 100), 3000, 2000);  // wider than tall
+        CropPlan landscape = CropPlanner.Plan(Rect(1400, 1000, 100, 100), 3000, 2000);  // wider than tall
         Assert.True(landscape.OutWidth > landscape.OutHeight);
         Assert.Equal(1.41421, (double)landscape.OutWidth / landscape.OutHeight, 2);
+
+        // Not an A4 sheet (a letter page, 1.3): it keeps its own shape instead of being stretched to 1.41.
+        CropPlan letter = CropPlanner.Plan(Rect(1000, 1300, 100, 100), 3000, 2000);
+        Assert.Equal(1.3, (double)letter.OutHeight / letter.OutWidth, 2);
     }
 
     [Fact]
@@ -560,7 +564,11 @@ public class RenderStageTests
             """);
         PageRecord p = new DocumentStore(root.Path).Pages(id).Single();
         Assert.Equal(PageColorMode.Color, p.ColorMode);
-        Assert.False(p.NeedsRender);
+        // It needs one new render, though: it was straightened by the old rules (no true proportions, no curved sides).
+        Assert.True(p.RenderIsOutdated);
+        Assert.True(p.NeedsRender);
+        p.CroppedGeometry = PageRecord.GeometryVersion;
+        Assert.False(p.NeedsRender); // the look itself (color, no settings) matched: nothing else to redo
         Assert.EndsWith("cropped_1.jpg", new DocumentStore(root.Path).CroppedPath(id, p));
     }
 

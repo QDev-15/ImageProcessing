@@ -13,6 +13,7 @@ public sealed class PageEditService(DocumentStore store, PageIngestQueue queue, 
         Change(docId, pageId, p =>
         {
             p.CropQuad = quad.ToValues();
+            p.CropBend = null; // an outline moved by hand is straight (the bulge belonged to the detected border)
             p.CropManual = true;
         });
 
@@ -79,6 +80,7 @@ public sealed class PageEditService(DocumentStore store, PageIngestQueue queue, 
             for (int i = 0; i < turns; i++)
             {
                 if (p.CropQuad != null) p.CropQuad = ImageGeometry.RotateQuadClockwise(Quad.FromValues(p.CropQuad)).ToValues();
+                if (PageBends.FromValues(p.CropBend) is { } b) p.CropBend = b.RotateClockwise().ToValues();
                 (p.ProxyWidth, p.ProxyHeight) = (p.ProxyHeight, p.ProxyWidth);
             }
             p.UserRotation = (p.UserRotation + turns * 90) % 360;

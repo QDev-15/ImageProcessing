@@ -280,24 +280,29 @@ public class StretchedRenderTests
     };
 
     [Fact]
-    public void The_stretched_page_7_render_is_redone()
+    public void Renders_made_by_older_straightening_rules_are_redone_once()
     {
-        PageRecord p = Page7();
-        Assert.True(p.RenderStretchedToA4);
+        PageRecord p = Page7(); // no geometry version recorded: side-length proportions, straight sides
+        Assert.True(p.RenderIsOutdated);
         Assert.True(p.NeedsRender);
+        Assert.False(p.HasPlainColorRender);
+
+        p.CroppedGeometry = PageRecord.GeometryVersion; // re-rendered by the current rules
+        Assert.False(p.RenderIsOutdated);
+        Assert.False(p.NeedsRender);
     }
 
     [Fact]
-    public void A_proper_A4_render_or_a_free_aspect_render_is_left_alone()
+    public void A_change_of_bends_makes_the_render_stale()
     {
-        PageRecord a4 = Page7();
-        a4.CropQuad = a4.CroppedQuad = [0.15, 0.1, 0.85, 0.1, 0.85, 0.9, 0.15, 0.9]; // 3226 x 2074 of the upright 4608 x 2592: 1.56, A4-like landscape
-        a4.CroppedWidth = 3508; a4.CroppedHeight = 2481;
-        Assert.False(a4.RenderStretchedToA4);
-        Assert.False(a4.NeedsRender);
-
-        PageRecord free = Page7();
-        free.FreeAspect = free.CroppedFreeAspect = true;
-        Assert.False(free.RenderStretchedToA4);
-    }
-}
+        PageRecord p = Page7();
+        p.CroppedGeometry = PageRecord.GeometryVersion;
+        p.CropBend = [0.05, 0, 0, 0, 0, 0, 0, 0];
+        Assert.True(p.NeedsRender);
+        p.CroppedBend = [0.05, 0, 0, 0, 0, 0, 0, 0];
+        Assert.False(p.NeedsRender);
+        p.CropBend = p.CroppedBend = null;
+        Assert.False(p.NeedsRender);
+        p.CroppedBend = [0, 0, 0, 0, 0, 0, 0, 0]; // flat = no bends
+        Assert.False(p.NeedsRender);
+    }}

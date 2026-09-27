@@ -234,7 +234,7 @@ public partial class ResultViewModel(DocumentStore store, PageIngestQueue queue,
 
 	/// <summary>What the straightened preview depends on: the outline, the rotations and the shape (not the look).</summary>
 	private string BaseKey(PageRecord p) =>
-		$"{_docId}|{p.Id}|{string.Join(',', p.CropQuad ?? [])}|{p.UserRotation}|{p.OutputRotation}|{p.FreeAspect}|{p.RawWidth}x{p.RawHeight}";
+		$"{_docId}|{p.Id}|{string.Join(',', p.CropQuad ?? [])}|{string.Join(',', p.CropBend ?? [])}|{p.UserRotation}|{p.OutputRotation}|{p.FreeAspect}|{p.RawWidth}x{p.RawHeight}";
 
 	private void ShowBase(string? key, LookPreview? image)
 	{

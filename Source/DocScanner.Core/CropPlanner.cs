@@ -43,27 +43,30 @@ public static class CropPlanner
 
     /// <param name="storedPx">The outline in pixels of the stored (unrotated) original: TL, TR, BR, BL of the upright page.</param>
     /// <param name="maxLongEdge">Cap of the page's long edge; smaller for a screen preview (see <see cref="PreviewLongEdge"/>).</param>
+    /// <param name="bends">Curved sides (they can bulge beyond the corners' outline: the decoded region covers them).</param>
     public static CropPlan Plan(Quad storedPx, int rawWidth, int rawHeight, CropAspect aspect = CropAspect.A4,
-        int maxLongEdge = MaxLongEdge)
+        int maxLongEdge = MaxLongEdge, PageBends? bends = null)
     {
         long maxPixels = maxLongEdge >= MaxLongEdge ? MaxPixels : (long)maxLongEdge * maxLongEdge; // the A4 budget scales with it
         maxLongEdge = Math.Min(maxLongEdge, MaxLongEdge);
-        // An outline that is not sheet-shaped (a page cut off by the photo frame, a receipt...) keeps its own
-        // proportions even in A4 mode: stretching it to 1 : sqrt 2 distorts the text. The PDF export still puts
-        // such a page on an A4 sheet, fitted with white margins.
-        if (aspect == CropAspect.A4 && !PerspectiveWarp.IsA4Like(storedPx)) aspect = CropAspect.Free;
+        // The sheet's true proportions, measured through the perspective (PageGeometry): in A4 mode a real A4 sheet
+        // becomes exactly A4, anything else (a letter page, a receipt, a sheet cut by the photo frame) keeps its own
+        // shape instead of being stretched. The PDF export puts such a page on an A4 sheet with white margins.
+        double shape = PageGeometry.OutputAspect(storedPx, rawWidth, rawHeight, aspect == CropAspect.A4);
+        bool a4 = PageGeometry.IsA4(shape);
 
         // The outline's own size in original pixels (what the photo can resolve) ...
-        (int fullW, int fullH) = PerspectiveWarp.OutputSize(storedPx, int.MaxValue, long.MaxValue);
+        (int fullW, int fullH) = PageGeometry.SizeFor(storedPx, shape, int.MaxValue, long.MaxValue);
         // ... and the page we want, capped at A4 / 300 DPI.
-        (int cappedW, int cappedH) = aspect == CropAspect.A4
-            ? PerspectiveWarp.A4Size(storedPx, maxLongEdge, maxPixels)
-            : PerspectiveWarp.OutputSize(storedPx, maxLongEdge, maxPixels);
+        (int cappedW, int cappedH) = PageGeometry.SizeFor(storedPx, shape, maxLongEdge, maxPixels);
         // Fraction of the original resolution the output needs along its more demanding axis (never above 1:
         // a photo cannot resolve more than it has).
         double wanted = Math.Min(1.0, Math.Max((double)cappedW / fullW, (double)cappedH / fullH));
 
-        PointD[] p = storedPx.ToArray();
+        // Region: the corners, and where the sides bulge out (a bent page) the curve too.
+        PointD[] p = bends is { IsFlat: false }
+            ? Enumerable.Range(0, 4).SelectMany(side => Enumerable.Range(0, 17).Select(i => bends.PointOnSide(storedPx, side, i / 16.0))).ToArray()
+            : storedPx.ToArray();
         int x0 = Math.Max(0, (int)Math.Floor(p.Min(v => v.X)) - RegionMargin);
         int y0 = Math.Max(0, (int)Math.Floor(p.Min(v => v.Y)) - RegionMargin);
         int x1 = Math.Min(rawWidth, (int)Math.Ceiling(p.Max(v => v.X)) + RegionMargin);
@@ -79,7 +82,7 @@ public static class CropPlanner
         // If memory forced a coarser decode than the output wanted, the output shrinks with it (same shape).
         double k = Math.Min(1.0, (1.0 / sample) / wanted);
         int outW, outH;
-        if (aspect == CropAspect.A4)
+        if (a4)
         {
             int longSide = Math.Max(23, (int)Math.Round(Math.Max(cappedW, cappedH) * k));
             int shortSide = Math.Max(16, (int)Math.Round(longSide / PerspectiveWarp.A4Ratio));

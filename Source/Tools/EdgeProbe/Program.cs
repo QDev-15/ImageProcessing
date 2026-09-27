@@ -34,7 +34,7 @@ foreach (string path in args.Skip(2))
         }
     small.UnlockBits(bd);
 
-    var det = new DocumentEdgeDetector { Trace = args[0] == "1600" ? null : Console.WriteLine };
+    var det = Environment.GetEnvironmentVariable("LIVE") == "1" ? DocumentEdgeDetector.Live() : new DocumentEdgeDetector { Trace = args[0] == "1600" ? null : Console.WriteLine };
     det.Detect(rgb);
     var sw = Stopwatch.StartNew();
     QuadDetection r = det.Detect(rgb);
@@ -50,5 +50,48 @@ foreach (string path in args.Skip(2))
         g.DrawPolygon(pen, pts);
         foreach (var p in pts) g.FillEllipse(Brushes.Red, p.X - 7, p.Y - 7, 14, 14);
     }
+    // Refinement at this resolution (curved sides), drawn in blue.
+    Quad coarsePx = r.Quad.Scale(w, h);
+    PageOutlineRefiner.Trace = s => Console.WriteLine("     " + s);
+    var refined = PageOutlineRefiner.Refine(rgb, coarsePx);
+    using (var g = Graphics.FromImage(canvas))
+    {
+        using var pen = new Pen(Color.DeepSkyBlue, Math.Max(2, w / 350f));
+        PageBends bends = refined.Bends ?? PageBends.Flat;
+        for (int side = 0; side < 4; side++)
+        {
+            var pts = Enumerable.Range(0, 41).Select(i => bends.PointOnSide(refined.Outline, side, i / 40.0))
+                .Select(p => new PointF((float)p.X, (float)p.Y)).ToArray();
+            g.DrawLines(pen, pts);
+        }
+    }
+    Console.WriteLine($"   refined sides={refined.SidesRefined} bends={(refined.Bends == null ? "flat" : string.Join(",", refined.Bends.ToValues().Select(v => v.ToString("0.000"))))}");
     canvas.Save(Path.Combine(outDir, Path.GetFileNameWithoutExtension(path) + "_det.png"));
+
+    // Straightened: old (straight outline, side-length size) vs new (refined curved outline, true aspect).
+    (int ow, int oh) = PerspectiveWarp.A4Size(coarsePx, 1200, long.MaxValue);
+    if (!PerspectiveWarp.IsA4Like(coarsePx)) (ow, oh) = PerspectiveWarp.OutputSize(coarsePx, 1200, long.MaxValue);
+    Save(PerspectiveWarp.Warp(rgb, coarsePx, ow, oh), Path.Combine(outDir, Path.GetFileNameWithoutExtension(path) + "_old.png"));
+    double aspect = PageGeometry.OutputAspect(refined.Outline, w, h, a4: true);
+    (int nw, int nh) = PageGeometry.SizeFor(refined.Outline, aspect, 1200, long.MaxValue);
+    Console.WriteLine($"   old {ow}x{oh} (side ratio {PageGeometry.SideRatio(coarsePx):0.000})  new {nw}x{nh} (true aspect {PageGeometry.TrueAspect(refined.Outline, w, h):0.000})");
+    Save(PerspectiveWarp.Warp(rgb, refined.Outline, nw, nh, refined.Bends), Path.Combine(outDir, Path.GetFileNameWithoutExtension(path) + "_new.png"));
+}
+
+static void Save(RgbImage img, string file)
+{
+    using var bmp = new Bitmap(img.Width, img.Height, PixelFormat.Format24bppRgb);
+    var bd = bmp.LockBits(new Rectangle(0, 0, img.Width, img.Height), ImageLockMode.WriteOnly, PixelFormat.Format24bppRgb);
+    var row = new byte[bd.Stride];
+    for (int y = 0; y < img.Height; y++)
+    {
+        for (int x = 0; x < img.Width; x++)
+        {
+            int i = (y * img.Width + x) * 3;
+            row[x * 3] = img.Data[i + 2]; row[x * 3 + 1] = img.Data[i + 1]; row[x * 3 + 2] = img.Data[i];
+        }
+        System.Runtime.InteropServices.Marshal.Copy(row, 0, bd.Scan0 + y * bd.Stride, bd.Stride);
+    }
+    bmp.UnlockBits(bd);
+    bmp.Save(file);
 }

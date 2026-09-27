@@ -41,6 +41,7 @@
         <views:QuadEditor Grid.Row="1"
                           ImagePath="{Binding ImagePath}"
                           Quad="{Binding Quad}"
+                          Bend="{Binding Bend}"
                           Detected="{Binding Detected}"
                           Manual="{Binding Manual}"
                           EditedCommand="{Binding EditedCommand}"

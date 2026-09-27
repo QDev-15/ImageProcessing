@@ -32,6 +32,10 @@
   so lại ngưỡng), xoay tức thì (hoán vị dữ liệu + hiệu ứng GPU), việc nền giới hạn lõi CPU và huỷ khi lỗi thời, tái sử dụng bitmap;
   thêm Độ sáng cho chế độ Đen trắng. **Đo tốc độ bằng bản Release** (Debug chạy trình thông dịch, chậm 10-30 lần; đã chuyển Debug sang JIT).
   Chi tiết: MOBILE-STATUS.md mục 5g.
+- **Đợt 2026-09-27f**: sửa crash khi chụp ảnh bằng camera (MAUI đòi quyền bộ nhớ trên Android 12 -> tự gọi app camera qua
+  FileProvider); nắn tài liệu theo **tỉ lệ thật** (tính từ phối cảnh, không còn bẹp / giãn) và theo **cạnh cong** của tờ giấy cầm tay
+  (tìm lại mép giấy trên ảnh 1600 px); **camera trong app** (CameraX): khung tờ giấy hiện trực tiếp khi ngắm, tự chụp khi giữ yên,
+  chụp nhiều trang liên tiếp. Đã thử trên máy ảo; **chưa thử camera mới trên Note 10+**. Chi tiết: MOBILE-STATUS.md mục 5h.
 - License bên thứ ba: [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 
 ```

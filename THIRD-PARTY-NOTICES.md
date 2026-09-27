@@ -21,6 +21,7 @@ thương mại, với điều kiện giữ thông báo bản quyền / license (
 | ZXing.Net                                            | 0.16.10       | Apache-2.0 | Đọc barcode để tách tài liệu. |
 | .NET MAUI (Microsoft.Maui.Controls), app mobile `DocScanner` | 10.x | MIT | Chỉ app Android, không nằm trong app WinForms. |
 | CommunityToolkit.Mvvm                                | 8.4.0         | MIT    | App mobile `DocScanner`. |
+| AndroidX CameraX (Xamarin.AndroidX.Camera.Camera2 / Lifecycle / View, kéo theo Camera.Core) | 1.6.2 | Apache-2.0 (thư viện Google) + MIT (binding .NET) | Camera trong app mobile (dò tờ giấy trực tiếp, tự chụp). Kèm Xamarin.AndroidX.Fragment.Ktx 1.9.0 / Collection.Ktx 1.6.0.1 (Apache-2.0 + MIT) để khớp phiên bản. |
 | xUnit / Microsoft.NET.Test.Sdk (chỉ project test)    | 2.9.2 / 17.12.0 | Apache-2.0 / MIT | Không phân phối kèm app. |
 | PdfPig (UglyToad.PdfPig, chỉ project test)          | 0.1.16        | Apache-2.0 | Đọc lại PDF xuất ra trong `DocScanner.Core.Tests`. Không phân phối kèm app. |
 

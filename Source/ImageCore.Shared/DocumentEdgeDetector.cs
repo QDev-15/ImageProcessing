@@ -42,6 +42,26 @@ public sealed class DocumentEdgeDetector : IEdgeDetector
     /// <summary>Margin (fraction of each side) of the fallback whole-frame quad.</summary>
     public double FallbackMargin { get; init; } = 0.03;
 
+    /// <summary>Most straight lines taken from the Hough accumulator, strongest first.</summary>
+    public int MaxLineCount { get; init; } = MaxLines;
+
+    /// <summary>Most candidate outlines that get the (costly) edge scoring, best pre-ranked first.</summary>
+    public int MaxScoredCount { get; init; } = MaxScoredCandidates;
+
+    /// <summary>True (photos): a side may lie on the frame border, for a sheet that runs out of the picture. False
+    /// (live camera): the whole sheet must be in view, which also stops a cluttered room from passing for a sheet
+    /// the size of the frame.</summary>
+    public bool AllowFrameBorders { get; init; } = true;
+
+    /// <summary>Settings for the live camera preview: a few frames per second on a phone instead of one photo in a
+    /// second or so. Fewer lines and candidates (a sheet the user is aiming at is among the strongest lines anyway),
+    /// the whole sheet in view.</summary>
+    public static DocumentEdgeDetector Live() => new() { MaxLineCount = 40, MaxScoredCount = 200, AllowFrameBorders = false };
+
+    /// <summary>Long edge of the picture the live camera hands to <see cref="Live"/> detectors: edge finding costs in
+    /// proportion to the pixels, and the camera outline only has to be good to a few pixels of the screen.</summary>
+    public const int LiveAnalysisEdge = 320;
+
     /// <summary>Optional diagnostics sink (one line per event); used by tests and tuning.</summary>
     public Action<string>? Trace { get; init; }
 
@@ -69,14 +89,14 @@ public sealed class DocumentEdgeDetector : IEdgeDetector
         foreach ((double percentile, float floor) in Passes)
         {
             EdgeMap edges = EdgeMap.Compute(s, percentile, floor);
-            List<Line> lines = FindLines(edges);
+            List<Line> lines = FindLines(edges, MaxLineCount);
             Trace?.Invoke($"pass p={percentile}: {edges.Points.Count} edge px, {lines.Count} lines");
             if (Trace != null)
                 foreach (Line l in lines)
                     Trace($"  line theta={l.Theta / PiOver180:0.0} rho={l.Rho:0.0} votes={l.Votes} strength={l.Strength:0}");
-            AddBorderLines(lines, s.Width, s.Height);
+            if (AllowFrameBorders) AddBorderLines(lines, s.Width, s.Height);
 
-            (Quad quad, double score)? found = BestQuad(lines, edges, Trace);
+            (Quad quad, double score)? found = BestQuad(lines, edges, Trace, MaxScoredCount);
             Trace?.Invoke($"pass p={percentile}: best score {(found?.score ?? 0):0.000}");
             if (found != null && found.Value.score > bestScore * LooserPassMargin)
             {
@@ -97,6 +117,38 @@ public sealed class DocumentEdgeDetector : IEdgeDetector
 
     #region Edges
 
+    /// <summary>
+    /// The big per-picture arrays, kept for the next call on the same thread instead of being allocated anew (several MB
+    /// per call). The live camera runs the detector a few times a second, and on Android every collection of those
+    /// large objects also stops the Java side (the GC bridge): 70 ms to over a second per collection was measured on
+    /// the emulator. Only the thread that calls <see cref="Detect"/> takes buffers (the parallel loops inside share the
+    /// ones it took), a call runs start to end on its thread, and nothing taken escapes the call, so concurrent
+    /// detectors on other threads never share them. Every buffer is cleared or fully overwritten before use, so the
+    /// results are exactly those of fresh arrays.
+    /// </summary>
+    private sealed class Scratch
+    {
+        [ThreadStatic] private static Scratch? t_current;
+        public static Scratch Current => t_current ??= new Scratch();
+
+        private readonly float[]?[] _floats = new float[16][];
+        private readonly long[]?[] _longs = new long[3][];
+        private bool[]? _bools;
+        private int[]? _ints;
+
+        public float[] Floats(int slot, int n) => Take(ref _floats[slot], n);
+        public long[] Longs(int slot, int n) => Take(ref _longs[slot], n);
+        public bool[] Bools(int n) => Take(ref _bools, n);
+        public int[] Ints(int n) => Take(ref _ints, n);
+
+        private static T[] Take<T>(ref T[]? slot, int n)
+        {
+            if (slot == null || slot.Length != n) slot = new T[n];
+            else Array.Clear(slot);
+            return slot;
+        }
+    }
+
     private sealed class EdgeMap
     {
         public int W, H;
@@ -109,17 +161,20 @@ public sealed class DocumentEdgeDetector : IEdgeDetector
         public static EdgeMap Compute(RgbImage img, double percentile, float floorHigh)
         {
             int w = img.Width, h = img.Height, n = w * h;
+            Scratch scratch = Scratch.Current;
             var chan = new float[3][];
+            var work = new float[9][];
+            for (int k = 0; k < 9; k++) work[k] = scratch.Floats(k, n);
             Parallel.For(0, 3, ParallelScope.Options, c =>
             {
-                var f = new float[n];
+                float[] f = work[3 * c];
                 for (int i = 0; i < n; i++) f[i] = img.Data[i * 3 + c];
-                chan[c] = Blur(f, w, h);
+                chan[c] = Blur(f, work[3 * c + 1], work[3 * c + 2], w, h);
             });
 
-            var mag = new float[n];
-            var gxBest = new float[n];
-            var gyBest = new float[n];
+            float[] mag = scratch.Floats(9, n);
+            float[] gxBest = scratch.Floats(10, n);
+            float[] gyBest = scratch.Floats(11, n);
             Parallel.For(1, h - 1, ParallelScope.Options, y =>
             {
                 for (int x = 1; x < w - 1; x++)
@@ -141,7 +196,7 @@ public sealed class DocumentEdgeDetector : IEdgeDetector
             });
 
             // Non-maximum suppression along the (quantized) gradient direction.
-            var nms = new float[n];
+            float[] nms = scratch.Floats(12, n);
             Parallel.For(1, h - 1, ParallelScope.Options, y =>
             {
                 for (int x = 1; x < w - 1; x++)
@@ -171,8 +226,8 @@ public sealed class DocumentEdgeDetector : IEdgeDetector
             }
             float low = Math.Max(floorHigh * 0.5f, high * 0.4f);
 
-            var map = new EdgeMap { W = w, H = h, Image = img, Edge = new bool[n], Theta = new float[n] };
-            map.BuildIntegrals();
+            var map = new EdgeMap { W = w, H = h, Image = img, Edge = scratch.Bools(n), Theta = scratch.Floats(13, n) };
+            map.BuildIntegrals(scratch);
             var stack = new Stack<int>();
             for (int i = 0; i < n; i++)
             {
@@ -210,12 +265,12 @@ public sealed class DocumentEdgeDetector : IEdgeDetector
             return map;
         }
 
-        private void BuildIntegrals()
+        private void BuildIntegrals(Scratch scratch)
         {
             int iw = W + 1;
-            IntR = new long[iw * (H + 1)];
-            IntG = new long[iw * (H + 1)];
-            IntB = new long[iw * (H + 1)];
+            IntR = scratch.Longs(0, iw * (H + 1));
+            IntG = scratch.Longs(1, iw * (H + 1));
+            IntB = scratch.Longs(2, iw * (H + 1));
             for (int y = 0; y < H; y++)
             {
                 long rr = 0, gg = 0, bb = 0;
@@ -246,10 +301,8 @@ public sealed class DocumentEdgeDetector : IEdgeDetector
         }
 
         /// <summary>Separable binomial [1 4 6 4 1] / 16, edge pixels replicated.</summary>
-        private static float[] Blur(float[] src, int w, int h)
+        private static float[] Blur(float[] src, float[] tmp, float[] dst, int w, int h)
         {
-            var tmp = new float[src.Length];
-            var dst = new float[src.Length];
             for (int y = 0; y < h; y++)
             {
                 int o = y * w;
@@ -282,11 +335,11 @@ public sealed class DocumentEdgeDetector : IEdgeDetector
         public double Ny => Math.Sin(Theta);
     }
 
-    private static List<Line> FindLines(EdgeMap e)
+    private static List<Line> FindLines(EdgeMap e, int maxLines)
     {
         int diag = (int)Math.Ceiling(Math.Sqrt((double)e.W * e.W + (double)e.H * e.H));
         int rhoBins = 2 * diag + 1;
-        var acc = new int[ThetaBins * rhoBins];
+        int[] acc = Scratch.Current.Ints(ThetaBins * rhoBins);
         var cos = new double[ThetaBins];
         var sin = new double[ThetaBins];
         for (int t = 0; t < ThetaBins; t++)
@@ -312,7 +365,7 @@ public sealed class DocumentEdgeDetector : IEdgeDetector
         int minVotes = Math.Max(20, (int)(0.2 * Math.Min(e.W, e.H)));
         int minPeak = minVotes * 2; // accumulator cells hold weighted votes
         var peaks = new List<Line>();
-        for (int k = 0; k < MaxLines; k++)
+        for (int k = 0; k < maxLines; k++)
         {
             int bestIdx = 0, bestVal = 0;
             for (int i = 0; i < acc.Length; i++)
@@ -420,7 +473,7 @@ public sealed class DocumentEdgeDetector : IEdgeDetector
 
     private readonly record struct Candidate(Quad Quad, int[] SideLine, double PreScore);
 
-    private static (Quad Quad, double Score)? BestQuad(List<Line> lines, EdgeMap e, Action<string>? trace)
+    private static (Quad Quad, double Score)? BestQuad(List<Line> lines, EdgeMap e, Action<string>? trace, int maxScored)
     {
         int w = e.W, h = e.H, minDim = Math.Min(w, h);
         double cx = (w - 1) / 2.0, cy = (h - 1) / 2.0;
@@ -493,7 +546,7 @@ public sealed class DocumentEdgeDetector : IEdgeDetector
         // early (kept when tracing, so the diagnostics can list runners-up). The bound is an upper
         // bound of the candidate's score, so a dropped candidate could never be picked below, and
         // which ones get dropped (it depends on thread timing) does not change the result.
-        Candidate[] ranked = candidates.OrderByDescending(c => c.PreScore).Take(MaxScoredCandidates).ToArray();
+        Candidate[] ranked = candidates.OrderByDescending(c => c.PreScore).Take(maxScored).ToArray();
         var results = new Scored[ranked.Length];
         long bestBits = BitConverter.DoubleToInt64Bits(0.0);
         Parallel.For(0, ranked.Length, ParallelScope.Options, i =>

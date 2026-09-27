@@ -5,8 +5,9 @@ Cập nhật lần cuối: 2026-09-26 (bước 7 + 8, tối ưu tốc độ -- m
 
 ## 1. Tóm tắt
 
-App scan tài liệu cho **Android** (.NET MAUI, `net10.0-android`, package `btk.docscanner`, tên "Doc Scanner"): nhập ảnh từ thư viện / camera
--> tự dò mép giấy hoặc kéo 4 điểm (có kính lúp, kéo được ra ngoài ảnh) -> cắt phối cảnh từ ảnh gốc ra trang **A4** -> **Màu / Xám / Đen trắng**
+App scan tài liệu cho **Android** (.NET MAUI, `net10.0-android`, package `btk.docscanner`, tên "Doc Scanner"): nhập ảnh từ thư viện / camera trong app
+(dò tờ giấy trực tiếp, tự chụp khi giữ yên, nhiều trang liên tiếp)
+-> tự dò mép giấy (cả cạnh cong) hoặc kéo 4 điểm (có kính lúp, kéo được ra ngoài ảnh) -> nắn từ ảnh gốc theo tỉ lệ thật (A4 khi đúng là A4) -> **Màu / Xám / Đen trắng**
 (làm phẳng nền, Sauvola tiết kiệm RAM) -> nhiều trang (kéo thả, hoàn tác) -> **xuất PDF**, chia sẻ / lưu Tải xuống. Không OCR ở bản đầu.
 iOS để sau (owner chưa có Mac).
 
@@ -47,7 +48,16 @@ Solution: `Source/DocScanner.slnx` (mobile) và `Source/ImageProcessing.sln` (ow
 
 ## 4. Chưa kiểm chứng trên máy thật (cần owner bấm thử, hoặc tự thử khi có máy)
 
-**Mới ở đợt này (bước 7-8):**
+**Mới nhất (đợt 2026-09-27f, mục 5h) -- quan trọng nhất:**
+
+0a. **Camera trong app** (nút chụp tròn ở Home, "Chụp thêm" trong tài liệu): đưa máy qua tờ giấy trên bàn -> khung xanh bám mép; giữ yên ~1 s
+    -> tự chụp (chớp trắng, số trang tăng); lật / đổi tờ -> tự chụp tờ tiếp; tắt "Tự chụp" rồi bấm nút tròn; flash; chạm để lấy nét; Xong ->
+    tài liệu có đủ trang, đã nắn. Xem tốc độ khung xanh: `adb logcat -s DocScanPerf` dòng "camera: frame analysis ... ms avg".
+    Thử cả: giấy trắng trên bàn trắng, bàn tay cầm giấy, ánh sáng yếu, nhiều tờ chồng.
+0b. **Nắn thẳng**: mở vài trang chụp cầm tay -> bấm Tự động ở màn chỉnh khung: khung có cạnh cong bám mép; kết quả chữ thẳng hàng, đúng tỉ lệ.
+    Trang cũ tự dựng lại theo cách mới (lần đầu mở có thể chờ một chút).
+
+**Bước 7-8:**
 
 1. Trang kết quả: 3 nút Màu / Xám / Đen trắng; thanh trượt Độ đậm (dựng lại khi thả tay); công tắc Làm sạch nền; nút "Áp dụng kiểu này cho mọi trang".
    Đo thời gian dựng lại một trang trên Note 10+ (ước lượng 2-4 s, vì mỗi lần đổi kiểu là giải mã + nắn lại từ ảnh gốc).
@@ -76,7 +86,7 @@ Solution: `Source/DocScanner.slnx` (mobile) và `Source/ImageProcessing.sln` (ow
 **Từ trước:**
 
 6. Kéo điểm ra vùng đen rồi Xong; khổ A4 và nút "theo khung"; nút **Xong** trên trang kết quả.
-7. Nút **Chụp ảnh / Chụp thêm** (camera hệ thống) -- chưa thử lần nào.
+7. Camera hệ thống (dự phòng khi camera trong app không mở được): đã thử chụp + huỷ trên Note 10+ (27/09).
 8. Xoá tài liệu bằng vuốt ở Home.
 9. Ảnh gốc **48 MP thật** qua bước cắt; máy RAM thấp (3 GB).
 10. Bản **Release**: đã build được trên PC (đợt này), **chưa cài / chạy trên máy** (trimming, JSON source-gen, PlatformImage).
@@ -306,6 +316,50 @@ SIMD (`Vector128`) cho các vòng lặp; thống kê Sauvola ở độ phân gi�
 
 Test: 87 (Shared) + 140 (Core) PASS, SmokeTests ALL PASS, build Debug + Release sạch.
 
+## 5h. Camera sửa crash + nắn tài liệu thẳng, đúng tỉ lệ + camera trong app dò tài liệu trực tiếp (đợt 2026-09-27f)
+
+Owner: (1) cắt / nắn tài liệu còn cong và méo hình; (2) bấm chụp bằng camera thì app crash; khi chụp hết lỗi thì làm camera nhận diện
+tài liệu khi đưa máy qua, để chụp được ảnh chuẩn nhất.
+
+**Crash camera (đã thử trên Note 10+: chụp và huỷ đều chạy):** `MediaPicker.CapturePhotoAsync` của MAUI trên Android 12 đòi quyền
+`WRITE_EXTERNAL_STORAGE` (app không khai báo) -> ném lỗi -> crash. Thay bằng `AndroidPhotoCapture` (ACTION_IMAGE_CAPTURE + FileProvider
+`btk.docscanner.capture`, ghi thẳng vào cache). Mọi lỗi camera / thư viện ảnh giờ hiện hộp thoại, không làm sập app. Giờ nó là **dự phòng**
+khi camera trong app không mở được.
+
+**Méo hình (tỉ lệ sai):** trước đây tỉ lệ trang lấy theo độ dài cạnh trên ảnh; dưới phối cảnh, cạnh xa ngắn hơn nên trang bị bẹp / giãn.
+- `ImageCore.Shared/PageGeometry`: tỉ lệ **thật** của tờ giấy từ 4 góc + tiêu cự ước lượng từ chính 4 góc (Zhang & He 2007, hai điểm tụ
+  vuông góc); không đo được (nhìn gần thẳng) thì dùng tiêu cự điện thoại phổ biến. Chế độ A4: chỉ ép về đúng A4 khi tỉ lệ thật trong 8%
+  quanh sqrt 2; giấy Letter / hoá đơn giữ tỉ lệ thật -> không bao giờ kéo giãn.
+
+**Cong (tờ giấy cầm tay / không nằm phẳng):**
+- `PageOutlineRefiner`: sau khi dò khung thô (480 px), tìm lại mép giấy trên proxy 1600 px: ~60 mẫu mỗi cạnh, lấy bậc sáng
+  "giấy -> không phải giấy" ngoài cùng, khớp đường cong bằng hồi quy bền (Tukey) -> góc chính xác 1-2 px + độ cong từng cạnh (`PageBends`, lưu
+  `PageRecord.CropBend`). Có kiểm tra hợp lý (lồi, diện tích / góc không đổi quá nhiều) nên không thể làm khung tệ hơn.
+- `PerspectiveWarp` nắn theo cả 4 cạnh cong (homography + bù cong kiểu Coons) -> chữ và mép giấy thẳng hàng.
+- Màn chỉnh khung vẽ **cạnh cong** đúng như sẽ cắt; kéo tay là về tứ giác thẳng như cũ (`CropBend` bị xoá).
+- `PageRecord.GeometryVersion = 2`: trang dựng theo quy tắc cũ tự dựng lại một lần ở nền.
+- Kiểm chứng: 6 ảnh thật của owner (EdgeProbe trên PC) đều ra trang thẳng, hết dải bàn gỗ; trên Note 10+ trang "11:24" bấm Tự động -> khung bám
+  sát mép, kết quả A4 2024x2862 dòng chữ nằm ngang. (Khung chỉnh tay của owner ở trang đó đã được trả lại nguyên.)
+
+**Camera trong app (`Platforms/Android/Camera/`, CameraX 1.6.2, Apache-2.0):**
+- `DocumentCameraActivity` (Activity Android riêng, dọc): xem trước toàn khung 4:3, khung giấy dò trực tiếp (xanh dương = đang thấy, xanh lá = đang
+  giữ yên sắp chụp), trượt mượt giữa các lần dò. Chạm để lấy nét, đèn flash, **Tự chụp: Bật / Tắt** (nhớ lựa chọn), chụp liên tiếp nhiều trang
+  (ảnh nhỏ + số trang góc trái), **Xong** -> các ảnh vào tài liệu như nhập ảnh (dò mép chính xác + cạnh cong như trên). Nút X / Back khi đã có ảnh thì hỏi
+  "Thêm vào tài liệu / Bỏ ảnh / Chụp tiếp". Ảnh JPEG độ phân giải cao nhất 4:3, EXIF xoay.
+- Dò trực tiếp: khung phân tích 640x480 -> thu còn 320 px -> `DocumentEdgeDetector.Live()` (40 đường, 200 ứng viên, **không** cho cạnh nằm trên
+  mép khung: phải thấy cả tờ; nhờ vậy căn phòng bừa bộn không bị coi là "tờ giấy cỡ cả khung"). Chỉ xử lý khung mới nhất, khung chậm bị bỏ.
+  Đo PC: 40-125 ms / khung (chế độ ảnh chụp: 220-500 ms). Test: mọi cảnh giả lập có cả tờ giấy trong khung đều IoU >= 0,98 ở chế độ này.
+- Tự chụp (`DocScanner.Core/Camera/CaptureStabilizer`, 12 test): khung đứng yên (lệch <= 2,5% khung) 0,9 s, tờ giấy >= 12% khung, tin cậy >= 0,5,
+  không chạm mép khung ("Lùi máy ra để thấy cả tờ giấy"). Sau khi chụp **không chụp lại cùng trang**: chờ đổi trang (khung dời đi, mất khung > 0,5 s,
+  hoặc nội dung ảnh đổi nhiều - so "vân tay" 8x8 độ sáng).
+- Bộ dò giờ **dùng lại bộ đệm lớn theo luồng** (trước: ~5-6 MB cấp phát mỗi lần dò). Trên Android mỗi lần GC các mảng lớn còn dừng cả phía Java
+  (đo trên máy ảo: 70 ms đến hơn 1 s mỗi lần). Kết quả dò giống hệt từng bit (so `MobileBench detect-dump`, 40 cảnh). Máy ảo bản Debug: 2,4 s -> 0,6 s / khung.
+- Lỗi đã gặp khi làm: mã request trùng với trình chọn ảnh (0x5043) -> kết quả camera bị trình chọn ảnh nuốt; đổi sang 0x5045.
+- Đã thử trên **máy ảo** (camera cảnh 3D): mở camera, khung bám đúng màn TV (vật chữ nhật duy nhất), chụp, Xong -> tài liệu mới có trang đã nắn.
+  **CHƯA thử trên Note 10+** (máy bị khoá màn hình rồi rút cáp trong lúc làm). Bản Release đã cài Note 10+ lúc 13:51 27/09.
+
+Test: 114 (Shared) + 152 (Core) PASS, SmokeTests ALL PASS.
+
 ## 6. Việc còn lại (theo thứ tự nên làm)
 
 ### Bước 9 -- Hoàn thiện
@@ -315,7 +369,7 @@ Test: 87 (Shared) + 140 (Core) PASS, SmokeTests ALL PASS, build Debug + Release 
   sáng / tối; icon + splash riêng.
 - Pinch-zoom trang kết quả; thử camera; xử lý nút Back của Android; trạng thái rỗng / lỗi; ghi log; thử bộ nhớ thấp và ảnh 48 MP thật.
 - Có thể: xem trước nhanh khi kéo thanh Độ đậm (mục 5); PDF nén G4 cho trang đen trắng; chọn trang để xuất / xuất một phần.
-- Ghi chú UX còn treo: chụp nhiều trang liên tiếp bằng camera trong app (camera hệ thống hiện chỉ chụp 1 ảnh mỗi lần).
+- Camera trong app: đã có (mục 5h); còn có thể thêm chụp ngang, zoom, chụp liên tục kiểu sách (2 trang).
 
 ### Bước 10 -- Phát hành Google Play
 - Chạy thử bản **Release** trên máy (đã build được trên PC); keystore ký; versionCode / versionName; AAB.
@@ -324,8 +378,8 @@ Test: 87 (Shared) + 140 (Core) PASS, SmokeTests ALL PASS, build Debug + Release 
   xUnit, PdfPig chỉ test).
 
 ### Để sau (v2)
-iOS (cần Mac hoặc Mac cloud: tạo lại `Platforms/iOS`, viết `IImageService` + `IDownloadsService` cho iOS), OCR (ML Kit / Vision), camera tuỳ biến có khung dò
-thời gian thực, tự chụp khi ổn định, đồng bộ đám mây.
+iOS (cần Mac hoặc Mac cloud: tạo lại `Platforms/iOS`, viết `IImageService` + `IDownloadsService` + camera cho iOS), OCR (ML Kit / Vision),
+đồng bộ đám mây.
 
 ## 7. Cách làm việc lại
 
