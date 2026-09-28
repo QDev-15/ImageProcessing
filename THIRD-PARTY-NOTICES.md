@@ -22,6 +22,7 @@ thương mại, với điều kiện giữ thông báo bản quyền / license (
 | .NET MAUI (Microsoft.Maui.Controls), app mobile `DocScanner` | 10.x | MIT | Chỉ app Android, không nằm trong app WinForms. |
 | CommunityToolkit.Mvvm                                | 8.4.0         | MIT    | App mobile `DocScanner`. |
 | AndroidX CameraX (Xamarin.AndroidX.Camera.Camera2 / Lifecycle / View, kéo theo Camera.Core) | 1.6.2 | Apache-2.0 (thư viện Google) + MIT (binding .NET) | Camera trong app mobile (dò tờ giấy trực tiếp, tự chụp). Kèm Xamarin.AndroidX.Fragment.Ktx 1.9.0 / Collection.Ktx 1.6.0.1 (Apache-2.0 + MIT) để khớp phiên bản. |
+| Plugin.InAppBilling (jamesmontemagno) | 10.0.0 | MIT | Gọi Google Play Billing để bán gói Pro (mua đứt, xem "Giấy phép & khuyến mãi" trong MOBILE-STATUS.md). Kéo theo `Xamarin.Android.Google.BillingClient` (binding .NET của thư viện Play Billing Library chính chủ Google — điều khoản riêng của Google, xem license kèm gói) và `Xamarin.GooglePlayServices.Base/Basement/Tasks` (Google, điều khoản Google Play Services). Không thu thập / gửi dữ liệu người dùng nào ngoài luồng mua hàng qua Play. |
 | xUnit / Microsoft.NET.Test.Sdk (chỉ project test)    | 2.9.2 / 17.12.0 | Apache-2.0 / MIT | Không phân phối kèm app. |
 | PdfPig (UglyToad.PdfPig, chỉ project test)          | 0.1.16        | Apache-2.0 | Đọc lại PDF xuất ra trong `DocScanner.Core.Tests`. Không phân phối kèm app. |
 

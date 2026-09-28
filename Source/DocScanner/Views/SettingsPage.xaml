@@ -34,6 +34,24 @@
     <ScrollView>
         <VerticalStackLayout Padding="0,0,0,24">
 
+            <Label Text="GÓI PRO" Style="{StaticResource Section}" />
+            <VerticalStackLayout Style="{StaticResource Card}" Spacing="8" Padding="16,12">
+                <Label Text="{Binding LicenseSummaryText}" Style="{StaticResource Name}" FontFamily="OpenSansSemibold" />
+                <Label Text="Bản Pro bỏ giới hạn số lần xuất PDF, dùng vĩnh viễn, mua một lần." Style="{StaticResource Hint}"
+                       IsVisible="{Binding IsFree}" />
+                <Grid ColumnDefinitions="*,*" ColumnSpacing="10" IsVisible="{Binding IsFree}">
+                    <Button Text="{Binding ProPriceText, StringFormat='Mua Pro · {0}', TargetNullValue='Mua Pro'}"
+                            Command="{Binding BuyProCommand}" IsEnabled="{Binding LicenseIdle}"
+                            BackgroundColor="{StaticResource Primary}" TextColor="White" FontSize="13" HeightRequest="40" CornerRadius="20" />
+                    <Button Grid.Column="1" Text="Khôi phục giao dịch" Command="{Binding RestorePurchasesCommand}"
+                            IsEnabled="{Binding LicenseIdle}"
+                            BackgroundColor="Transparent" BorderWidth="1" BorderColor="{StaticResource Primary}"
+                            TextColor="{StaticResource Primary}" FontSize="12" HeightRequest="40" CornerRadius="20" />
+                </Grid>
+                <ActivityIndicator IsRunning="{Binding IsBusyWithLicense}" IsVisible="{Binding IsBusyWithLicense}" HeightRequest="24"
+                                   Color="{StaticResource Primary}" />
+            </VerticalStackLayout>
+
             <Label Text="CHỤP ẢNH" Style="{StaticResource Section}" />
             <VerticalStackLayout Style="{StaticResource Card}">
                 <Grid ColumnDefinitions="*,Auto" Padding="0,10">

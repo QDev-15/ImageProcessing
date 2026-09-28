@@ -45,6 +45,10 @@
   trang ra A4); màn chính: tìm kiếm (không dấu), thư mục, chọn nhiều / kéo thả vào thư mục / xoá; màn Cài đặt + Thông tin ứng dụng;
   tự cập nhật lúc 01:00 (hướng dẫn phát hành: [UPDATE-SERVER.md](UPDATE-SERVER.md)); màn khởi động. Phiên bản 1.1 (versionCode 2).
   Chi tiết: MOBILE-STATUS.md mục 5j.
+- **Đợt 2026-09-28**: License / bán hàng qua **Google Play Billing** (mua đứt "Pro" một lần, gói `pro_upgrade`); dùng thử **5 lượt xuất PDF
+  miễn phí** rồi mới yêu cầu mua (chụp/chỉnh sửa không giới hạn); mục "GÓI PRO" trong Cài đặt; mã giảm giá dùng thẳng "Mã khuyến mãi" có sẵn của
+  Play Console, không cần máy chủ riêng. Chi tiết: MOBILE-STATUS.md mục 5k. Cài lên Note 10+, giao diện hiện đúng; **chưa mua thử thật** (cần tạo
+  sản phẩm trên Play Console trước).
 - License bên thứ ba: [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 
 ```

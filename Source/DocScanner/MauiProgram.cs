@@ -1,4 +1,5 @@
 using DocScanner.Core;
+using DocScanner.Core.Licensing;
 using DocScanner.Services;
 using DocScanner.ViewModels;
 using DocScanner.Views;
@@ -45,6 +46,7 @@ public static class MauiProgram
 		builder.Services.AddSingleton(_ => new ExportLibrary(Path.Combine(FileSystem.AppDataDirectory, "exports")));
 		builder.Services.AddSingleton<ExportCoordinator>();
 		builder.Services.AddSingleton<IDownloadsService, AndroidDownloadsService>();
+		builder.Services.AddSingleton<ILicenseService, LicenseService>();
 		builder.Services.AddSingleton<PermissionService>();
 		builder.Services.AddSingleton<ImportCoordinator>();
 

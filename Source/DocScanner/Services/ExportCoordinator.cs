@@ -1,6 +1,7 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using DocScanner.Core;
+using DocScanner.Core.Licensing;
 
 namespace DocScanner.Services;
 
@@ -8,8 +9,14 @@ namespace DocScanner.Services;
 /// "Xuất PDF" from any screen (document, crop, result): runs the export with its own progress overlay
 /// (<see cref="Views.ExportOverlay"/>, bound to this singleton), saves the PDF into the export library,
 /// then offers Share / Save to Downloads / Open.
+///
+/// This is also the one place that enforces the trial: exporting is the deliverable the user actually
+/// wants, so it is the point at which the free-use count is spent and, once spent, where Pro is asked
+/// for -- scanning, editing and everything else stays free with no interruption. See
+/// <see cref="ILicenseService"/> and MOBILE-STATUS.md ("License &amp; khuyến mãi").
 /// </summary>
-public partial class ExportCoordinator(DocumentStore store, PdfExportService exporter, ExportLibrary library, IDownloadsService downloads)
+public partial class ExportCoordinator(DocumentStore store, PdfExportService exporter, ExportLibrary library, IDownloadsService downloads,
+	ILicenseService license)
 	: ObservableObject
 {
 	private CancellationTokenSource? _cts;
@@ -33,6 +40,8 @@ public partial class ExportCoordinator(DocumentStore store, PdfExportService exp
 			await Shell.Current.DisplayAlertAsync("Xuất PDF", "Tài liệu chưa có trang nào.", "OK");
 			return;
 		}
+
+		if (!license.State.CanExport && !await OfferUpgradeAsync()) return;
 
 		PdfQuality? quality = await AskQualityAsync();
 		if (quality == null) return;
@@ -66,10 +75,41 @@ public partial class ExportCoordinator(DocumentStore store, PdfExportService exp
 		}
 
 		if (result == null) return;
+		license.RecordExport(); // no-op once Pro; a cancelled or failed export above never reaches here
 		string summary = $"{result.PageCount} trang · {result.Bytes / 1024.0:0} KB";
 		if (result.SkippedPages.Count > 0)
 			summary += $"\nBỏ qua trang {string.Join(", ", result.SkippedPages)} (ảnh lỗi hoặc chưa cắt được).";
 		await OfferActionsAsync(result.Path, doc.Name, $"Đã xuất PDF ({summary})", allowDelete: false);
+	}
+
+	/// <summary>The trial is used up: explains why, offers to buy Pro right here (no extra screen to
+	/// navigate to and back from), and returns true only if that purchase went through, so the export
+	/// this call interrupted can continue.</summary>
+	private async Task<bool> OfferUpgradeAsync()
+	{
+		bool buy = await Shell.Current.DisplayAlertAsync("Đã hết lượt xuất PDF miễn phí",
+			$"Bạn đã dùng hết {license.State.ExportsUsed} lượt xuất PDF miễn phí. Nâng cấp Pro"
+			+ (license.ProPriceText != null ? $" ({license.ProPriceText})" : "")
+			+ " để xuất không giới hạn, dùng vĩnh viễn.",
+			"Mua Pro", "Để sau");
+		if (!buy) return false;
+
+		IsExporting = true; // reuse the same overlay so the screen does not look unresponsive during the Play sheet
+		ExportText = "Đang mở Google Play...";
+		PurchaseOutcome outcome;
+		try
+		{
+			outcome = await license.PurchaseProAsync();
+		}
+		finally
+		{
+			IsExporting = false;
+		}
+
+		if (outcome is PurchaseOutcome.Purchased or PurchaseOutcome.AlreadyOwned) return true;
+		if (outcome == PurchaseOutcome.Error)
+			await Shell.Current.DisplayAlertAsync("Không mua được", license.LastError ?? "Có lỗi xảy ra, thử lại sau.", "OK");
+		return false;
 	}
 
 	private const string QualityPreference = "pdf_quality";

@@ -73,6 +73,7 @@
 		<PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.0" />
 		<!-- MIT -->
 		<PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
+		<PackageReference Include="Plugin.InAppBilling" Version="10.0.0" />
 		<!-- Apache-2.0 (AndroidX CameraX) / MIT (.NET bindings): the in-app document camera (Platforms/Android/Camera) -->
 		<PackageReference Include="Xamarin.AndroidX.Camera.Camera2" Version="1.6.2" />
 		<PackageReference Include="Xamarin.AndroidX.Camera.Lifecycle" Version="1.6.2" />

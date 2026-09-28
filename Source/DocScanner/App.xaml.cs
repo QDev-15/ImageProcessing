@@ -28,5 +28,16 @@ public partial class App : Application
 		// The nightly update check (re)scheduled at every start: survives settings changes and app updates.
 		try { _services.GetService<Services.IAppUpdater>()?.Schedule(); }
 		catch (Exception ex) { Core.Perf.Log("update schedule failed: " + ex.Message); }
+
+		// Re-check Play for the Pro purchase (picks up a refund/chargeback, or a purchase made while the
+		// app was closed) without making startup wait on it: every screen already shows the locally
+		// cached state instantly and updates itself when this finishes.
+		try
+		{
+			Core.Licensing.ILicenseService? license = _services.GetService<Core.Licensing.ILicenseService>();
+			if (license != null) _ = license.RefreshAsync().ContinueWith(t =>
+				Core.Perf.Log(t.Exception == null ? "license: refreshed at startup" : "license refresh failed: " + t.Exception.Message));
+		}
+		catch (Exception ex) { Core.Perf.Log("license refresh failed: " + ex.Message); }
 	}
 }

@@ -1,6 +1,6 @@
 # Doc Scanner (app mobile) -- trạng thái dự án và việc còn lại
 
-Cập nhật lần cuối: 2026-09-26 (bước 7 + 8, tối ưu tốc độ -- mục 5b). Đọc file này đầu tiên khi làm tiếp; chi tiết kỹ thuật từng bước nằm ở mục
+Cập nhật lần cuối: 2026-09-28 (License & khuyến mãi -- mục 5k). Đọc file này đầu tiên khi làm tiếp; chi tiết kỹ thuật từng bước nằm ở mục
 "App mobile" trong [CLAUDE.md](CLAUDE.md).
 
 ## 1. Tóm tắt
@@ -471,6 +471,78 @@ Phiên bản app nâng lên **1.1 (versionCode 2)**.
 **Splash**: `SplashPage` nối tiếp splash hệ thống (cùng màu xanh): logo phóng to, vạch quét chạy, tên app, phiên bản, © tác giả; màn chính được tạo trong
 lúc đó, hiện sau tối thiểu 1,3 s.
 
+## 5k. License (Google Play Billing) & khuyến mãi (đợt 2026-09-28)
+
+Owner: chưa định hình license quản lý / render / bán như nào, và mã giảm giá quản lý ra sao. Đã hỏi và owner chốt: **chỉ bán qua Google Play**
+(không bán trực tiếp ngoài Play), **dùng thử giới hạn rồi mua** (không phải thuê bao), thanh toán qua **Google Play Billing**, mã giảm giá dùng
+cho **khuyến mãi ra mắt cho khách lẻ**.
+
+### Vì sao không cần máy chủ license riêng
+
+Vì chỉ bán qua Google Play, **Play chính là máy chủ license** — không viết license key, không server riêng, không có gì để tự "sinh mã" cho việc
+mua Pro. Bản ghi mua hàng (purchase record) của Play cho sản phẩm `pro_upgrade` LÀ giấy phép; ứng dụng chỉ hỏi Play "tài khoản này đã mua chưa"
+mỗi lần mở app. Bị hoàn tiền / bị Google thu hồi thì lần hỏi tiếp theo Play tự trả lời "chưa mua" — không cần app tự xử lý huỷ quyền.
+(Nếu sau này owner muốn bán thêm kênh ngoài Play — website, chuyển khoản — thì lúc đó mới cần máy chủ license riêng; kiến trúc hiện tại tách
+`ILicenseService` ra làm giao diện nên có thể thêm một bản cài đặt khác dùng máy chủ riêng mà không đổi phần còn lại của app.)
+
+### Mô hình dùng thử: đếm theo lượt xuất PDF, không đếm theo ngày
+
+Chọn **5 lượt xuất PDF miễn phí** (`TrialPolicy.FreeExportLimit`, hằng số dễ đổi), không giới hạn thời gian, không giới hạn số trang / số tài
+liệu / lần chụp / chỉnh sửa. Lý do:
+- Không đếm theo ngày vì lùi giờ điện thoại là phá được ngay, mà không cần máy chủ để chống thì không đáng làm phức tạp.
+- Chỉ chặn ở bước **xuất PDF** (lúc người dùng thực sự nhận được thành phẩm) — chụp, dò mép, chỉnh sửa, xem trước vẫn dùng thoải mái không giới
+  hạn, để người dùng trải nghiệm đủ app trước khi bị hỏi mua. Đây cũng là mốc rõ ràng nhất để "render" (hiển thị) trạng thái license.
+
+### Kiến trúc
+
+- **`DocScanner.Core/Licensing/`** (thuần .NET, test được, không đụng Play Billing):
+  - `LicenseState` (record): `IsPro`, `ExportsUsed`, `FreeExportLimit` -> `ExportsRemaining`, `CanExport`, `SummaryText` (dòng hiển thị).
+  - `TrialPolicy.Evaluate(isPro, exportsUsed)`: hàm thuần tính `LicenseState`. `FreeExportLimit = 5`.
+  - `ILicenseService`: `State`, `ProPriceText` (giá Play trả về, ví dụ "79.000 ₫"), `LastError`, sự kiện `Changed`, `RefreshAsync()` (hỏi lại
+    Play), `PurchaseProAsync()`, `RestoreAsync()` ("Khôi phục giao dịch"), `RecordExport()` (tính một lượt, không làm gì nếu đã Pro).
+  - Test: `DocScanner.Core.Tests/LicenseTests.cs` (9 test: đếm lượt, âm/vượt hạn mức, Pro luôn xuất được, nội dung `SummaryText`).
+- **`DocScanner/Services/LicenseService.cs`** (implement `ILicenseService` bằng `Plugin.InAppBilling` 10.0.0, MIT, gói `pro_upgrade` kiểu
+  **managed / non-consumable** — mua một lần, không tiêu hao):
+  - `RefreshAsync`: kết nối Play, đọc `GetPurchasesAsync` xem đã mua chưa, **tự acknowledge** giao dịch chưa được xác nhận (Play tự hoàn tiền
+    nếu không acknowledge trong 3 ngày), đọc `GetProductInfoAsync` lấy giá hiển thị. Gọi lúc khởi động app (`App.xaml.cs OnStart`, không chặn
+    màn hình) và mỗi lần mở màn Cài đặt.
+  - `PurchaseProAsync`: mở màn mua của Play (`PurchaseAsync`), bắt các lỗi `UserCancelled` / `AlreadyOwned` riêng.
+  - Đếm lượt (`ExportsUsed`) và cờ Pro cache cục bộ trong `Preferences` để có câu trả lời tức thì không cần mạng; `RefreshAsync` từ Play luôn
+    là nguồn đúng, ghi đè cache.
+  - Quyền `com.android.vending.BILLING` và `<queries>` cần thiết được gói NuGet tự gộp vào Manifest (không phải tự thêm tay).
+- **Chặn xuất PDF**: `ExportCoordinator.ExportAsync` kiểm tra `license.State.CanExport` **trước khi hỏi chất lượng PDF**; hết lượt thì hiện hộp
+  thoại "Đã hết lượt xuất PDF miễn phí" kèm giá (nếu Play đã trả lời) và nút Mua Pro ngay tại chỗ (dùng lại overlay xuất PDF khi đang mở màn mua
+  của Play, để màn hình không trông như bị treo) — mua xong thì xuất tiếp luôn, không phải bấm lại nút Xuất PDF. Xuất **thành công** mới gọi
+  `RecordExport()` (huỷ / lỗi giữa chừng không bị trừ lượt).
+- **Render trạng thái**: mục "GÓI PRO" đầu màn Cài đặt — dòng `SummaryText` ("Bản dùng thử: còn 5/5 lượt xuất PDF miễn phí" / "Đã nâng cấp Pro"),
+  nút **Mua Pro** (kèm giá khi có) + **Khôi phục giao dịch** (ẩn khi đã Pro).
+
+### Mã giảm giá / khuyến mãi ra mắt -- dùng thẳng Play Console, không viết code
+
+Vì sản phẩm là **managed one-time product** qua Google Play, Play Console có sẵn mục **Kiếm tiền > Sản phẩm > (chọn `pro_upgrade`) > Khuyến
+mãi / Mã khuyến mãi (Promo codes)** để owner tự tạo hàng loạt mã, đặt % giảm hoặc miễn phí hoàn toàn, đặt hạn dùng, rồi tải danh sách mã về phát
+cho khách (Facebook, Zalo...). Khách tự đổi mã trong **app Google Play Store** (mục "Đổi mã") — **không phải trong Doc Scanner**. App không cần
+biết gì về việc đổi mã: sau khi khách đổi mã, Play ghi nhận họ đã "mua" sản phẩm, và `RefreshAsync` (chạy mỗi lần mở app / mở Cài đặt) tự thấy
+điều đó và chuyển sang Pro như một giao dịch mua bình thường.
+- Ưu điểm: không cần backend, không cần app tự sinh / kiểm mã, không sợ lộ mã giả.
+- Hạn chế cần owner biết: Play giới hạn số mã tạo được cho mỗi sản phẩm mỗi năm (hạn ngạch cụ thể tuỳ loại tài khoản nhà phát triển, Google có
+  thể đổi theo thời gian) — owner nên xem hạn ngạch thật trong Play Console khi đến bước phát hành, phòng khi chương trình ra mắt cần nhiều mã
+  hơn mức cho phép; nếu cần mã "giá sỉ cho đại lý" theo dõi riêng từng người sau này thì đó là lúc cần cân nhắc máy chủ license riêng.
+- Việc owner cần tự làm trong Play Console (tôi không làm thay được, cần tài khoản Play Console Developer của owner): tạo app, tạo sản phẩm
+  managed `pro_upgrade` (đúng ID này, khớp `LicenseService.ProProductId`) với giá bán, thêm license tester (tài khoản Gmail của owner) để mua
+  thử không mất tiền thật trước khi phát hành, rồi mới tạo mã khuyến mãi.
+
+### Đã kiểm tra / chưa kiểm tra
+
+- Build Android sạch; **190 test DocScanner.Core** (thêm 9 test license) + **118 test ImageCore.Shared** PASS; SmokeTests (Windows) ALL PASS.
+- Cài bản Debug lên Note 10+ (28/09, 09:37): mở app, mở Cài đặt -> mục "GÓI PRO" hiện đúng "Bản dùng thử: còn 5/5 lượt xuất PDF miễn phí", nút
+  Mua Pro (chưa có giá vì sản phẩm `pro_upgrade` **chưa tồn tại trên Play Console**) và Khôi phục giao dịch, không crash.
+- **Chưa và không thể kiểm chứng cho tới khi owner tạo sản phẩm trên Play Console**: bấm Mua Pro thật (mở màn Play, trả tiền / license tester),
+  `RefreshAsync` nhận đúng giao dịch, acknowledge, hộp thoại chặn xuất PDF khi hết lượt, đổi mã khuyến mãi trên Play Store rồi app tự nhận Pro,
+  khôi phục trên máy thứ hai cùng tài khoản Google, giá `ProPriceText` hiển thị đúng theo khu vực.
+- Nợ nhỏ: `LastError` message tiếng Anh (từ exception gốc, chưa dịch); "Khôi phục giao dịch" hiện chưa phân biệt được lỗi mạng với "chưa từng
+  mua" (đều rơi vào cùng nhánh `_ => "Không tìm thấy giao dịch..."` khi `LastError` là null); có thể tách rõ hơn nếu owner thấy cần.
+
 ## 6. Việc còn lại (theo thứ tự nên làm)
 
 ### Bước 9 -- Hoàn thiện
@@ -484,9 +556,13 @@ lúc đó, hiện sau tối thiểu 1,3 s.
 
 ### Bước 10 -- Phát hành Google Play
 - Chạy thử bản **Release** trên máy (đã build được trên PC); keystore ký; versionCode / versionName; AAB.
-- Play Console (25 USD một lần), Data safety (không INTERNET, ảnh không rời máy), privacy policy, ảnh chụp màn hình, mô tả.
-- Thử ít nhất 5 máy Android (Samsung / Xiaomi / Oppo...). Cập nhật `THIRD-PARTY-NOTICES.md` cho mọi thư viện mới (hiện: MAUI, CommunityToolkit.Mvvm = MIT;
-  xUnit, PdfPig chỉ test).
+- Play Console (25 USD một lần): tạo app, tạo sản phẩm managed `pro_upgrade` (đúng ID này, xem mục 5k), thêm license tester, Data safety (app
+  giờ CÓ dùng INTERNET: tự cập nhật + Google Play Billing; ảnh / tài liệu vẫn không rời máy, chỉ trạng thái mua hàng đi qua Play), privacy
+  policy, ảnh chụp màn hình, mô tả.
+- Tạo mã khuyến mãi ra mắt trong Play Console (mục 5k) sau khi sản phẩm đã duyệt.
+- Thử ít nhất 5 máy Android (Samsung / Xiaomi / Oppo...): mua Pro thật bằng license tester, xuất PDF hết 5 lượt rồi bị chặn đúng lúc, đổi mã
+  khuyến mãi trên Play Store rồi mở app thấy chuyển Pro. Cập nhật `THIRD-PARTY-NOTICES.md` cho mọi thư viện mới (hiện: MAUI,
+  CommunityToolkit.Mvvm, Plugin.InAppBilling = MIT; Play Billing / Play Services bindings = điều khoản Google; xUnit, PdfPig chỉ test).
 
 ### Để sau (v2)
 iOS (cần Mac hoặc Mac cloud: tạo lại `Platforms/iOS`, viết `IImageService` + `IDownloadsService` + camera cho iOS), OCR (ML Kit / Vision),
