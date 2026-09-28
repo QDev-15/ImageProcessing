@@ -382,3 +382,25 @@
 - Bộ dò dùng lại mảng lớn theo luồng (`DocumentEdgeDetector.Scratch`): GC mảng lớn trên Android dừng cả Java. Kết quả giống hệt (detect-dump).
 - Máy ảo có camera cảnh 3D (`hw.camera.back=virtualscene`) để thử camera khi không có máy thật.
 - Bản Release (có camera mới) đã cài Note 10+ lúc 13:51 27/09 theo yêu cầu owner; camera mới chưa được thử trên máy.
+
+### Đen trắng sắc nét, xem ảnh / PDF, chữ ký (đợt 2026-09-27g, chi tiết: MOBILE-STATUS.md mục 5i)
+- Đen trắng: `Sharpen.UnsharpInPlace` trước Sauvola + `Binarizer.Shade(ramp)` mép mềm (`DocumentFilter.SmoothRamp = 12`); trang lưu PNG xám 8-bit,
+  PDF Nhỏ / Vừa tự chuyển 1-bit (`PdfExportService.BilevelAsync`), Cao giữ nguyên. `PageRecord.BlackWhiteVersion` = 2 (trang đen trắng cũ dựng lại).
+  Đo bằng `Tools/EdgeProbe bw <thư mục>` (giả lập ảnh điện thoại chụp trang chữ tiếng Việt).
+- Zoom: `Platforms/Android/ZoomController` (ma trận ImageView) + `ZoomImageHost`. Trình xem: `ViewerPage` (route viewer), `PdfViewerPage` (pdfviewer, PdfRenderer).
+- Chữ ký: `Core/Signatures` (`SignatureInk`, `SignatureLibrary`, `Stamper`), `PageRecord.Stamps` (`PageStamp`), `SignaturePage` + `StampEditor` / `SignaturePad`,
+  `SignatureSession` chuyển bản xem trước từ màn Sửa. Chữ ký số bằng chứng thư (PAdES) CHƯA làm.
+- Release đã cài Note 10+ lúc 19:54 27/09.
+- Lưu ý khi sửa file có tiếng Việt: script PowerShell 5 không BOM đọc theo ANSI và làm hỏng chữ; dùng công cụ Edit (hoặc script có BOM).
+
+### Sửa PDF / A4, thư mục, tìm kiếm, Cài đặt, tự cập nhật, splash (đợt 2026-09-27h, chi tiết: MOBILE-STATUS.md mục 5j)
+- PdfRenderer: phải gọi `page.Close()` (Dispose của .NET không đóng trang Java) -> trước đây trang 2+ bị đen.
+- Tỉ lệ trang: `PageGeometry.OutputAspect` dùng tiêu cự cố định 0,62 x đường chéo, giới hạn bù ±20%, trang có dáng tờ giấy -> A4. KHÔNG dùng
+  tiêu cự đo từ 4 góc (`MeasureFocal` chỉ để chẩn đoán). `GeometryVersion = 3`.
+- Màn chính: `HomeViewModel` (thư mục `DocumentStore.Folders / MoveToFolder`, `TextSearch`, chọn nhiều, kéo thả `DragGestureRecognizer` -> thư mục),
+  route `folder` dùng lại `HomePage`. Cài đặt `SettingsPage`, `AboutPage` (tác giả, email, SĐT, điều khoản).
+- Tự cập nhật: `AndroidAppUpdater` + `UpdateJobService` (JobScheduler id 21840, 01:00) + `UpdateStatusReceiver`; cần quyền
+  `UPDATE_PACKAGES_WITHOUT_USER_ACTION` để cài im lặng. Đừng gọi `JobScheduler.schedule` cùng id khi job đang chạy (nó dừng job) -> `Schedule(replace)`.
+  Thử: `adb reverse tcp:8080 tcp:8080`, `adb shell cmd jobscheduler run -f btk.docscanner 21840` (không force-stop app: force-stop xoá job).
+  Đã kiểm chứng trên máy ảo: tự cài 1.1 -> 1.2 -> 1.3, lần job 01:00 cài im lặng khi app ở nền.
+- Script PowerShell có tiếng Việt: ghi file .ps1 kèm BOM hoặc dùng Edit; GNU sed hiểu `\u` là viết hoa (đừng dùng sed để ghi `\uXXXX`).

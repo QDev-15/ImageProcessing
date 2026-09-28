@@ -3,8 +3,9 @@ namespace DocScanner.Core;
 /// <summary>
 /// How color / gray pages go into an exported PDF. The pages kept in the app stay at full quality
 /// (up to A4 at 300 DPI, JPEG 94: good for viewing and re-editing); at export they are shrunk to
-/// <see cref="Dpi"/> and re-encoded at <see cref="JpegQuality"/>. Black-and-white pages are always
-/// embedded as they are (1-bit PNG: already small, and shrinking would blur the text).
+/// <see cref="Dpi"/> and re-encoded at <see cref="JpegQuality"/>. Black-and-white pages keep their full resolution
+/// (shrinking would blur the text); their anti-aliased edges are kept only at <see cref="High"/>, the others embed them
+/// as 1-bit (about 200 KB instead of 700 KB for an A4 page of text).
 /// </summary>
 public sealed record PdfQuality(string Key, string Label, int Dpi, int JpegQuality)
 {

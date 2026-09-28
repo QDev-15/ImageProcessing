@@ -1,6 +1,7 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using DocScanner.Core;
+using DocScanner.Core.Signatures;
 using DocScanner.Services;
 using ImageCoreService;
 
@@ -21,8 +22,13 @@ public sealed record FilterThumbs(RgbImage Color, GrayImage Gray, GrayImage Blac
 /// and every control is locked.
 /// </summary>
 public partial class ResultViewModel(DocumentStore store, PageIngestQueue queue, PageEditService edit, ExportCoordinator exports,
-	CropRenderService renderer) : ObservableObject, IQueryAttributable
+	CropRenderService renderer, SignatureLibrary signatures, SignatureSession signing) : ObservableObject, IQueryAttributable
 {
+	/// <summary>The signatures drawn on the preview now (compared to notice a change coming back from the signature screen).</summary>
+	private string _stampsKey = "";
+
+	/// <summary>The last preview before its signatures were drawn: what the signature screen places them on.</summary>
+	private PreviewFrame? _plainFrame;
 	/// <summary>Straightened previews kept in memory: this page and its neighbours (swiping back and forth is instant).</summary>
 	private const int CachedPreviews = 3;
 
@@ -205,6 +211,12 @@ public partial class ResultViewModel(DocumentStore store, PageIngestQueue queue,
 		CanEdit = true;
 		string key = BaseKey(page);
 		if (key != _baseKey) _ = LoadBaseAsync(page.Id, key);
+		string stampsKey = StampsKey(page);
+		if (stampsKey != _stampsKey)
+		{
+			_stampsKey = stampsKey;
+			if (key == _baseKey) RequestLook(); // signatures added / moved / removed: draw them again
+		}
 		UpdateStatus(page);
 		EnsureSaved(page);
 	}
@@ -389,6 +401,10 @@ public partial class ResultViewModel(DocumentStore store, PageIngestQueue queue,
 							return source.Render(look);
 					});
 				if (_dirty || key != _baseKey) continue;
+				_plainFrame = frame;
+				List<PageStamp>? stamps = CurrentPage()?.Stamps;
+				if (stamps is { Count: > 0 }) frame = await Task.Run(() => Stamped(frame, stamps));
+				if (_dirty || key != _baseKey) continue;
 				PreviewChanged?.Invoke(frame);
 				PublishTone();
 			}
@@ -398,6 +414,32 @@ public partial class ResultViewModel(DocumentStore store, PageIngestQueue queue,
 		{
 			_computing = false;
 		}
+	}
+
+	private static string StampsKey(PageRecord p) => p.Stamps is { Count: > 0 } ? string.Join(";", p.Stamps) : "";
+
+	/// <summary>A copy of the preview with the page's signatures drawn on it (the preview stages are shared: never drawn
+	/// into in place).</summary>
+	private PreviewFrame Stamped(PreviewFrame frame, IReadOnlyList<PageStamp> stamps)
+	{
+		if (frame.Color != null)
+		{
+			var copy = new RgbImage(frame.Color.Width, frame.Color.Height, (byte[])frame.Color.Data.Clone());
+			Stamper.Apply(copy, stamps, signatures.Ink);
+			return new PreviewFrame(copy, null);
+		}
+		var gray = new GrayImage(frame.Gray!.Width, frame.Gray.Height, (byte[])frame.Gray.Data.Clone());
+		Stamper.Apply(gray, stamps, signatures.Ink, bilevel: false);
+		return new PreviewFrame(null, gray);
+	}
+
+	/// <summary>"Chữ ký": place / move / remove signatures on this page, on the picture as it looks now.</summary>
+	[RelayCommand]
+	private async Task SignAsync()
+	{
+		if (_docId == null || _pageId == null || !CanEdit || _plainFrame == null) return;
+		signing.Begin(_docId, _pageId, _plainFrame);
+		await Shell.Current.GoToAsync(AppShell.Routes.Signature);
 	}
 
 	private void PublishTone() => ToneChanged?.Invoke(Mode == PageColorMode.BlackWhite ? ToneAdjust.None : CurrentTone);

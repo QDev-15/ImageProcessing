@@ -41,14 +41,42 @@ public class PageShapeTests
     }
 
     [Fact]
-    public void A_letter_page_or_a_receipt_keeps_its_own_shape_in_A4_mode()
+    public void A_receipt_keeps_its_own_shape_in_A4_mode_and_a_letter_page_its_own_in_free_mode()
     {
         const int W = 3000, H = 4000;
-        double f = 0.8 * Math.Sqrt(W * W + H * H);
+        double f = 0.62 * Math.Sqrt(W * W + H * H);
         Quad letter = Photograph(216, 279, 25, 10, 5, 420, f, W, H);
-        Assert.InRange(PageGeometry.OutputAspect(letter, W, H, a4: true), 216 / 279.0 * 0.985, 216 / 279.0 * 1.015);
+        Assert.InRange(PageGeometry.OutputAspect(letter, W, H, a4: false), 216 / 279.0 * 0.97, 216 / 279.0 * 1.03);
+        Assert.True(PageGeometry.IsA4(PageGeometry.OutputAspect(letter, W, H, a4: true))); // a sheet: A4 in A4 mode
         Quad receipt = Photograph(80, 250, 20, 0, 0, 400, f, W, H);
-        Assert.InRange(PageGeometry.OutputAspect(receipt, W, H, a4: true), 0.32 * 0.97, 0.32 * 1.03);
+        Assert.InRange(PageGeometry.OutputAspect(receipt, W, H, a4: true), 0.32 * 0.95, 0.32 * 1.05);
+    }
+
+    /// <summary>The owner's "Tài liệu 1" (Note 10+, 4608 x 2592 photos, EXIF turned: upright 2592 x 4608), outlines as
+    /// saved on the phone. With the focal length measured from each outline, pages came out 1.57 (p4), 1.71 (p6), 1.92 (p8)
+    /// and 3.07 (p7) : 1 long. All are A4 sheets.</summary>
+    [Fact]
+    public void The_owners_real_A4_pages_come_out_A4_and_close_to_it_in_free_mode()
+    {
+        const int W = 2592, H = 4608;
+        double[][] outlines =
+        [
+            [0.093, 0.271, 0.735, 0.210, 1.012, 0.741, 0.247, 0.830], [0.228, 0.212, 0.856, 0.241, 0.854, 0.773, 0.101, 0.746],
+            [0.556, 0.179, 1.057, 0.391, 0.556, 0.891, 0.000, 0.635], [0.027, 0.210, 0.822, 0.179, 0.789, 0.723, 0.212, 0.775],
+            [0.319, 0.280, 0.809, 0.334, 0.934, 0.787, 0.175, 0.793], [-0.026, 0.604, 0.623, 0.276, 1.017, 0.466, 0.542, 0.914],
+            [0.200, 0.309, 0.737, 0.290, 0.947, 0.720, 0.165, 0.749], [-0.004, 0.361, 0.406, 0.195, 1.107, 0.550, 0.484, 0.858],
+            [0.503, 0.162, 1.040, 0.335, 0.683, 0.804, -0.014, 0.608], [0.106, 0.173, 0.793, 0.161, 1.006, 0.735, 0.052, 0.796],
+        ];
+        foreach (double[] o in outlines)
+        {
+            Quad q = Quad.FromValues(o).Scale(W, H);
+            Assert.True(PageGeometry.IsA4(PageGeometry.OutputAspect(q, W, H, a4: true)));
+            double free = PageGeometry.OutputAspect(q, W, H, a4: false);
+            Assert.InRange(Math.Max(free, 1 / free), 1.3, 1.8);
+        }
+        // Page 7, the worst one (it had been switched to "Theo khung" to get away from 3.07): now practically A4.
+        double p7 = PageGeometry.OutputAspect(Quad.FromValues(outlines[6]).Scale(W, H), W, H, a4: false);
+        Assert.InRange(1 / p7, 1.35, 1.48);
     }
 
     [Fact]

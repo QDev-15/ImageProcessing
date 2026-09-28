@@ -9,7 +9,7 @@ public sealed record PreviewFrame(RgbImage? Color, GrayImage? Gray);
 /// The result screen's live preview as a pipeline whose stages are kept once computed, so each change redoes only
 /// what it affects (the way photo editors keep their intermediate buffers):
 ///
-///   straightened page (color) -> gray -> background flattened -> Sauvola statistics -> black and white
+///   straightened page (color) -> gray -> background flattened -> sharpened -> Sauvola statistics -> black and white
 ///
 /// - color: the page itself, nothing to compute; brightness / contrast are a GPU color matrix in the view;
 /// - gray: the gray (or flattened) stage, computed once;
@@ -23,17 +23,20 @@ public sealed record PreviewFrame(RgbImage? Color, GrayImage? Gray);
 public sealed class LookPreview
 {
     private readonly object _lock = new();
-    private GrayImage? _gray, _flat;
-    private SauvolaStats? _grayStats, _flatStats;
+    private GrayImage? _gray, _flat, _sharpGray, _sharpFlat;
+    private SauvolaStats? _grayStats, _flatStats; // of the sharpened stage the threshold looks at
 
-    public LookPreview(RgbImage straightened) : this(straightened, null, null, null, null) { }
+    public LookPreview(RgbImage straightened) : this(straightened, null, null, null, null, null, null) { }
 
-    private LookPreview(RgbImage page, GrayImage? gray, GrayImage? flat, SauvolaStats? grayStats, SauvolaStats? flatStats)
+    private LookPreview(RgbImage page, GrayImage? gray, GrayImage? flat, GrayImage? sharpGray, GrayImage? sharpFlat,
+        SauvolaStats? grayStats, SauvolaStats? flatStats)
     {
         Page = page;
         Dpi = CropRenderService.PageDpi(page.Width, page.Height);
         _gray = gray;
         _flat = flat;
+        _sharpGray = sharpGray;
+        _sharpFlat = sharpFlat;
         _grayStats = grayStats;
         _flatStats = flatStats;
     }
@@ -58,11 +61,12 @@ public sealed class LookPreview
             {
                 if (look.Method == BinarizationMethod.Otsu)
                     return new PreviewFrame(null, DocumentFilter.Apply(Page, look, Dpi).Gray!); // rare; not worth a cached path
-                GrayImage source = Source(look.CleanBackground);
-                SauvolaStats stats = Stats(look.CleanBackground);
+                GrayImage source = ThresholdSource(look);
+                SauvolaStats stats = Stats(look);
                 var bw = new GrayImage(source.Width, source.Height);
-                Binarizer.Threshold(source, stats, DocumentFilter.SauvolaKFor(look.Darkness), look.Tone.BrightnessLevels, bw);
-                if (look.Despeckle) DocumentCleanup.Despeckle(bw, DocumentCleanup.DefaultSpeckleArea(Dpi));
+                Binarizer.Threshold(source, stats, DocumentFilter.SauvolaKFor(look.Darkness), look.Tone.BrightnessLevels, bw,
+                    look.Smooth ? DocumentFilter.SmoothRamp : 0);
+                if (look.Despeckle) DocumentFilter.Despeckle(bw, Dpi);
                 return new PreviewFrame(null, bw);
             }
         }
@@ -73,7 +77,7 @@ public sealed class LookPreview
     public void Warm(bool cleanBackground)
     {
         Source(cleanBackground);
-        Stats(cleanBackground);
+        Stats(new FilterOptions(PageColorMode.BlackWhite, CleanBackground: cleanBackground));
     }
 
     /// <summary>This preview turned by quarter turns: every stage computed so far is turned with it, nothing is recomputed.</summary>
@@ -83,6 +87,7 @@ public sealed class LookPreview
         lock (_lock)
         {
             return new LookPreview(Page.RotateClockwise(turns), _gray?.RotateClockwise(turns), _flat?.RotateClockwise(turns),
+                _sharpGray?.RotateClockwise(turns), _sharpFlat?.RotateClockwise(turns),
                 _grayStats?.RotateClockwise(turns), _flatStats?.RotateClockwise(turns));
         }
     }
@@ -97,12 +102,31 @@ public sealed class LookPreview
         }
     }
 
-    private SauvolaStats Stats(bool clean)
+    /// <summary>What the black-and-white threshold looks at: the gray / flattened stage, sharpened as for the saved page
+    /// (<see cref="DocumentFilter.BlackWhiteSource"/>). Every look here sharpens (the option only exists for tests).</summary>
+    private GrayImage ThresholdSource(FilterOptions look)
     {
-        GrayImage source = Source(clean);
+        GrayImage source = Source(look.CleanBackground);
+        if (!look.Sharpen) return source;
         lock (_lock)
         {
-            if (clean) return _flatStats ??= Binarizer.Stats(source, Binarizer.DefaultWindow(Dpi));
+            ref GrayImage? slot = ref look.CleanBackground ? ref _sharpFlat : ref _sharpGray;
+            if (slot == null)
+            {
+                var copy = new GrayImage(source.Width, source.Height, (byte[])source.Data.Clone());
+                Sharpen.UnsharpInPlace(copy, Sharpen.RadiusFor(Dpi), Sharpen.DefaultAmount);
+                slot = copy;
+            }
+            return slot;
+        }
+    }
+
+    private SauvolaStats Stats(FilterOptions look)
+    {
+        GrayImage source = ThresholdSource(look);
+        lock (_lock)
+        {
+            if (look.CleanBackground) return _flatStats ??= Binarizer.Stats(source, Binarizer.DefaultWindow(Dpi));
             return _grayStats ??= Binarizer.Stats(source, Binarizer.DefaultWindow(Dpi));
         }
     }

@@ -4,6 +4,7 @@ using System.Drawing.Imaging;
 using ImageCoreService;
 
 // usage: probe <maxEdge> <out.png> <img1> [img2 ...]  -> draws the detected outline on each image
+if (args[0] == "bw") { BwProbe.Run(args[1]); return; }
 int maxEdge = int.Parse(args[0]);
 string outDir = args[1];
 Directory.CreateDirectory(outDir);

@@ -115,9 +115,14 @@ public class CropPlannerTests
         Assert.True(landscape.OutWidth > landscape.OutHeight);
         Assert.Equal(1.41421, (double)landscape.OutWidth / landscape.OutHeight, 2);
 
-        // Not an A4 sheet (a letter page, 1.3): it keeps its own shape instead of being stretched to 1.41.
+        // A letter page (1.3) is a sheet: A4 in A4 mode; "Theo khung" keeps its own shape.
         CropPlan letter = CropPlanner.Plan(Rect(1000, 1300, 100, 100), 3000, 2000);
-        Assert.Equal(1.3, (double)letter.OutHeight / letter.OutWidth, 2);
+        Assert.Equal(1.41421, (double)letter.OutHeight / letter.OutWidth, 2);
+        CropPlan free = CropPlanner.Plan(Rect(1000, 1300, 100, 100), 3000, 2000, CropAspect.Free);
+        Assert.Equal(1.3, (double)free.OutHeight / free.OutWidth, 2);
+        // A receipt (3 : 1) is not: it keeps its shape even in A4 mode.
+        CropPlan receipt = CropPlanner.Plan(Rect(500, 1500, 100, 100), 3000, 2000);
+        Assert.Equal(3.0, (double)receipt.OutHeight / receipt.OutWidth, 1);
     }
 
     [Fact]
@@ -487,7 +492,7 @@ public class RenderStageTests
         Assert.Equal((".png", PageColorMode.BlackWhite), (p.CroppedExtension, p.CroppedColorMode));
         string png = rig.Store.CroppedPath(doc.Id, p);
         PngReader.PngData data = PngReader.Read(File.ReadAllBytes(png));
-        Assert.Equal((p.CroppedWidth, p.CroppedHeight, 1), (data.Width, data.Height, data.BitDepth));
+        Assert.Equal((p.CroppedWidth, p.CroppedHeight, 8), (data.Width, data.Height, data.BitDepth)); // gray: anti-aliased edges
         Assert.False(File.Exists(colorJpg));                                       // previous render (other extension) removed
         Assert.True(File.Exists(rig.Store.CroppedThumbPath(doc.Id, p.Id, p.CroppedRevision)));
 

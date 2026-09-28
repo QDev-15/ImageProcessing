@@ -94,7 +94,16 @@ public sealed class PageEditService(DocumentStore store, PageIngestQueue queue, 
     /// <summary>Turns the straightened page (not the photo, not the outline) by a multiple of 90 degrees, e.g. from the
     /// result screen. The page then needs a new render; nothing else is rebuilt, so the page stays editable.</summary>
     public bool RotateOutput(string docId, string pageId, int clockwiseDegrees = 90) =>
-        Change(docId, pageId, p => p.OutputRotation = (((p.OutputRotation + clockwiseDegrees) % 360) + 360) % 360 / 90 * 90);
+        Change(docId, pageId, p =>
+        {
+            p.OutputRotation = (((p.OutputRotation + clockwiseDegrees) % 360) + 360) % 360 / 90 * 90;
+            // Signatures stay where they are on the paper: they turn with the page.
+            p.Stamps = p.Stamps?.Select(s => s.Rotate(clockwiseDegrees / 90)).ToList();
+        });
+
+    /// <summary>The signatures on a page (null / empty: none); the page is rendered again with them.</summary>
+    public bool SetStamps(string docId, string pageId, IReadOnlyList<PageStamp>? stamps) =>
+        Change(docId, pageId, p => p.Stamps = stamps is { Count: > 0 } ? [.. stamps] : null);
 
     private bool Change(string docId, string pageId, Action<PageRecord> change)
     {

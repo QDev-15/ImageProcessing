@@ -41,13 +41,20 @@
                                 <Border.GestureRecognizers>
                                     <TapGestureRecognizer Command="{Binding OpenCommand}" />
                                 </Border.GestureRecognizers>
-                                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+                                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
                                     <Label Text="{x:Static views:Icons.Pdf}" FontFamily="Icons" FontSize="32" TextColor="#E53935" VerticalOptions="Center" />
                                     <VerticalStackLayout Grid.Column="1" VerticalOptions="Center" Spacing="2">
                                         <Label Text="{Binding Name}" FontSize="14" FontFamily="OpenSansSemibold" LineBreakMode="MiddleTruncation" />
                                         <Label Text="{Binding Details}" FontSize="12"
                                                TextColor="{AppThemeBinding Light=#666666, Dark=#AAAAAA}" />
                                     </VerticalStackLayout>
+                                    <!-- Share / save / open with another app / delete -->
+                                    <Label Grid.Column="2" Text="{x:Static views:Icons.More}" FontFamily="Icons" FontSize="22" Padding="10,8"
+                                           VerticalOptions="Center" TextColor="{AppThemeBinding Light=#6B7280, Dark=#9CA3AF}">
+                                        <Label.GestureRecognizers>
+                                            <TapGestureRecognizer Command="{Binding MenuCommand}" />
+                                        </Label.GestureRecognizers>
+                                    </Label>
                                 </Grid>
                             </Border>
                         </SwipeView>

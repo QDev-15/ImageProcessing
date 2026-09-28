@@ -40,7 +40,16 @@ public static class PngWriter
         return Encode(img.Width, img.Height, bitDepth: 8, raw);
     }
 
-    private static byte[] Encode(int width, int height, int bitDepth, byte[] filteredRows)
+    /// <summary>8-bit RGBA PNG from <paramref name="rgba"/> (4 bytes per pixel, straight alpha).</summary>
+    public static byte[] EncodeRgba(int width, int height, byte[] rgba)
+    {
+        var raw = new byte[(width * 4 + 1) * height];
+        for (int y = 0; y < height; y++)
+            Buffer.BlockCopy(rgba, y * width * 4, raw, y * (width * 4 + 1) + 1, width * 4);
+        return Encode(width, height, bitDepth: 8, raw, colorType: 6);
+    }
+
+    private static byte[] Encode(int width, int height, int bitDepth, byte[] filteredRows, byte colorType = 0)
     {
         using var ms = new MemoryStream();
         ms.Write(Signature);
@@ -49,7 +58,7 @@ public static class PngWriter
         BinaryPrimitives.WriteInt32BigEndian(ihdr, width);
         BinaryPrimitives.WriteInt32BigEndian(ihdr.AsSpan(4), height);
         ihdr[8] = (byte)bitDepth;
-        ihdr[9] = 0;  // color type: grayscale
+        ihdr[9] = colorType; // 0 = grayscale, 6 = RGBA
         ihdr[10] = 0; // deflate
         ihdr[11] = 0; // adaptive filtering (we use filter 0 on every row)
         ihdr[12] = 0; // no interlace
@@ -111,6 +120,44 @@ public static class PngReader
         if (width <= 0 || height <= 0) throw new InvalidDataException("PNG has no header.");
         if (interlace != 0) throw new InvalidDataException("Interlaced PNG is not supported.");
         return new PngData(width, height, depth, colorType, idat.ToArray());
+    }
+
+    /// <summary>Decodes an 8-bit grayscale PNG (any row filter), e.g. a smooth black-and-white page.</summary>
+    public static GrayImage DecodeGray8(byte[] png)
+    {
+        PngData p = Read(png);
+        if (p.ColorType != 0 || p.BitDepth != 8) throw new InvalidDataException($"Not an 8-bit gray PNG ({p.ColorType}, {p.BitDepth} bit).");
+        int w = p.Width, h = p.Height;
+        var raw = new byte[(w + 1) * h];
+        using (var z = new System.IO.Compression.ZLibStream(new MemoryStream(p.ZlibData), System.IO.Compression.CompressionMode.Decompress))
+            z.ReadExactly(raw);
+        var img = new GrayImage(w, h);
+        byte[] d = img.Data;
+        for (int y = 0; y < h; y++)
+        {
+            int filter = raw[y * (w + 1)], src = y * (w + 1) + 1, o = y * w;
+            for (int x = 0; x < w; x++)
+            {
+                int a = x > 0 ? d[o + x - 1] : 0, b = y > 0 ? d[o - w + x] : 0, c = x > 0 && y > 0 ? d[o - w + x - 1] : 0;
+                int v = raw[src + x];
+                d[o + x] = (byte)(filter switch
+                {
+                    0 => v,
+                    1 => v + a,
+                    2 => v + b,
+                    3 => v + ((a + b) >> 1),
+                    4 => v + Paeth(a, b, c),
+                    _ => throw new InvalidDataException($"Bad PNG row filter {filter}."),
+                });
+            }
+        }
+        return img;
+    }
+
+    private static int Paeth(int a, int b, int c)
+    {
+        int p = a + b - c, pa = Math.Abs(p - a), pb = Math.Abs(p - b), pc = Math.Abs(p - c);
+        return pa <= pb && pa <= pc ? a : pb <= pc ? b : c;
     }
 }
 

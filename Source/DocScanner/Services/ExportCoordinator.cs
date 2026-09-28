@@ -87,18 +87,29 @@ public partial class ExportCoordinator(DocumentStore store, PdfExportService exp
 		return chosen;
 	}
 
-	/// <summary>Share / save / open (and optionally delete) an exported PDF. Returns true when it was deleted.</summary>
-	public async Task<bool> OfferActionsAsync(string path, string title, string heading, bool allowDelete)
+	/// <summary>The in-app PDF viewer on <paramref name="path"/>.</summary>
+	public static Task ViewAsync(string path) =>
+		Shell.Current.GoToAsync($"{AppShell.Routes.PdfViewer}?path={Uri.EscapeDataString(path)}");
+
+	/// <summary>View / share / save / open with another app (and optionally delete) an exported PDF. Returns true when it
+	/// was deleted.</summary>
+	public async Task<bool> OfferActionsAsync(string path, string title, string heading, bool allowDelete, bool offerView = true)
 	{
-		const string share = "Chia sẻ...", save = "Lưu vào Tải xuống", open = "Mở";
-		var actions = new List<string> { open, share };
+		const string view = "Xem", share = "Chia sẻ...", save = "Lưu vào Tải xuống", open = "Mở bằng app khác";
+		var actions = new List<string>();
+		if (offerView) actions.Add(view);
+		actions.Add(share);
 		if (downloads.IsSupported) actions.Add(save);
+		actions.Add(open);
 
 		string? choice = await Shell.Current.DisplayActionSheetAsync(heading, "Đóng", allowDelete ? "Xoá" : null, [.. actions]);
 		try
 		{
 			switch (choice)
 			{
+				case view:
+					await ViewAsync(path);
+					break;
 				case share:
 					await Share.Default.RequestAsync(new ShareFileRequest { Title = title, File = new ShareFile(path, "application/pdf") });
 					break;

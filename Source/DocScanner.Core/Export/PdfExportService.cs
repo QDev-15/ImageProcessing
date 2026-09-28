@@ -66,7 +66,8 @@ public sealed class PdfExportService(DocumentStore store, PageIngestQueue queue,
     }
 
     /// <summary>Re-encodes the JPEG (color / gray) pages at the export quality: shrunk to the quality's resolution
-    /// (never enlarged) and saved at its JPEG quality into <paramref name="work"/>. PNG (black and white) pages are kept.</summary>
+    /// (never enlarged) and saved at its JPEG quality into <paramref name="work"/>. Black-and-white pages with anti-aliased
+    /// edges (8-bit gray PNG) become 1-bit (~4x smaller) except at <see cref="PdfQuality.High"/>; 1-bit ones are kept.</summary>
     private async Task<List<PdfPageSource>> ShrinkColorPagesAsync(List<PdfPageSource> sources, PdfQuality quality, string work,
         IProgress<ExportProgress>? progress, CancellationToken ct)
     {
@@ -76,7 +77,11 @@ public sealed class PdfExportService(DocumentStore store, PageIngestQueue queue,
             ct.ThrowIfCancellationRequested();
             progress?.Report(new ExportProgress("Đang nén trang", i + 1, sources.Count));
             PdfPageSource page = sources[i];
-            if (!IsJpeg(page.ImageFile)) { result.Add(page); continue; }
+            if (!IsJpeg(page.ImageFile))
+            {
+                result.Add(quality == PdfQuality.High ? page : await BilevelAsync(page, i, work, ct));
+                continue;
+            }
 
             Directory.CreateDirectory(work);
             string file = Path.Combine(work, $"{i}.jpg");
@@ -85,6 +90,19 @@ public sealed class PdfExportService(DocumentStore store, PageIngestQueue queue,
             result.Add(page with { ImageFile = file });
         }
         return result;
+    }
+
+    /// <summary>A smooth black-and-white page as 1-bit (dark below 128: the same strokes, without the soft edges).</summary>
+    private static async Task<PdfPageSource> BilevelAsync(PdfPageSource page, int index, string work, CancellationToken ct)
+    {
+        byte[] png = await File.ReadAllBytesAsync(page.ImageFile, ct);
+        PngReader.PngData header = PngReader.Read(png);
+        if (header.ColorType != 0 || header.BitDepth != 8) return page;
+        byte[] bilevel = await Task.Run(() => PngWriter.EncodeBilevel(PngReader.DecodeGray8(png)), ct);
+        Directory.CreateDirectory(work);
+        string file = Path.Combine(work, $"{index}.png");
+        await File.WriteAllBytesAsync(file, bilevel, ct);
+        return page with { ImageFile = file };
     }
 
     private static bool IsJpeg(string path)

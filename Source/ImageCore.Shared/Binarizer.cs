@@ -84,10 +84,13 @@ public static class Binarizer
     /// <param name="offset">Brightness shift in gray levels, applied as if every pixel (and so every local mean) were
     /// <paramref name="offset"/> brighter: t = (m + b)(1 + k(s/R - 1)) - b. Positive = fewer, thinner strokes (lighter page);
     /// negative = more ink. 0 is plain Sauvola, bit for bit.</param>
-    public static GrayImage Sauvola(GrayImage src, int window, double k, double offset)
+    public static GrayImage Sauvola(GrayImage src, int window, double k, double offset) => Sauvola(src, window, k, offset, 0);
+
+    /// <param name="ramp">0: pure black and white (0 / 255). Above 0: anti-aliased edges, see <see cref="Shade"/>.</param>
+    public static GrayImage Sauvola(GrayImage src, int window, double k, double offset, double ramp)
     {
         var dst = new GrayImage(src.Width, src.Height);
-        var sink = new ThresholdSink(src.Data, dst.Data, k, offset);
+        var sink = new ThresholdSink(src.Data, dst.Data, k, offset, ramp);
         Scan(src, window, ref sink);
         return dst;
     }
@@ -105,7 +108,11 @@ public static class Binarizer
     }
 
     /// <summary>Sauvola with precomputed <paramref name="stats"/> of <paramref name="src"/>, into <paramref name="dst"/>.</summary>
-    public static void Threshold(GrayImage src, SauvolaStats stats, double k, double offset, GrayImage dst)
+    public static void Threshold(GrayImage src, SauvolaStats stats, double k, double offset, GrayImage dst) =>
+        Threshold(src, stats, k, offset, dst, 0);
+
+    /// <param name="ramp">0: pure black and white. Above 0: anti-aliased edges (<see cref="Shade"/>).</param>
+    public static void Threshold(GrayImage src, SauvolaStats stats, double k, double offset, GrayImage dst, double ramp)
     {
         byte[] data = src.Data, output = dst.Data;
         float[] mean = stats.Mean, dev = stats.Deviation;
@@ -115,9 +122,25 @@ public static class Binarizer
             for (int i = y * w, end = i + w; i < end; i++)
             {
                 double t = (mean[i] + offset) * (1 + k * (dev[i] / SauvolaRange - 1)) - offset;
-                output[i] = data[i] <= t ? (byte)0 : (byte)255;
+                output[i] = Shade(data[i], t, ramp);
             }
         });
+    }
+
+    /// <summary>
+    /// The output level of pixel <paramref name="v"/> against threshold <paramref name="t"/>. With no
+    /// <paramref name="ramp"/>: black at or below the threshold, white above (plain Sauvola). With a ramp: a pixel
+    /// within <paramref name="ramp"/> gray levels of the threshold gets a proportional gray, black / white beyond. Paper
+    /// and ink stay pure white and black (the threshold is far from both), but the pixels a stroke edge only partly
+    /// covers keep a partial gray: smooth, sharp-looking text instead of the staircase edges of a 1-bit page, which is
+    /// also what makes the page look crisp when the screen shows it smaller than its pixels. Exactly the hard threshold
+    /// at the 128 midpoint: a pixel is darker than 128 exactly when it is at or below t (up to the half-level rounding).
+    /// </summary>
+    public static byte Shade(double v, double t, double ramp)
+    {
+        if (ramp <= 0) return v <= t ? (byte)0 : (byte)255;
+        double o = 127.5 + (v - t) * (127.5 / ramp);
+        return o <= 0 ? (byte)0 : o >= 255 ? (byte)255 : (byte)o;
     }
 
     /// <summary>Dynamic range of the standard deviation for 8-bit input (Sauvola's R).</summary>
@@ -130,12 +153,12 @@ public static class Binarizer
         void Put(int index, double mean, double variance);
     }
 
-    private readonly struct ThresholdSink(byte[] data, byte[] output, double k, double offset) : IWindowSink
+    private readonly struct ThresholdSink(byte[] data, byte[] output, double k, double offset, double ramp) : IWindowSink
     {
         public void Put(int i, double mean, double variance)
         {
             double t = (mean + offset) * (1 + k * (Math.Sqrt(variance) / SauvolaRange - 1)) - offset;
-            output[i] = data[i] <= t ? (byte)0 : (byte)255;
+            output[i] = Shade(data[i], t, ramp);
         }
     }
 

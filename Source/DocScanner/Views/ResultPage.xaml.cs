@@ -62,6 +62,15 @@ public partial class ResultPage : ContentPage
 
 	private Android.Widget.ImageView? NativeView => PreviewImage.Handler?.PlatformView as Android.Widget.ImageView;
 
+	/// <summary>Pinch / pan / double-tap zoom of the picture, and swipe to the next / previous page at fit.</summary>
+	private ZoomController? _zoom;
+
+	private void EnsureZoom()
+	{
+		if (_zoom != null || NativeView is not { } view) return;
+		_zoom = new ZoomController(view) { Swipe = delta => _viewModel.GoCommand.Execute(delta) };
+	}
+
 	private void OnPreviewChanged(PreviewFrame? frame)
 	{
 		int number = ++_frameNumber;
@@ -149,6 +158,8 @@ public partial class ResultPage : ContentPage
 			PreviewImage.Scale = 1;
 		}
 		view.SetImageBitmap(bitmap);
+		EnsureZoom();
+		_zoom?.PictureChanged(); // same size (another look): the zoom stays; another page / a turn: back to fit
 		ApplyTone(view);
 		// The old bitmap goes back to the spares once this frame is drawn (the view no longer references it).
 		Bitmap? old = _shown;
@@ -161,6 +172,7 @@ public partial class ResultPage : ContentPage
 	private async void OnRotationStarted(int degrees)
 	{
 		if (NativeView == null || _shown == null || _turning || PreviewImage.Width <= 0) return;
+		_zoom?.Fit(); // the turn animation works on the whole, fitted picture
 		_turning = true;
 		double cw = PreviewImage.Width, ch = PreviewImage.Height;
 		int iw = _shown.Width, ih = _shown.Height;
@@ -239,6 +251,7 @@ public partial class ResultPage : ContentPage
 	private void ApplyPending()
 	{
 		if (NativeView is not { } view) return;
+		EnsureZoom();
 		if (_hasPendingBitmap)
 		{
 			_hasPendingBitmap = false;

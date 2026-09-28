@@ -4,32 +4,69 @@ using DocScanner.Core;
 
 namespace DocScanner.ViewModels;
 
+/// <summary>A row of the main screen: a folder or a document.</summary>
+public abstract partial class HomeItem : ObservableObject
+{
+	[ObservableProperty]
+	private string name = "";
+
+	[ObservableProperty]
+	private string subtitle = "";
+}
+
+/// <summary>A folder row: tap to open it, drop documents on it to file them there, â‹® for rename / delete.</summary>
+public sealed class FolderItem : HomeItem
+{
+	public FolderItem(FolderRecord record, int count, Action<FolderItem> open, Action<FolderItem> menu, Action<FolderItem> drop)
+	{
+		Record = record;
+		Name = record.Name;
+		Subtitle = $"{count} tài liệu";
+		OpenCommand = new Command(() => open(this));
+		MenuCommand = new Command(() => menu(this));
+		DropCommand = new Command(() => drop(this));
+	}
+
+	public FolderRecord Record { get; }
+	public ICommand OpenCommand { get; }
+	public ICommand MenuCommand { get; }
+	public ICommand DropCommand { get; }
+}
+
 /// <summary>Row of the document list. Its thumbnail and page counts follow the background
-/// pipeline (see <see cref="Refresh"/>).</summary>
-public partial class DocumentItem : ObservableObject
+/// pipeline (see <see cref="Refresh"/>). In selection mode a tap ticks it instead of opening it.</summary>
+public partial class DocumentItem : HomeItem
 {
 	private string? _thumbPath;
 
-	public DocumentItem(DocumentRecord record, Action<DocumentItem> open, Action<DocumentItem> delete, Action<DocumentItem>? menu = null)
+	public DocumentItem(DocumentRecord record, Action<DocumentItem> open, Action<DocumentItem> delete, Action<DocumentItem>? menu = null,
+		Action<DocumentItem>? dragStart = null)
 	{
 		Record = record;
 		Name = record.Name;
 		OpenCommand = new Command(() => open(this));
 		DeleteCommand = new Command(() => delete(this));
 		MenuCommand = new Command(() => menu?.Invoke(this));
+		DragStartingCommand = new Command(() => dragStart?.Invoke(this));
 	}
 
-	public DocumentRecord Record { get; }
+	/// <summary>Ticked in selection mode.</summary>
 	[ObservableProperty]
-	private string name = "";
+	private bool isSelected;
+
+	/// <summary>The list is in selection mode (the tick boxes show).</summary>
+	[ObservableProperty]
+	private bool isSelecting;
+
+	/// <summary>Long press: start dragging (into a folder); also enters selection mode.</summary>
+	public ICommand DragStartingCommand { get; }
+
+	public DocumentRecord Record { get; }
 
 	public ICommand OpenCommand { get; }
 	public ICommand DeleteCommand { get; }
-	/// <summary>The row's â‹® menu (rename, export, delete).</summary>
+	/// <summary>The row's ⋮ menu (rename, export, delete).</summary>
 	public ICommand MenuCommand { get; }
-
-	[ObservableProperty]
-	private string subtitle = "";
 
 	[ObservableProperty]
 	private ImageSource? thumb;

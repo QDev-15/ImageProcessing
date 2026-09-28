@@ -48,7 +48,24 @@ Solution: `Source/DocScanner.slnx` (mobile) và `Source/ImageProcessing.sln` (ow
 
 ## 4. Chưa kiểm chứng trên máy thật (cần owner bấm thử, hoặc tự thử khi có máy)
 
-**Mới nhất (đợt 2026-09-27f, mục 5h) -- quan trọng nhất:**
+**Mới nhất (đợt 2026-09-27h, mục 5j):**
+
+0g. **PDF đã xuất**: mở một PDF nhiều trang, vuốt / ‹ › qua mọi trang (trước bị đen từ trang 2).
+0h. **"Tài liệu 1"**: các trang tự dựng lại -> phải ra A4 (trang 7 đang ở "Theo khung": chuyển lại "Khổ A4" nếu muốn A4 chuẩn); kéo góc vài lần:
+    tỉ lệ không được dài ra nữa.
+0i. **Màn chính**: tìm kiếm; tạo thư mục (nút trên thanh tiêu đề, hoặc ⋮ > Tạo thư mục mới và chuyển vào); nhấn giữ tài liệu -> chọn nhiều,
+    kéo thả lên thư mục; Chuyển / Xoá nhiều; mở thư mục, chụp trong thư mục.
+0j. **Cài đặt / Thông tin**; **splash** khi mở app; **tự cập nhật**: cần đặt update.json + APK lên https (UPDATE-SERVER.md) rồi Kiểm tra ngay.
+
+**Đợt 2026-09-27g (mục 5i):**
+
+0c. **Đen trắng** trên ảnh chụp camera thật (chữ nhỏ, dấu tiếng Việt): so với trước có rõ / đủ dấu hơn không; trang đen trắng cũ tự dựng lại.
+    Xuất PDF Vừa (1-bit) và Cao (mép mềm): xem dung lượng và độ nét.
+0d. **Zoom**: chụm 2 ngón / chạm đúp / kéo ở trình xem ảnh, màn Sửa, trình xem PDF; vuốt ngang khi chưa zoom = đổi trang.
+0e. **Xem / Sửa** ở đầu tài liệu; **Chữ ký**: vẽ, lưu, đặt, dời, đổi cỡ, xoá, xoay trang (chữ ký xoay theo), xuất PDF có chữ ký.
+0f. **PDF đã xuất**: chạm = mở trình xem trong app, ⋮ = Chia sẻ / Lưu / Mở bằng app khác / Xoá.
+
+**Đợt 2026-09-27f (mục 5h):**
 
 0a. **Camera trong app** (nút chụp tròn ở Home, "Chụp thêm" trong tài liệu): đưa máy qua tờ giấy trên bàn -> khung xanh bám mép; giữ yên ~1 s
     -> tự chụp (chớp trắng, số trang tăng); lật / đổi tờ -> tự chụp tờ tiếp; tắt "Tự chụp" rồi bấm nút tròn; flash; chạm để lấy nét; Xong ->
@@ -359,6 +376,100 @@ khi camera trong app không mở được.
   **CHƯA thử trên Note 10+** (máy bị khoá màn hình rồi rút cáp trong lúc làm). Bản Release đã cài Note 10+ lúc 13:51 27/09.
 
 Test: 114 (Shared) + 152 (Core) PASS, SmokeTests ALL PASS.
+
+## 5i. Đen trắng sắc nét, trình xem ảnh / PDF, Xem / Sửa, chữ ký (đợt 2026-09-27g)
+
+Owner (sau khi thử camera mới, "đã khá ổn"): ảnh chụp rõ nhưng sang đen trắng không sắc nét; cần trình xem ảnh có zoom / kéo; công tắc Xem / Sửa
+trong tài liệu; màn Sửa mở sẵn Bộ lọc (đứng đầu menu) và zoom được; chữ ký trong màn Sửa; trình xem PDF đã xuất.
+
+**Đen trắng sắc nét** (nguyên nhân đo được, không đoán):
+- Ảnh camera hơi mềm (ống kính + phóng lên 300 DPI) nên nét mảnh và **dấu tiếng Việt** chỉ còn màu xám nhạt; Sauvola 1-bit bỏ mất chúng
+  ("sửa" -> "sưa", "bổ" -> "bô", "11/2024" -> "11 2024"). Thêm mép 1-bit răng cưa, màn hình thu nhỏ trang thì nét vỡ.
+- Công cụ đo `Tools/EdgeProbe` chế độ `bw <thư mục>`: trang chữ tiếng Việt 300 DPI -> giả lập chụp điện thoại (thu nhỏ, mờ, sáng lệch, nhiễu, JPEG)
+  -> so các cách. Mực bị mất: cũ 8,7% -> **làm nét rồi phân ngưỡng 3,7-3,9%**; PNG trang A4: 1-bit 184-202 KB, xám mép mềm ~730 KB.
+- Sửa: `ImageCore.Shared/Sharpen` (unsharp mask, bán kính ~1/3 nét chữ, tại chỗ, 2 byte/điểm ảnh RAM) trước ngưỡng; `Binarizer.Shade` /
+  tham số `ramp`: **mép mềm** (điểm ảnh gần ngưỡng ±12 mức được giữ mức xám tương ứng; giấy và mực vẫn trắng / đen tuyệt đối). `ramp = 0`
+  giống hệt Sauvola cũ (SmokeTests ALL PASS). Khử đốm chạy trên bản đen trắng rồi áp lại (`DocumentFilter.Despeckle`).
+- Trang lưu trong app: PNG xám 8-bit (đẹp khi xem / zoom). **Xuất PDF Nhỏ / Vừa: tự chuyển 1-bit** (`PngReader.DecodeGray8` -> `EncodeBilevel`,
+  dung lượng như cũ); **Cao: giữ mép mềm**. Trang đen trắng cũ tự dựng lại một lần (`PageRecord.BlackWhiteVersion = 2`); trang màu / xám không bị đụng.
+- Xem trước (màn Sửa) cùng công thức (`LookPreview` thêm tầng "đã làm nét", thống kê Sauvola tính trên tầng đó).
+
+**Zoom / kéo** (`Platforms/Android/ZoomController`): chụm 2 ngón (tối đa 6x), chạm đúp (2,5x / về vừa màn), kéo khi đang zoom (không vượt mép trang),
+vuốt ngang khi chưa zoom = trang sau / trước. Dùng ma trận của ImageView nên không tốn thêm bộ nhớ. Dùng ở màn Sửa (thay SwipeGestureRecognizer),
+trình xem ảnh và trình xem PDF. `ZoomImageHost`: giải mã nền, cạnh dài tối đa 4096 (giới hạn texture GPU), chỉ hiện yêu cầu mới nhất.
+
+**Trình xem ảnh** (`ViewerPage`, route `viewer`): trang đã hoàn thiện ở độ phân giải đầy đủ (đang dựng lại thì hiện bản trước rồi tự thay), Trước / Sau,
+Sửa, Xuất PDF, Chia sẻ ảnh.
+
+**Công tắc Xem / Sửa** ở đầu màn tài liệu: Xem = chạm trang mở trình xem; Sửa = chạm trang vào chỉnh khung như cũ. Nhớ lựa chọn (`Preferences`
+"document_open_mode", mặc định Xem).
+
+**Màn Sửa**: menu dưới: **Bộ lọc** (đầu tiên, mở sẵn) · Điều chỉnh · Khung · Xoay · **Chữ ký** · Khổ giấy. "Xoay trái" + "Xoay phải" gộp thành
+"Xoay" (xoay phải 90°) để đủ chỗ cho Chữ ký. Ảnh zoom / kéo được.
+
+**Chữ ký** (chữ ký tay đặt lên trang):
+- `SignaturePage`: khung vẽ (ngón tay, mực đen / xanh / đỏ, Xoá nét / Huỷ / Lưu) -> lưu vào **thư viện chữ ký** (`Core/Signatures/SignatureLibrary`:
+  `files/signatures/{id}.png` mặt nạ mực 8-bit + `{id}_view.png` màu có nền trong suốt + `index.json`), dùng lại cho mọi trang; xoá được (×).
+- Đặt lên trang (`Views/StampEditor`): chạm chữ ký trong dải bên dưới -> hiện trên trang; kéo để dời, kéo chấm xanh để đổi cỡ (giữ tỉ lệ), × đỏ để
+  bỏ; nhiều chữ ký một trang. Xong (hoặc nút Back) -> lưu vào trang.
+- Lưu: `PageRecord.Stamps` (`PageStamp`: tâm theo tỉ lệ trang, cỡ theo cạnh ngắn, số lần xoay 1/4). Xoay trang thì chữ ký xoay theo.
+  `Stamper` in vào **bản dựng** (trang màu: màu mực; xám / đen trắng mép mềm: mức xám của mực; 1-bit: đen) -> có trong PDF. Màn Sửa vẽ chữ ký
+  lên bản xem trước (bản sao, không đụng bộ đệm).
+- Nét vẽ -> mặt nạ: `SignatureInk.Rasterize` (đoạn thẳng đầu tròn, khử răng cưa, cắt sát mực, cạnh dài 1200 px), thuần C#.
+- **Chưa làm: chữ ký số theo nghĩa chứng thư số** (ký PDF bằng USB token / chứng thư CA, PAdES). Nếu owner cần loại này thì là việc riêng ở bước
+  xuất PDF (cần thư viện ký PDF có license thương mại + chứng thư của người dùng).
+
+**Trình xem PDF** (`PdfViewerPage`, route `pdfviewer`): PdfRenderer có sẵn của Android (không thêm thư viện), từng trang dựng ~2900 px (A4 ~250 DPI),
+zoom / kéo / vuốt, Trước / Sau, nút chia sẻ = menu Chia sẻ / Lưu vào Tải xuống / Mở bằng app khác / Xoá. "PDF đã xuất": chạm = xem, ⋮ = menu.
+Sau khi xuất PDF có thêm lựa chọn "Xem".
+
+Đã thử trên **máy ảo** (Debug): công tắc Xem / Sửa, trình xem (chạm đúp zoom, kéo khi zoom, vuốt chuyển trang), màn Sửa (thứ tự menu, vuốt, chạm đúp),
+vẽ chữ ký -> lưu -> đặt -> dời -> đổi cỡ -> Xong -> hiện trên bản xem trước -> xuất PDF Vừa -> mở trình xem PDF: chữ ký có trong PDF (đen, 1-bit).
+**Bản Release đã cài Note 10+ lúc 19:54 27/09** (owner yêu cầu), mở được, chưa bấm thử: chụm 2 ngón để zoom (adb không giả lập được), đen trắng mới trên ảnh chụp thật.
+
+Test: 117 (Shared) + 161 (Core) PASS, SmokeTests ALL PASS.
+
+## 5j. Sửa lỗi xem PDF, lỗi trang dài hơn A4; màn chính: tìm kiếm, thư mục, chọn nhiều; Cài đặt, Thông tin; tự cập nhật; splash (đợt 2026-09-27h)
+
+**Xem PDF: trang sau bị đen.** `PdfPages.Render` dùng `using` trên trang PdfRenderer: `Dispose()` chỉ giải phóng lớp bọc .NET, KHÔNG gọi
+`close()` của trang Java, mà PdfRenderer chỉ cho mở một trang một lúc -> từ trang 2 `OpenPage` ném lỗi -> ảnh trống trên nền đen (Android 12;
+máy ảo Android 16 không lỗi). Sửa: `page.Close()` trong `finally`; ghi log khi dựng trang lỗi; bitmap cũ giải phóng trễ 0,5 s.
+
+**Trang dài hơn A4 ("Tài liệu 1", trang 7 nặng nhất, 8 nhẹ hơn; mỗi lần chỉnh lại dài hơn).** Dữ liệu thật (lấy từ máy bằng bản Debug, 10 trang,
+ảnh 4608x2592 EXIF 6): trang 7 ra 1248x3508 (dài 2,81 lần), 8: 1,92, 6: 1,71, 4: 1,57. Nguyên nhân: đợt 2026-09-27f tính "tỉ lệ thật" bằng tiêu cự
+**đo từ 4 góc** (Zhang & He); trên ảnh thật phép đo này bị sai số góc và giấy cong chi phối: cùng một camera mà ra 0,19 / 0,39 / 0,47 / 0,68 / 1,06 /
+2,38 lần đường chéo, hoặc không xác định -> mỗi lần kéo góc là một tỉ lệ khác. Sửa (`PageGeometry.OutputAspect`): bù phối cảnh bằng **tiêu cự
+điện thoại cố định** (0,62 x đường chéo) và **giới hạn ±20%** so với tỉ lệ cạnh; chế độ A4: khung có dáng tờ giấy (tỉ lệ cạnh 1,15-1,75, hoặc sau
+bù trong 12% quanh A4) ra **đúng A4**. Cả 10 trang ra A4; trang 7 ở "Theo khung" ra 1,41 (trước 3,07). `GeometryVersion = 3`: mọi trang dựng lại
+một lần. Test hồi quy dùng đúng 10 khung thật (`PageShapeTests.The_owners_real_A4_pages...`). Trang Letter (1,29) giờ cũng ra A4 ở chế độ A4
+(chọn "Theo khung" để giữ 1,29); hoá đơn / thẻ vẫn giữ tỉ lệ riêng.
+
+**Màn chính** (`HomePage` / `HomeViewModel`, route `folder` dùng lại cùng màn cho bên trong thư mục):
+- Tìm kiếm (biểu tượng kính lúp): theo tên, **không phân biệt dấu** ("hop dong" ra "Hợp đồng", `Core/TextSearch`), tìm trong mọi thư mục.
+- Thư mục (`DocumentRecord.FolderId`, `folders.json`, `DocumentStore.CreateFolder / RenameFolder / DeleteFolder / MoveToFolder`): một cấp; **thư mục
+  đứng trước**, theo tên; tài liệu theo thời gian tạo (mới nhất trước) nên chuyển qua lại **không đổi thứ tự**. Xoá thư mục = tài liệu ra ngoài,
+  không mất. Chụp / nhập ảnh khi đang ở trong thư mục thì tài liệu mới nằm trong thư mục đó.
+- Menu ⋮ tài liệu: Đổi tên, Xuất PDF, Chọn nhiều, **Tạo thư mục mới và chuyển vào**, **Chuyển vào thư mục...**, (Chuyển ra ngoài), Xoá.
+  Menu ⋮ thư mục: Đổi tên, Xoá thư mục. Nút "Thư mục mới" trên thanh tiêu đề.
+- **Chọn nhiều**: nhấn giữ một tài liệu (hoặc ⋮ > Chọn nhiều) -> ô tích; chạm để chọn / bỏ; thanh đáy đổi thành "Đã chọn n · Tất cả · Chuyển · Xoá";
+  nhấn giữ rồi **kéo thả lên thư mục** = chuyển các tài liệu đang chọn vào đó; chạm thư mục khi đang chọn cũng chuyển vào. Back thoát chọn / tìm.
+  (Thanh chọn nằm ở đáy để danh sách không xê dịch khi đang kéo.)
+
+**Cài đặt** (`SettingsPage`, bánh răng trên màn chính): Tự chụp khi giữ yên máy; Chạm vào trang để Xem / Sửa; Chất lượng PDF mặc định; Cập nhật
+(phiên bản, tự động 01:00, địa chỉ update.json, Kiểm tra ngay, kết quả lần gần nhất); Bộ nhớ đang dùng; Thông tin ứng dụng. Mọi cài đặt lưu
+ngay vào đúng khoá `Preferences` mà các màn khác đọc.
+
+**Thông tin ứng dụng** (`AboutPage`): tác giả Nguyễn Hữu Quỳnh, email nguyenquynhvp.ictu@gmail.com (chạm để gửi mail), 0988 632 841 (chạm để gọi),
+phiên bản, điều khoản sử dụng, quyền riêng tư, bản quyền © 2026 + danh sách thành phần mã nguồn mở. (Điều khoản là bản tôi soạn, owner nên đọc lại.)
+
+**Tự cập nhật** (`Platforms/Android/Updates/AndroidAppUpdater`, `Core/Updates/UpdateManifest`, hướng dẫn: `UPDATE-SERVER.md`): JobScheduler mỗi đêm 01:00
+(cần mạng, giữ qua khởi động lại) -> đọc `update.json` -> versionCode mới hơn thì tải APK, kiểm tra SHA-256, cài bằng PackageInstaller.
+Quyền mới: INTERNET (chỉ dùng cho cập nhật), REQUEST_INSTALL_PACKAGES, UPDATE_PACKAGES_WITHOUT_USER_ACTION, POST_NOTIFICATIONS, RECEIVE_BOOT_COMPLETED;
+chỉ https (http chỉ cho 127.0.0.1 để thử). Cài từ Google Play thì tắt. **Chưa có máy chủ**: owner cần đặt update.json + APK lên https và nhập địa chỉ.
+Phiên bản app nâng lên **1.1 (versionCode 2)**.
+
+**Splash**: `SplashPage` nối tiếp splash hệ thống (cùng màu xanh): logo phóng to, vạch quét chạy, tên app, phiên bản, © tác giả; màn chính được tạo trong
+lúc đó, hiện sau tối thiểu 1,3 s.
 
 ## 6. Việc còn lại (theo thứ tự nên làm)
 

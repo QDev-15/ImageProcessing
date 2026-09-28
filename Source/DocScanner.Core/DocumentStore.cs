@@ -109,6 +109,101 @@ public sealed class DocumentStore(string root)
         }
     }
 
+    #region Folders
+
+    private const string FoldersFileName = "folders.json";
+    private List<FolderRecord>? _folders;
+
+    /// <summary>All folders, by name (the main screen lists them before the documents).</summary>
+    public IReadOnlyList<FolderRecord> Folders()
+    {
+        lock (_gate) return [.. FoldersLocked().OrderBy(f => f.Name, StringComparer.CurrentCultureIgnoreCase)];
+    }
+
+    public FolderRecord? Folder(string id)
+    {
+        lock (_gate) return FoldersLocked().FirstOrDefault(f => f.Id == id);
+    }
+
+    public FolderRecord CreateFolder(string name)
+    {
+        var folder = new FolderRecord
+        {
+            Id = Guid.NewGuid().ToString("N"),
+            Name = string.IsNullOrWhiteSpace(name) ? "Thư mục mới" : name.Trim(),
+            CreatedUtc = DateTime.UtcNow,
+        };
+        lock (_gate)
+        {
+            FoldersLocked().Add(folder);
+            SaveFoldersLocked();
+        }
+        return folder;
+    }
+
+    public bool RenameFolder(string id, string name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return false;
+        lock (_gate)
+        {
+            FolderRecord? f = FoldersLocked().FirstOrDefault(x => x.Id == id);
+            if (f == null) return false;
+            f.Name = name.Trim();
+            SaveFoldersLocked();
+            return true;
+        }
+    }
+
+    /// <summary>Removes a folder; its documents go back to the top level (nothing is deleted with it).</summary>
+    public bool DeleteFolder(string id)
+    {
+        lock (_gate)
+        {
+            if (FoldersLocked().RemoveAll(f => f.Id == id) == 0) return false;
+            SaveFoldersLocked();
+        }
+        foreach (DocumentRecord d in List().Where(d => d.FolderId == id)) Update(d.Id, x => x.FolderId = null);
+        return true;
+    }
+
+    /// <summary>Files documents into a folder (null: the top level). Only the folder changes: their order, which is by
+    /// creation time, stays as it was.</summary>
+    public int MoveToFolder(IEnumerable<string> docIds, string? folderId)
+    {
+        if (folderId != null && Folder(folderId) == null) return 0;
+        int moved = 0;
+        foreach (string id in docIds.Distinct())
+            if (Update(id, d => d.FolderId = folderId)) moved++;
+        return moved;
+    }
+
+    private List<FolderRecord> FoldersLocked()
+    {
+        if (_folders != null) return _folders;
+        string path = Path.Combine(root, FoldersFileName);
+        try
+        {
+            _folders = File.Exists(path)
+                ? JsonSerializer.Deserialize(File.ReadAllText(path), DocumentJsonContext.Default.ListFolderRecord) ?? []
+                : [];
+        }
+        catch (JsonException)
+        {
+            _folders = [];
+        }
+        return _folders;
+    }
+
+    private void SaveFoldersLocked()
+    {
+        Directory.CreateDirectory(root);
+        string path = Path.Combine(root, FoldersFileName), tmp = path + ".tmp";
+        File.WriteAllText(tmp, JsonSerializer.Serialize(FoldersLocked(), DocumentJsonContext.Default.ListFolderRecord));
+        File.Move(tmp, path, overwrite: true);
+    }
+
+    #endregion
+
     /// <summary>Renames a document (blank names are ignored). Returns false when it no longer exists.</summary>
     public bool Rename(string docId, string name)
     {

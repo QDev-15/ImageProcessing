@@ -20,7 +20,9 @@ public sealed record FilterOptions(
     int Darkness = FilterOptions.DefaultDarkness,
     bool CleanBackground = true,
     bool Despeckle = true,
-    BinarizationMethod Method = BinarizationMethod.Sauvola)
+    BinarizationMethod Method = BinarizationMethod.Sauvola,
+    bool Sharpen = true,
+    bool Smooth = true)
 {
     public const int DefaultDarkness = 50;
 
@@ -45,6 +47,8 @@ public sealed class FilteredPage
     public GrayImage? Gray { get; init; }
     /// <summary>True when <see cref="Gray"/> holds only 0 and 255.</summary>
     public bool IsBilevel { get; init; }
+    /// <summary>A black-and-white page (bilevel, or with anti-aliased stroke edges: <see cref="FilterOptions.Smooth"/>).</summary>
+    public bool IsBlackWhite { get; init; }
     public int Width => Color?.Width ?? Gray!.Width;
     public int Height => Color?.Height ?? Gray!.Height;
 }
@@ -61,6 +65,46 @@ public static class DocumentFilter
 
     /// <summary>Otsu threshold shift for a darkness setting (+/- 40 levels).</summary>
     public static int OtsuOffsetFor(int darkness) => (int)Math.Round((Math.Clamp(darkness, 0, 100) - 50) * 0.8);
+
+    /// <summary>Anti-aliasing of a smooth black-and-white page: gray levels either side of the threshold that get a
+    /// partial gray (<see cref="Binarizer.Shade"/>). About a third of a pixel of soft edge on a phone photo.</summary>
+    public const double SmoothRamp = 12;
+
+    /// <summary>The page before the threshold: gray, background flattened, sharpened (<see cref="ImageCoreService.Sharpen"/>).
+    /// Always a new image (the caller may keep it).</summary>
+    public static GrayImage BlackWhiteSource(RgbImage page, FilterOptions o, int dpi)
+    {
+        GrayImage gray = page.ToGray();
+        if (o.CleanBackground) gray = BackgroundFlattener.Flatten(gray);
+        if (o.Sharpen)
+        {
+            ImageCoreService.Sharpen.UnsharpInPlace(gray, ImageCoreService.Sharpen.RadiusFor(dpi), ImageCoreService.Sharpen.DefaultAmount);
+        }
+        return gray;
+    }
+
+    /// <summary>Despeckle for a black-and-white page that may have anti-aliased edges: the specks are found on its
+    /// black / white version (darker than 128) and whitened in the page.</summary>
+    public static void Despeckle(GrayImage bw, int dpi)
+    {
+        int area = DocumentCleanup.DefaultSpeckleArea(dpi);
+        var hard = new GrayImage(bw.Width, bw.Height);
+        byte[] d = bw.Data, m = hard.Data;
+        bool soft = false;
+        for (int i = 0; i < d.Length; i++)
+        {
+            m[i] = d[i] < 128 ? (byte)0 : (byte)255;
+            if (d[i] is not (0 or 255)) soft = true;
+        }
+        if (!soft)
+        {
+            DocumentCleanup.Despeckle(bw, area);
+            return;
+        }
+        DocumentCleanup.Despeckle(hard, area);
+        for (int i = 0; i < d.Length; i++)
+            if (m[i] == 255 && d[i] < 128) d[i] = 255;
+    }
 
     /// <param name="dpi">Resolution of the page (sets the Sauvola window and the speck size).</param>
     public static FilteredPage Apply(RgbImage page, FilterOptions o, int dpi)
@@ -81,13 +125,13 @@ public static class DocumentFilter
 
             default:
             {
-                GrayImage gray = page.ToGray();
-                if (o.CleanBackground) gray = BackgroundFlattener.Flatten(gray);
+                GrayImage gray = BlackWhiteSource(page, o, dpi);
+                bool smooth = o.Smooth && o.Method == BinarizationMethod.Sauvola;
                 GrayImage bin = o.Method == BinarizationMethod.Otsu
                     ? Binarizer.Threshold(gray, Math.Clamp(Binarizer.OtsuThreshold(gray) + OtsuOffsetFor(o.Darkness) - (int)MathF.Round(o.Tone.BrightnessLevels), 1, 254))
-                    : Binarizer.Sauvola(gray, Binarizer.DefaultWindow(dpi), SauvolaKFor(o.Darkness), o.Tone.BrightnessLevels);
-                if (o.Despeckle) DocumentCleanup.Despeckle(bin, DocumentCleanup.DefaultSpeckleArea(dpi));
-                return new FilteredPage { Gray = bin, IsBilevel = true };
+                    : Binarizer.Sauvola(gray, Binarizer.DefaultWindow(dpi), SauvolaKFor(o.Darkness), o.Tone.BrightnessLevels, smooth ? SmoothRamp : 0);
+                if (o.Despeckle) Despeckle(bin, dpi);
+                return new FilteredPage { Gray = bin, IsBilevel = !smooth, IsBlackWhite = true };
             }
         }
     }

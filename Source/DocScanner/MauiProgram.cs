@@ -28,6 +28,9 @@ public static class MauiProgram
 		builder.Services.AddSingleton<IImageService, AndroidImageService>();
 		builder.Services.AddSingleton<IEdgeDetector, DocumentEdgeDetector>();
 		builder.Services.AddSingleton<CropDetectionService>();
+		builder.Services.AddSingleton(_ => new DocScanner.Core.Signatures.SignatureLibrary(Path.Combine(FileSystem.AppDataDirectory, "signatures")));
+		builder.Services.AddSingleton<SignatureSession>();
+		builder.Services.AddSingleton<IAppUpdater, AndroidAppUpdater>();
 		builder.Services.AddSingleton<CropRenderService>();
 		builder.Services.AddSingleton(sp => new PageIngestQueue(
 			sp.GetRequiredService<DocumentStore>(), sp.GetRequiredService<IImageService>(), sp.GetRequiredService<CropDetectionService>(),
@@ -50,11 +53,20 @@ public static class MauiProgram
 		builder.Services.AddTransient<CropViewModel>();
 		builder.Services.AddTransient<ResultViewModel>();
 		builder.Services.AddTransient<ExportsViewModel>();
+		builder.Services.AddTransient<ViewerViewModel>();
+		builder.Services.AddTransient<PdfViewerViewModel>();
+		builder.Services.AddTransient<SignatureViewModel>();
+		builder.Services.AddTransient<SettingsViewModel>();
 		builder.Services.AddTransient<HomePage>();
 		builder.Services.AddTransient<DocumentPage>();
 		builder.Services.AddTransient<CropPage>();
 		builder.Services.AddTransient<ResultPage>();
 		builder.Services.AddTransient<ExportsPage>();
+		builder.Services.AddTransient<ViewerPage>();
+		builder.Services.AddTransient<PdfViewerPage>();
+		builder.Services.AddTransient<SignaturePage>();
+		builder.Services.AddTransient<SettingsPage>();
+		builder.Services.AddTransient<AboutPage>();
 
 #if DEBUG
 		builder.Logging.AddDebug();

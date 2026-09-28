@@ -86,14 +86,32 @@ public class ExportTests
         Assert.True(File.Exists(rig.Store.CroppedPath(doc.Id, r1)));                    // the page kept in the app is untouched
         Assert.Empty(Directory.GetDirectories(Path.GetDirectoryName(result.Path)!, ".work_*")); // temp files cleaned up
 
-        // The black-and-white page goes in as its PNG data, untouched.
-        PngReader.PngData png = PngReader.Read(File.ReadAllBytes(rig.Store.CroppedPath(doc.Id, rig.Store.Pages(doc.Id)[1])));
+        // The black-and-white page (kept in the app with anti-aliased edges, 8-bit gray) goes in as 1-bit at "Vừa":
+        // exactly the app's page thresholded at 128.
+        byte[] kept = File.ReadAllBytes(rig.Store.CroppedPath(doc.Id, rig.Store.Pages(doc.Id)[1]));
+        Assert.Equal(8, PngReader.Read(kept).BitDepth);
+        PngReader.PngData png = PngReader.Read(PngWriter.EncodeBilevel(PngReader.DecodeGray8(kept)));
 
         IPdfImage img2 = p2.GetImages().Single();
         Assert.Equal(1, img2.BitsPerComponent);
         Assert.Equal(png.ZlibData, img2.RawBytes.ToArray());
         Assert.True(img2.TryGetBytesAsMemory(out Memory<byte> bits), "Flate + PNG predictor must decode");
         Assert.Equal((img2.WidthInSamples + 7) / 8 * img2.HeightInSamples, bits.Length);
+    }
+
+    [Fact]
+    public async Task High_quality_keeps_the_anti_aliased_black_and_white_page()
+    {
+        using var rig = new Rig();
+        DocumentRecord doc = await rig.DocWithPages(1);
+        rig.Edit.SetFilter(doc.Id, rig.Store.Pages(doc.Id)[0].Id, PageColorMode.BlackWhite);
+        PdfExportResult result = await rig.Export.ExportAsync(doc.Id, rig.OutPath(), null, default, PdfQuality.High);
+
+        byte[] kept = File.ReadAllBytes(rig.Store.CroppedPath(doc.Id, rig.Store.Pages(doc.Id)[0]));
+        using PdfDocument pdf = PdfDocument.Open(File.ReadAllBytes(result.Path));
+        IPdfImage img = pdf.GetPage(1).GetImages().Single();
+        Assert.Equal(8, img.BitsPerComponent);
+        Assert.Equal(PngReader.Read(kept).ZlibData, img.RawBytes.ToArray()); // embedded as it is
     }
 
     [Fact]
@@ -290,6 +308,23 @@ public class StretchedRenderTests
         p.CroppedGeometry = PageRecord.GeometryVersion; // re-rendered by the current rules
         Assert.False(p.RenderIsOutdated);
         Assert.False(p.NeedsRender);
+    }
+
+    [Fact]
+    public void Black_and_white_renders_by_the_old_rules_are_redone_once_and_color_ones_are_not()
+    {
+        PageRecord p = Page7();
+        p.CroppedGeometry = PageRecord.GeometryVersion;
+        p.ColorMode = p.CroppedColorMode = PageColorMode.BlackWhite; // plain 1-bit Sauvola: no version recorded
+        Assert.True(p.RenderIsOutdated);
+        Assert.True(p.NeedsRender);
+
+        p.CroppedBlackWhiteVersion = PageRecord.BlackWhiteVersion;
+        Assert.False(p.NeedsRender);
+
+        PageRecord color = Page7();
+        color.CroppedGeometry = PageRecord.GeometryVersion; // color page, no black-and-white version: nothing to redo
+        Assert.False(color.NeedsRender);
     }
 
     [Fact]

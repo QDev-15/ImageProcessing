@@ -149,6 +149,7 @@ public sealed class PageRecord
         || RenderIsOutdated
         || (CropQuad != null && (CroppedQuad == null || !CropQuad.AsSpan().SequenceEqual(CroppedQuad)))
         || !SameBends(CropBend, CroppedBend)
+        || !SameStamps(Stamps, CroppedStamps)
         || !FilterOptions.SameLook(Filter, CroppedFilter);
 
     /// <summary>The saved render is the straightened page as it stands now (same outline, rotations and shape) with no
@@ -160,21 +161,33 @@ public sealed class PageRecord
         && CroppedRotation == UserRotation && CroppedOutputRotation == OutputRotation && CroppedFreeAspect == FreeAspect
         && CropQuad != null && CroppedQuad != null && CropQuad.AsSpan().SequenceEqual(CroppedQuad)
         && SameBends(CropBend, CroppedBend)
+        && (CroppedStamps == null || CroppedStamps.Count == 0) // the preview draws the signatures itself
         && !RenderIsOutdated;
 
-    /// <summary>How pages are shaped and straightened now: 2 = true proportions from the perspective
-    /// (<see cref="PageGeometry"/>, A4 only when the sheet really is A4) and curved sides (<see cref="CropBend"/>). Renders
-    /// made by older rules (1 = side-length proportions, straight sides only: squashed or stretched pages, bent pages with
-    /// curved lines) are redone once, in the background.</summary>
-    public const int GeometryVersion = 2;
+    /// <summary>How pages are shaped and straightened now: 3 = perspective corrected with a phone camera's focal length,
+    /// every sheet-shaped outline exactly A4 in A4 mode (<see cref="PageGeometry.OutputAspect"/>), curved sides
+    /// (<see cref="CropBend"/>). Renders made by older rules are redone once, in the background: 1 = side-length
+    /// proportions, straight sides only; 2 = focal length measured from the outline, which made real A4 pages 1.57 to 3.07
+    /// : 1 long (owner's "Tài liệu 1", pages 4, 6, 7, 8).</summary>
+    public const int GeometryVersion = 3;
 
     /// <summary>The rules the current render was made with (<see cref="GeometryVersion"/>); 0 for renders from before
     /// this was recorded.</summary>
     public int CroppedGeometry { get; set; }
 
-    /// <summary>A render made by older straightening rules (see <see cref="GeometryVersion"/>).</summary>
+    /// <summary>How black-and-white pages are made: 2 = sharpened before the threshold, anti-aliased stroke edges
+    /// (<see cref="DocumentFilter"/>). Black-and-white renders by older rules (1 = plain 1-bit Sauvola, which dropped thin
+    /// strokes and diacritics of phone photos) are redone once; color and gray pages are not affected.</summary>
+    public const int BlackWhiteVersion = 2;
+
+    /// <summary>The <see cref="BlackWhiteVersion"/> the current render was made with (0 before this was recorded).</summary>
+    public int CroppedBlackWhiteVersion { get; set; }
+
+    /// <summary>A render made by older straightening rules (see <see cref="GeometryVersion"/>), or an older black and white.</summary>
     [JsonIgnore]
-    public bool RenderIsOutdated => CroppedRevision > 0 && CroppedGeometry < GeometryVersion;
+    public bool RenderIsOutdated => CroppedRevision > 0
+        && (CroppedGeometry < GeometryVersion
+            || (CroppedColorMode == PageColorMode.BlackWhite && CroppedBlackWhiteVersion < BlackWhiteVersion));
 
     /// <summary>Curved sides of a page that was not lying flat (<see cref="PageBends"/>, 8 numbers), found with the
     /// outline; null = straight sides. Cleared when the user moves the outline by hand.</summary>
@@ -186,11 +199,39 @@ public sealed class PageRecord
     [JsonIgnore]
     public PageBends? Bends => PageBends.FromValues(CropBend);
 
+    /// <summary>Signatures placed on the page (in the finished page's frame, see <see cref="PageStamp"/>); null or empty =
+    /// none. They are drawn into every render, so they end up in the PDF.</summary>
+    public List<PageStamp>? Stamps { get; set; }
+
+    /// <summary>The signatures the current render was made with.</summary>
+    public List<PageStamp>? CroppedStamps { get; set; }
+
+    internal static bool SameStamps(IReadOnlyList<PageStamp>? a, IReadOnlyList<PageStamp>? b) =>
+        (a == null || a.Count == 0) ? (b == null || b.Count == 0) : b != null && a.SequenceEqual(b);
+
     internal static bool SameBends(double[]? a, double[]? b) =>
         (a == null || a.All(v => v == 0)) ? (b == null || b.All(v => v == 0)) : b != null && a.AsSpan().SequenceEqual(b);
     /// <summary>Upright size of the original, in pixels.
     [JsonIgnore]
     public (int Width, int Height) UprightSize => ImageGeometry.UprightSize(RawWidth, RawHeight, EffectiveOrientation);
+}
+
+/// <summary>
+/// A signature placed on a page, in the frame of the finished page (after <see cref="PageRecord.OutputRotation"/>):
+/// center at (<see cref="CenterX"/>, <see cref="CenterY"/>) in 0..1 of the page's width / height, width of the signature
+/// (in its own frame) <see cref="Size"/> x the page's short edge, the signature picture turned <see cref="Turns"/> quarter
+/// turns clockwise. Relative to the short edge, so the signature keeps its size when the page is turned.
+/// </summary>
+public sealed record PageStamp(string SignatureId, double CenterX, double CenterY, double Size, int Turns = 0)
+{
+    /// <summary>The same signature after the page was turned by <paramref name="quarterTurns"/> clockwise.</summary>
+    public PageStamp Rotate(int quarterTurns)
+    {
+        int t = ((quarterTurns % 4) + 4) % 4;
+        double x = CenterX, y = CenterY;
+        for (int i = 0; i < t; i++) (x, y) = (1 - y, x);
+        return this with { CenterX = x, CenterY = y, Turns = (Turns + t) % 4 };
+    }
 }
 
 public sealed class DocumentRecord
@@ -200,10 +241,22 @@ public sealed class DocumentRecord
     public string Name { get; set; } = "";
     public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
     public List<PageRecord> Pages { get; set; } = [];
+
+    /// <summary>The folder the document is in (<see cref="FolderRecord.Id"/>), or null for the top level.</summary>
+    public string? FolderId { get; set; }
+}
+
+/// <summary>A folder on the main screen: documents are filed into it (one level, no folders inside folders).</summary>
+public sealed class FolderRecord
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+    public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
 }
 
 [JsonSourceGenerationOptions(WriteIndented = true, PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(DocumentRecord))]
+[JsonSerializable(typeof(List<FolderRecord>))]
 internal sealed partial class DocumentJsonContext : JsonSerializerContext;
 
 /// <summary>A page removed with <see cref="DocumentStore.TrashPage"/>: enough to put it back where it was.</summary>

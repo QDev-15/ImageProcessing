@@ -23,13 +23,15 @@ public partial class ExportsViewModel(ExportLibrary library, ExportCoordinator e
 	{
 		IReadOnlyList<ExportedFile> files = await Task.Run(library.List);
 		Files.Clear();
-		foreach (ExportedFile f in files) Files.Add(new ExportItem(f, OpenAsync, DeleteAsync));
+		foreach (ExportedFile f in files) Files.Add(new ExportItem(f, ViewAsync, MenuAsync, DeleteAsync));
 		long bytes = files.Sum(f => f.Bytes);
 		Summary = files.Count == 0 ? "" : $"{files.Count} file · {Size(bytes)}";
 		IsRefreshing = false;
 	}
 
-	private async Task OpenAsync(ExportItem item)
+	private static Task ViewAsync(ExportItem item) => ExportCoordinator.ViewAsync(item.File.Path);
+
+	private async Task MenuAsync(ExportItem item)
 	{
 		bool deleted = await exports.OfferActionsAsync(item.File.Path, item.File.Name, $"{item.File.Name}\n{item.Details}", allowDelete: true);
 		if (deleted) await RefreshAsync();
@@ -48,11 +50,12 @@ public partial class ExportsViewModel(ExportLibrary library, ExportCoordinator e
 
 public sealed class ExportItem
 {
-	public ExportItem(ExportedFile file, Func<ExportItem, Task> open, Func<ExportItem, Task> delete)
+	public ExportItem(ExportedFile file, Func<ExportItem, Task> open, Func<ExportItem, Task> menu, Func<ExportItem, Task> delete)
 	{
 		File = file;
 		Details = $"{file.Created:dd/MM/yyyy HH:mm} · {ExportsViewModel.Size(file.Bytes)}";
 		OpenCommand = new Command(() => _ = open(this));
+		MenuCommand = new Command(() => _ = menu(this));
 		DeleteCommand = new Command(() => _ = delete(this));
 	}
 
@@ -60,5 +63,6 @@ public sealed class ExportItem
 	public string Name => File.Name;
 	public string Details { get; }
 	public ICommand OpenCommand { get; }
+	public ICommand MenuCommand { get; }
 	public ICommand DeleteCommand { get; }
 }

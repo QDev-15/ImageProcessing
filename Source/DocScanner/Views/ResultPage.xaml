@@ -70,12 +70,9 @@
             </views:ToolButton>
         </Grid>
 
-        <!-- The page. Swipe left / right: next / previous page. -->
-        <Grid Grid.Row="1" Margin="12,0,12,8" BackgroundColor="Transparent">
-            <Grid.GestureRecognizers>
-                <SwipeGestureRecognizer Direction="Left" Command="{Binding SwipeLeftCommand}" />
-                <SwipeGestureRecognizer Direction="Right" Command="{Binding SwipeRightCommand}" />
-            </Grid.GestureRecognizers>
+        <!-- The page: pinch / double tap to zoom, drag when zoomed; at fit, swipe left / right = next / previous page
+             (all on the native view: ZoomController). -->
+        <Grid Grid.Row="1" Margin="12,0,12,8" BackgroundColor="Transparent" IsClippedToBounds="True">
             <!-- The live preview: the code-behind puts the bitmap and the brightness / contrast color matrix on the native view. -->
             <Image x:Name="PreviewImage" Aspect="AspectFit" />
             <ActivityIndicator IsRunning="{Binding IsBusy}" IsVisible="{Binding IsBusy}" Color="{StaticResource Primary}"
@@ -189,19 +186,17 @@
               BackgroundColor="{AppThemeBinding Light=White, Dark=#1C1C1E}">
             <BoxView Grid.ColumnSpan="6" HeightRequest="0.6" VerticalOptions="Start"
                      Color="{AppThemeBinding Light=#E5E7EB, Dark=#2C2C2E}" />
-            <views:ToolButton Icon="{x:Static views:Icons.Crop}" Text="Khung" Command="{Binding EditAgainCommand}" IsEnabled="{Binding CanEdit}" />
-            <views:ToolButton Grid.Column="1" Icon="{x:Static views:Icons.Filter}" Text="Bộ lọc" IsActive="{Binding ShowFilters}"
+            <views:ToolButton Icon="{x:Static views:Icons.Filter}" Text="Bộ lọc" IsActive="{Binding ShowFilters}"
                               Command="{Binding TogglePanelCommand}" CommandParameter="Filters" />
-            <views:ToolButton Grid.Column="2" Icon="{x:Static views:Icons.Tune}" Text="Điều chỉnh" IsActive="{Binding ShowAdjust}"
+            <views:ToolButton Grid.Column="1" Icon="{x:Static views:Icons.Tune}" Text="Điều chỉnh" IsActive="{Binding ShowAdjust}"
                               Command="{Binding TogglePanelCommand}" CommandParameter="Adjust" />
-            <views:ToolButton Grid.Column="3" Icon="{x:Static views:Icons.RotateLeft}" Text="Xoay trái" IsEnabled="{Binding CanEdit}"
-                              Command="{Binding RotateCommand}">
-                <views:ToolButton.CommandParameter><x:Int32>-90</x:Int32></views:ToolButton.CommandParameter>
-            </views:ToolButton>
-            <views:ToolButton Grid.Column="4" Icon="{x:Static views:Icons.RotateRight}" Text="Xoay phải" IsEnabled="{Binding CanEdit}"
+            <views:ToolButton Grid.Column="2" Icon="{x:Static views:Icons.Crop}" Text="Khung" Command="{Binding EditAgainCommand}" IsEnabled="{Binding CanEdit}" />
+            <views:ToolButton Grid.Column="3" Icon="{x:Static views:Icons.RotateRight}" Text="Xoay" IsEnabled="{Binding CanEdit}"
                               Command="{Binding RotateCommand}">
                 <views:ToolButton.CommandParameter><x:Int32>90</x:Int32></views:ToolButton.CommandParameter>
             </views:ToolButton>
+            <views:ToolButton Grid.Column="4" Icon="{x:Static views:Icons.Signature}" Text="Chữ ký" IsEnabled="{Binding CanEdit}"
+                              Command="{Binding SignCommand}" />
             <views:ToolButton Grid.Column="5" Icon="{x:Static views:Icons.AspectRatio}" Text="{Binding AspectText}" IsEnabled="{Binding CanEdit}"
                               Command="{Binding ToggleAspectCommand}" />
         </Grid>

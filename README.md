@@ -36,6 +36,15 @@
   FileProvider); nắn tài liệu theo **tỉ lệ thật** (tính từ phối cảnh, không còn bẹp / giãn) và theo **cạnh cong** của tờ giấy cầm tay
   (tìm lại mép giấy trên ảnh 1600 px); **camera trong app** (CameraX): khung tờ giấy hiện trực tiếp khi ngắm, tự chụp khi giữ yên,
   chụp nhiều trang liên tiếp. Đã thử trên máy ảo; **chưa thử camera mới trên Note 10+**. Chi tiết: MOBILE-STATUS.md mục 5h.
+- **Đợt 2026-09-27g**: đen trắng sắc nét hơn cho ảnh chụp camera (làm nét trước khi phân ngưỡng + mép mềm; giữ được nét mảnh và dấu
+  tiếng Việt, PDF Nhỏ / Vừa vẫn 1-bit); trình xem ảnh (zoom / kéo / vuốt); công tắc Xem / Sửa trong tài liệu; màn Sửa mở sẵn Bộ lọc
+  (đứng đầu menu) và zoom được; chữ ký tay trên trang (vẽ, lưu, đặt, đổi cỡ; có trong PDF); trình xem PDF trong app. Đã thử trên máy ảo,
+  chưa thử trên Note 10+. Chi tiết: MOBILE-STATUS.md mục 5i.
+- **Đợt 2026-09-27h**: sửa lỗi trình xem PDF (trang sau bị đen: trang PdfRenderer không được đóng); sửa lỗi trang cắt ra dài hơn A4
+  (tiêu cự "đo" từ 4 góc sai trên ảnh thật -> dùng tiêu cự điện thoại cố định, trang có dáng tờ giấy ra đúng A4; "Tài liệu 1" cả 10
+  trang ra A4); màn chính: tìm kiếm (không dấu), thư mục, chọn nhiều / kéo thả vào thư mục / xoá; màn Cài đặt + Thông tin ứng dụng;
+  tự cập nhật lúc 01:00 (hướng dẫn phát hành: [UPDATE-SERVER.md](UPDATE-SERVER.md)); màn khởi động. Phiên bản 1.1 (versionCode 2).
+  Chi tiết: MOBILE-STATUS.md mục 5j.
 - License bên thứ ba: [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 
 ```

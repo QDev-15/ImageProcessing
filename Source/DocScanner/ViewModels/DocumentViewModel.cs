@@ -232,6 +232,23 @@ public partial class DocumentViewModel(DocumentStore store, ImportCoordinator im
 		UpdateProgress();
 	}
 
+	private const string ModePreference = "document_open_mode";
+
+	/// <summary>What tapping a page does: "Xem" opens the page viewer (zoom, swipe through the pages), "Sửa" the editor.
+	/// Remembered between documents and app starts.</summary>
+	[ObservableProperty]
+	[NotifyPropertyChangedFor(nameof(IsEditMode), nameof(ModeHint))]
+	private bool isViewMode = Preferences.Default.Get(ModePreference, "view") == "view";
+
+	public bool IsEditMode => !IsViewMode;
+
+	public string ModeHint => IsViewMode ? "Chạm trang để xem, phóng to" : "Chạm trang để sửa khung, bộ lọc";
+
+	partial void OnIsViewModeChanged(bool value) => Preferences.Default.Set(ModePreference, value ? "view" : "edit");
+
+	[RelayCommand]
+	private void SetMode(string mode) => IsViewMode = mode == "view";
+
 	private void OpenPage(PageItem item)
 	{
 		if (_docId == null) return;
@@ -240,7 +257,8 @@ public partial class DocumentViewModel(DocumentStore store, ImportCoordinator im
 			_ = Shell.Current.DisplayAlertAsync("Không đọc được ảnh", item.Record.Error ?? "Định dạng không hỗ trợ.", "OK");
 			return;
 		}
-		_ = Shell.Current.GoToAsync($"{AppShell.Routes.Crop}?docId={_docId}&pageId={item.Record.Id}");
+		string route = IsViewMode ? AppShell.Routes.Viewer : AppShell.Routes.Crop;
+		_ = Shell.Current.GoToAsync($"{route}?docId={_docId}&pageId={item.Record.Id}");
 	}
 
 	/// <summary>"Chỉnh sửa" on the bottom bar: the editor on the first page that can be edited (then ‹ › through the rest).</summary>

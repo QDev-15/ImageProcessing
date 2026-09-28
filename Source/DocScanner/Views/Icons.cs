@@ -37,4 +37,20 @@ public static class Icons
 	public const string Stop = "";            // stop
 	public const string Brightness = "";      // brightness_6
 	public const string Contrast = "";        // contrast
+	public const string Signature = "";  // gesture (a handwritten stroke)
+	public const string View = "";       // visibility
+	public const string Add = "";        // add
+	public const string Undo = "";       // undo
+	public const string Search = "";     // search
+	public const string Settings = "";   // settings
+	public const string FolderFilled = ""; // folder
+	public const string NewFolder = "";  // create_new_folder
+	public const string Checked = "";    // check_circle
+	public const string Unchecked = "";  // radio_button_unchecked
+	public const string SelectAll = "";  // select_all
+	public const string MoveTo = "";     // drive_file_move
+	public const string Info = "";       // info
+	public const string Update = "";     // update
+	public const string Mail = "";       // email
+	public const string Phone = "";      // phone
 }

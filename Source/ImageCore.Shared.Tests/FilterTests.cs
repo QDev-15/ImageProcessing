@@ -106,19 +106,93 @@ public class FilterTests
         for (int i = 0; i < page.Data.Length; i++)
             rgb.Data[i * 3] = rgb.Data[i * 3 + 1] = rgb.Data[i * 3 + 2] = page.Data[i];
 
+        FilteredPage hard = DocumentFilter.Apply(rgb, new FilterOptions(PageColorMode.BlackWhite, Smooth: false), SyntheticPages.Dpi);
+        Assert.True(hard.IsBilevel);
+        Assert.All(hard.Gray!.Data, v => Assert.True(v is 0 or 255));
+
+        // Default: anti-aliased edges, but paper and ink themselves pure white / black.
         FilteredPage bw = DocumentFilter.Apply(rgb, new FilterOptions(PageColorMode.BlackWhite), SyntheticPages.Dpi);
-        Assert.True(bw.IsBilevel);
-        Assert.All(bw.Gray!.Data, v => Assert.True(v is 0 or 255));
+        Assert.True(bw.IsBlackWhite);
+        Assert.False(bw.IsBilevel);
+        double pure = bw.Gray!.Data.Count(v => v is 0 or 255) / (double)bw.Gray.Data.Length;
+        Assert.True(pure > 0.97, $"pure black / white: {pure:P1}");
 
         GrayImage truth = SyntheticPages.TextPage(page.Width, page.Height);
         int wrongPaper = 0, paper = 0, keptInk = 0, ink = 0;
         for (int i = 0; i < truth.Data.Length; i++)
         {
-            if (truth.Data[i] < 128) { ink++; if (bw.Gray.Data[i] == 0) keptInk++; }
-            else { paper++; if (bw.Gray.Data[i] == 0) wrongPaper++; }
+            if (truth.Data[i] < 128) { ink++; if (bw.Gray.Data[i] < 128) keptInk++; }
+            else { paper++; if (bw.Gray.Data[i] < 128) wrongPaper++; }
         }
         Assert.True(wrongPaper < paper / 200, $"paper turned black: {wrongPaper} of {paper}");
         Assert.True(keptInk > ink * 0.85, $"ink kept: {keptInk} of {ink}");
+    }
+
+    /// <summary>A soft phone photo of thin text: the plain threshold drops much of the thin strokes (diacritics, slashes),
+    /// sharpening first keeps them.</summary>
+    [Fact]
+    public void Sharpening_keeps_the_thin_strokes_of_a_soft_photo()
+    {
+        // Hairlines (1 px) and 2 x 2 dots (diacritics) at 300 DPI, next to 3 px strokes.
+        var truth = new GrayImage(600, 600);
+        Array.Fill(truth.Data, (byte)255);
+        for (int y = 40; y < 560; y += 16)
+            for (int x = 40; x < 560; x++)
+            {
+                if ((x / 20) % 4 == 3) continue;
+                truth[x, y] = 20;
+                if (x % 40 == 5) { truth[x, y - 5] = truth[x + 1, y - 5] = truth[x, y - 4] = truth[x + 1, y - 4] = 20; }
+                if ((x / 20) % 4 == 0) truth[x, y + 6] = truth[x, y + 7] = truth[x, y + 8] = 20;
+            }
+        var soft = new GrayImage(truth.Width, truth.Height);
+        for (int i = 0; i < soft.Data.Length; i++) soft.Data[i] = (byte)(40 + truth.Data[i] * 0.72); // gray ink on gray paper
+        Blur(soft);
+        Blur(soft);
+        var rgb = RgbImage.FromGray(soft);
+
+        double Kept(bool sharpen)
+        {
+            GrayImage bw = DocumentFilter.Apply(rgb, new FilterOptions(PageColorMode.BlackWhite, Sharpen: sharpen), 300).Gray!;
+            int ink = 0, kept = 0;
+            for (int i = 0; i < truth.Data.Length; i++)
+                if (truth.Data[i] < 128) { ink++; if (bw.Data[i] < 128) kept++; }
+            return (double)kept / ink;
+        }
+        double plain = Kept(false), sharpened = Kept(true);
+        Assert.True(sharpened > plain + 0.03, $"plain {plain:P1}, sharpened {sharpened:P1}");
+    }
+
+    private static void Blur(GrayImage g)
+    {
+        var copy = (byte[])g.Data.Clone();
+        for (int y = 1; y < g.Height - 1; y++)
+            for (int x = 1; x < g.Width - 1; x++)
+            {
+                int sum = 0;
+                for (int dy = -1; dy <= 1; dy++)
+                    for (int dx = -1; dx <= 1; dx++) sum += copy[(y + dy) * g.Width + x + dx];
+                g.Data[y * g.Width + x] = (byte)(sum / 9);
+            }
+    }
+
+    [Fact]
+    public void Gray_png_round_trips()
+    {
+        var img = new GrayImage(123, 77);
+        new Random(3).NextBytes(img.Data);
+        Assert.Equal(img.Data, PngReader.DecodeGray8(PngWriter.EncodeGray8(img)).Data);
+    }
+
+    [Fact]
+    public void Smooth_black_and_white_despeckles_like_the_hard_one()
+    {
+        var page = new GrayImage(200, 200);
+        Array.Fill(page.Data, (byte)255);
+        page.Data[100 * 200 + 100] = 100; // a one-pixel speck, soft
+        for (int y = 20; y < 40; y++) for (int x = 20; x < 180; x++) page.Data[y * 200 + x] = 0; // a real stroke
+        DocumentFilter.Despeckle(page, 300);
+        Assert.Equal(255, page.Data[100 * 200 + 100]);
+        Assert.Equal(0, page.Data[30 * 200 + 100]);
     }
 
     [Fact]

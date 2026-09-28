@@ -34,6 +34,7 @@ thương mại, với điều kiện giữ thông báo bản quyền / license (
 | `Resources/pdf.ttf` (GlyphLessFont, font vô hình cho lớp chữ OCR) | Apache-2.0 | github.com/tesseract-ocr/tesseract (tessdata/pdf.ttf) |
 | `sRGB2014.icc` (OutputIntent PDF/A, lấy từ resource của PDFsharp) | License của ICC: được dùng, sao chép, phân phối miễn phí | color.org |
 | `DocScanner/Resources/Fonts/MaterialIcons-Regular.ttf` (biểu tượng giao diện app mobile) | Apache-2.0 (Google) | github.com/google/material-design-icons (thư mục `font/`) |
+| `DocScanner/Resources/Fonts/OpenSans-Regular.ttf`, `OpenSans-Semibold.ttf` (chữ giao diện app mobile, đi kèm mẫu dự án .NET MAUI) | SIL Open Font License 1.1 (dùng thương mại được, được nhúng trong app; không bán riêng font) | fonts.google.com/specimen/Open+Sans |
 
 ## Công cụ chạy ngoài (thư mục `tools\`)
 

@@ -9,7 +9,7 @@ namespace DocScanner.Core;
 /// orientation, only the part of the photo holding the page is decoded (at a power-of-two
 /// shrink that still gives the output resolution), and that part is warped into a rectangle.
 /// </summary>
-public sealed class CropRenderService(DocumentStore store, IImageService images)
+public sealed class CropRenderService(DocumentStore store, IImageService images, Signatures.SignatureLibrary? signatures = null)
 {
     public const int JpegQuality = 94;
     public const int ThumbEdge = 512;
@@ -28,6 +28,7 @@ public sealed class CropRenderService(DocumentStore store, IImageService images)
         int outputRotation = page.OutputRotation;
         bool freeAspect = page.FreeAspect;
         FilterOptions filter = page.Filter;
+        List<PageStamp>? stamps = page.Stamps is { Count: > 0 } ? [.. page.Stamps] : null;
 
         // The user may change the page again while it renders (a slider nudged twice, a second turn): a render that is
         // out of date by then stops at the next check instead of finishing work nobody will see, and leaves the CPU
@@ -40,7 +41,8 @@ public sealed class CropRenderService(DocumentStore store, IImageService images)
                 && now.UserRotation == rotation && now.OutputRotation == outputRotation && now.FreeAspect == freeAspect
                 && (now.CropQuad ?? Quad.Inset(0.03).ToValues()).AsSpan().SequenceEqual(quadValues)
                 && PageRecord.SameBends(now.CropBend, bendValues)
-                && FilterOptions.SameLook(now.Filter, filter);
+                && FilterOptions.SameLook(now.Filter, filter)
+                && PageRecord.SameStamps(now.Stamps, stamps);
             if (!current) throw new OperationCanceledException("The page changed while it was being rendered.");
         }
 
@@ -49,14 +51,17 @@ public sealed class CropRenderService(DocumentStore store, IImageService images)
             // Straighten, turn, then filter: the same order as the result screen's preview.
             RgbImage flat = (await WarpAsync(docId, page, quadValues, bendValues, CropPlanner.MaxLongEdge, ct)).RotateClockwise(outputRotation / 90);
             ThrowIfStale();
+            FilteredPage filtered;
             using (Perf.Measure($"render filter {filter.Mode} {flat.Width}x{flat.Height}"))
-                return DocumentFilter.Apply(flat, filter, PageDpi(flat.Width, flat.Height));
+                filtered = DocumentFilter.Apply(flat, filter, PageDpi(flat.Width, flat.Height));
+            DrawSignatures(filtered, stamps);
+            return filtered;
         }, ct);
         ThrowIfStale();
         Perf.Scope saving = Perf.Measure("render save");
 
         int revision = page.CroppedRevision + 1;
-        string extension = result.IsBilevel ? ".png" : ".jpg";
+        string extension = result.IsBlackWhite ? ".png" : ".jpg";
         string flatPath = store.CroppedPath(docId, pageId, revision, extension);
         string thumbPath = store.CroppedThumbPath(docId, pageId, revision);
         Directory.CreateDirectory(Path.GetDirectoryName(flatPath)!);
@@ -64,6 +69,8 @@ public sealed class CropRenderService(DocumentStore store, IImageService images)
             await images.SaveJpegAsync(result.Color, flatPath, JpegQuality, ct);
         else if (result.IsBilevel)
             await File.WriteAllBytesAsync(flatPath, PngWriter.EncodeBilevel(result.Gray!), ct); // lossless, tiny, embeds straight into PDF
+        else if (result.IsBlackWhite)
+            await File.WriteAllBytesAsync(flatPath, PngWriter.EncodeGray8(result.Gray!), ct); // anti-aliased edges; the PDF export makes it 1-bit unless "Cao"
         else
             await images.SaveJpegAsync(RgbImage.FromGray(result.Gray!), flatPath, JpegQuality, ct);
         await images.SaveJpegAsync(MakeThumb(result), thumbPath, ThumbQuality, ct);
@@ -84,7 +91,9 @@ public sealed class CropRenderService(DocumentStore store, IImageService images)
             p.CroppedHeight = outHeight;
             p.CroppedQuad = quadValues;
             p.CroppedBend = bendValues;
+            p.CroppedStamps = stamps;
             p.CroppedGeometry = PageRecord.GeometryVersion;
+            p.CroppedBlackWhiteVersion = PageRecord.BlackWhiteVersion;
             p.CroppedRotation = rotation;
             p.CroppedOutputRotation = outputRotation;
             p.CroppedFreeAspect = freeAspect;
@@ -100,6 +109,14 @@ public sealed class CropRenderService(DocumentStore store, IImageService images)
         if (kept && previous > 0)
             DeleteQuietly(store.CroppedPath(docId, pageId, previous, previousExtension), store.CroppedThumbPath(docId, pageId, previous));
         if (!kept) DeleteQuietly(flatPath, thumbPath); // the page was deleted meanwhile
+    }
+
+    /// <summary>Draws the page's signatures into the filtered page (in place).</summary>
+    public void DrawSignatures(FilteredPage page, IReadOnlyList<PageStamp>? stamps)
+    {
+        if (stamps is not { Count: > 0 } || signatures == null) return;
+        if (page.Color != null) Signatures.Stamper.Apply(page.Color, stamps, signatures.Ink);
+        else Signatures.Stamper.Apply(page.Gray!, stamps, signatures.Ink, page.IsBilevel);
     }
 
     /// <summary>The straightened page at screen size (<see cref="CropPlanner.PreviewLongEdge"/>), without any filter: what
