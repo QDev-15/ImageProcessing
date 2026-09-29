@@ -44,7 +44,6 @@ public static class MauiProgram
 		builder.Services.AddSingleton<CropDetectionService>();
 		builder.Services.AddSingleton(_ => new DocScanner.Core.Signatures.SignatureLibrary(Path.Combine(FileSystem.AppDataDirectory, "signatures")));
 		builder.Services.AddSingleton<SignatureSession>();
-		builder.Services.AddSingleton<IAppUpdater, AndroidAppUpdater>();
 		builder.Services.AddSingleton<CropRenderService>();
 		builder.Services.AddSingleton(sp => new PageIngestQueue(
 			sp.GetRequiredService<DocumentStore>(), sp.GetRequiredService<IImageService>(), sp.GetRequiredService<CropDetectionService>(),

@@ -105,4 +105,51 @@ public class ContentAlignerTests
         LineTilt? tilt = ContentAligner.Measure(page);
         Assert.True(tilt == null || Math.Abs(tilt.Value.Angle) <= ContentAligner.MaxAngle);
     }
+
+    /// <summary>Regression for owner's report 2026-09-29 ("T1" batch): a page's own straight bottom edge came out
+    /// rippled after aligning, because an earlier version of <see cref="LineTilt"/> followed the four measured bands
+    /// exactly (piecewise linear between their centres) -- two adjacent bands disagreeing by nothing more than
+    /// measurement noise was enough to put a visible wave in a perfectly straight line. <see cref="LineTilt.At"/> is now
+    /// only ever <c>Angle + Slope * (v - 0.5)</c> (affine), which cannot bend a straight line into more than one curve no
+    /// matter what Angle/Slope it is given -- checked here directly at the geometry level, without needing measurement
+    /// noise to reproduce it.</summary>
+    [Theory]
+    [InlineData(0, 0)]
+    [InlineData(6, 0)]
+    [InlineData(-6, 0)]
+    [InlineData(2, 3)]
+    [InlineData(-3, -3)]
+    public void A_straight_edge_never_comes_out_wavy(double angle, double slope)
+    {
+        const int w = 900, h = 1200, edgeY = 1150; // a solid band across the bottom, like the frame outside the page
+        var page = new RgbImage(w, h);
+        Array.Fill(page.Data, (byte)255);
+        for (int y = edgeY; y < h; y++)
+            for (int x = 0; x < w; x++)
+            {
+                int o = (y * w + x) * 3;
+                page.Data[o] = page.Data[o + 1] = page.Data[o + 2] = 0;
+            }
+
+        RgbImage aligned = ContentAligner.Align(page, new LineTilt(angle, slope, 4));
+
+        // For every column, the topmost dark row (where the boundary crosses it) must move in only one direction as x
+        // increases -- a real (linear) tilt or slope draws one straight or gently sloped line, never a wave.
+        int[] boundary = new int[w];
+        for (int x = 0; x < w; x++)
+        {
+            int y = 0;
+            while (y < h && aligned.Data[(y * w + x) * 3] > 128) y++;
+            boundary[x] = y;
+        }
+        int direction = 0;
+        for (int x = 1; x < w; x++)
+        {
+            int d = Math.Sign(boundary[x] - boundary[x - 1]);
+            if (d == 0) continue;
+            if (direction != 0 && d != direction)
+                Assert.Fail($"boundary changed direction at x={x} (angle {angle}, slope {slope}): {string.Join(',', boundary[Math.Max(0, x - 3)..Math.Min(w, x + 3)])}");
+            direction = d;
+        }
+    }
 }

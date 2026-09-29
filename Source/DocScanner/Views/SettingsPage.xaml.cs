@@ -24,6 +24,4 @@ public partial class SettingsPage : ContentPage
 		base.OnDisappearing();
 		_viewModel.DetachLicense();
 	}
-
-	private void OnUrlUnfocused(object? sender, FocusEventArgs e) => _viewModel.SaveUrlCommand.Execute(null);
 }

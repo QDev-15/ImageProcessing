@@ -37,8 +37,6 @@
             <Label Text="GÓI PRO" Style="{StaticResource Section}" />
             <VerticalStackLayout Style="{StaticResource Card}" Spacing="8" Padding="16,12">
                 <Label Text="{Binding LicenseSummaryText}" Style="{StaticResource Name}" FontFamily="OpenSansSemibold" />
-                <Label Text="Bản Pro bỏ giới hạn số lần xuất PDF và xoá mọi quảng cáo, dùng vĩnh viễn, mua một lần." Style="{StaticResource Hint}"
-                       IsVisible="{Binding IsFree}" />
                 <Grid ColumnDefinitions="*,*" ColumnSpacing="10" IsVisible="{Binding IsFree}">
                     <Button Text="{Binding ProPriceText, StringFormat='Mua Pro · {0}', TargetNullValue='Mua Pro'}"
                             Command="{Binding BuyProCommand}" IsEnabled="{Binding LicenseIdle}"
@@ -50,6 +48,13 @@
                 </Grid>
                 <ActivityIndicator IsRunning="{Binding IsBusyWithLicense}" IsVisible="{Binding IsBusyWithLicense}" HeightRequest="24"
                                    Color="{StaticResource Primary}" />
+                <VerticalStackLayout Spacing="6" IsVisible="{Binding IsFree}" Margin="0,4,0,0">
+                    <Label Text="Bản Pro có gì:" Style="{StaticResource Name}" FontSize="13" FontFamily="OpenSansSemibold" />
+                    <Label Style="{StaticResource Hint}" Text="• Xuất PDF không giới hạn số lần (bản miễn phí chỉ được 5 lần)" />
+                    <Label Style="{StaticResource Hint}" Text="• Không còn quảng cáo, dùng và xuất tài liệu liền mạch" />
+                    <Label Style="{StaticResource Hint}" Text="• Mua một lần, dùng vĩnh viễn, không phải trả phí theo tháng" />
+                    <Label Style="{StaticResource Hint}" Text="• Ủng hộ tác giả tiếp tục phát triển ứng dụng" />
+                </VerticalStackLayout>
             </VerticalStackLayout>
 
             <Label Text="CHỤP ẢNH" Style="{StaticResource Section}" />
@@ -76,24 +81,9 @@
                 <Label Text="Trang đen trắng: Nhỏ / Vừa lưu 1-bit (rất nhẹ), Cao giữ mép chữ mềm." Style="{StaticResource Hint}" Margin="0,0,0,10" />
             </VerticalStackLayout>
 
-            <Label Text="CẬP NHẬT" Style="{StaticResource Section}" />
-            <VerticalStackLayout Style="{StaticResource Card}" Spacing="6" Padding="16,10">
+            <Label Text="PHIÊN BẢN" Style="{StaticResource Section}" />
+            <VerticalStackLayout Style="{StaticResource Card}" Padding="16,12">
                 <Label Text="{Binding VersionText}" Style="{StaticResource Name}" />
-                <Label Text="{Binding UpdateHint}" Style="{StaticResource Hint}" />
-                <Grid ColumnDefinitions="*,Auto" IsEnabled="{Binding CanUpdate}">
-                    <Label Text="Tự động cập nhật lúc 01:00" Style="{StaticResource Name}" />
-                    <Switch Grid.Column="1" IsToggled="{Binding AutoUpdate}" OnColor="{StaticResource Primary}" />
-                </Grid>
-                <Entry Text="{Binding UpdateUrl}" Placeholder="https://.../update.json" Keyboard="Url" FontSize="13"
-                       IsEnabled="{Binding CanUpdate}" ReturnCommand="{Binding SaveUrlCommand}" Unfocused="OnUrlUnfocused" />
-                <Grid ColumnDefinitions="*,Auto">
-                    <Label Text="{Binding UpdateStatus}" Style="{StaticResource Hint}" VerticalOptions="Center" />
-                    <Button Grid.Column="1" Text="Kiểm tra ngay" Command="{Binding CheckNowCommand}" IsEnabled="{Binding CanUpdate}"
-                            FontSize="13" Padding="14,0" HeightRequest="38" CornerRadius="19"
-                            BackgroundColor="{StaticResource Primary}" TextColor="White" />
-                </Grid>
-                <ActivityIndicator IsRunning="{Binding IsChecking}" IsVisible="{Binding IsChecking}" HeightRequest="24"
-                                   Color="{StaticResource Primary}" />
             </VerticalStackLayout>
 
             <Label Text="BỘ NHỚ" Style="{StaticResource Section}" />

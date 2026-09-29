@@ -25,10 +25,6 @@ public partial class App : Application
 	protected override void OnStart()
 	{
 		base.OnStart();
-		// The nightly update check (re)scheduled at every start: survives settings changes and app updates.
-		try { _services.GetService<Services.IAppUpdater>()?.Schedule(); }
-		catch (Exception ex) { Core.Perf.Log("update schedule failed: " + ex.Message); }
-
 		// Re-check Play for the Pro purchase (picks up a refund/chargeback, or a purchase made while the
 		// app was closed) without making startup wait on it: every screen already shows the locally
 		// cached state instantly and updates itself when this finishes.

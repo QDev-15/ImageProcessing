@@ -1,24 +1,18 @@
 namespace ImageCoreService;
 
 /// <summary>How the text lines of a straightened page lean: <see cref="Angle"/> degrees in the middle of the page (positive =
-/// clockwise on screen), changing by <see cref="Slope"/> degrees from the top edge to the bottom edge (the straight-line fit),
-/// measured in <see cref="Bands"/> horizontal bands. With <see cref="Knots"/> (band centre, lean) the lean follows the bands
-/// instead, linearly between their centres and constant beyond the outer ones.</summary>
-public readonly record struct LineTilt(double Angle, double Slope, int Bands, (double V, double Angle)[]? Knots = null)
+/// clockwise on screen), changing by <see cref="Slope"/> degrees from the top edge to the bottom edge, measured in
+/// <see cref="Bands"/> horizontal bands. Deliberately affine (a single, constant rate of change down the page): a page's
+/// own straight edges and text baselines can only ever come out as straight lines or a single gentle curve, never a wave.
+/// An earlier version instead followed the measured bands exactly, linearly between their centres (piecewise, not affine):
+/// it fixed one page where the straight-line fit missed a band by a degree, but on a different real photo (owner's report
+/// 2026-09-29, "T1" batch) two adjacent bands' independently measured angles disagreed by noise alone, and interpolating
+/// between them put a visible ripple in the page's own straight bottom edge. The straight-line fit cannot do that -- it
+/// trades a rare imperfect correction for never inventing a distortion that was not in the photo.</summary>
+public readonly record struct LineTilt(double Angle, double Slope, int Bands)
 {
     /// <summary>The lean at height <paramref name="v"/> (0 = top edge, 1 = bottom edge), degrees.</summary>
-    public double At(double v)
-    {
-        if (Knots is not { Length: > 0 } k) return Angle + Slope * (v - 0.5);
-        if (v <= k[0].V) return k[0].Angle;
-        for (int i = 1; i < k.Length; i++)
-            if (v <= k[i].V)
-            {
-                double f = (v - k[i - 1].V) / (k[i].V - k[i - 1].V);
-                return k[i - 1].Angle + f * (k[i].Angle - k[i - 1].Angle);
-            }
-        return k[^1].Angle;
-    }
+    public double At(double v) => Angle + Slope * (v - 0.5);
 }
 
 /// <summary>
@@ -91,7 +85,7 @@ public static class ContentAligner
 
         // Ink points away from the page edges (a dark rim left by the outline would read as a line).
         int mx = w * 5 / 100, my = h * 4 / 100;
-        var bands = new List<(double V, double Angle, double Weight, double Contrast)>();
+        var bands = new List<(double V, double Angle, double Weight)>();
         var contrasts = new List<double>();
         int bandHeight = (h - 2 * my) / BandCount;
         for (int b = 0; b < BandCount; b++)
@@ -108,7 +102,7 @@ public static class ContentAligner
             contrasts.Add(Math.Min(contrast, 50));
             Trace?.Invoke($"{w}x{h} band {b}: angle {angle:0.00} contrast {contrast:0.00} ink {xs.Count}");
             if (contrast >= 1.15)
-                bands.Add(((y0 + y1) / 2.0 / h, angle, xs.Count * Math.Min(contrast, 3), contrast));
+                bands.Add(((y0 + y1) / 2.0 / h, angle, xs.Count * Math.Min(contrast, 3)));
         }
         quality = contrasts.Count == 0 ? 0 : contrasts.Average();
         if (bands.Count == 0) return null;
@@ -124,14 +118,7 @@ public static class ContentAligner
         double slope = bands.Count >= 2 && svv > 1e-6 ? bands.Sum(x => x.Weight * (x.V - mv) * (x.Angle - ma)) / svv : 0;
         slope = Math.Clamp(slope, -3, 3);
         double atCenter = ma + slope * (0.5 - mv);
-        // Where every band's lines are clear, the lean follows the bands themselves: an edge of the outline that is
-        // slightly off (hidden under something in the photo) makes the lean change unevenly down the page, and the
-        // straight-line fit then missed a band by a degree (owner's photo: -2.4 / -3.3 / -1.8 / -1.0 degrees). Faint bands
-        // are too noisy for that and keep the fit.
-        (double V, double Angle)[]? knots = bands.Count >= 2 && bands.All(x => x.Contrast >= 3)
-            ? bands.OrderBy(x => x.V).Select(x => (x.V, x.Angle)).ToArray()
-            : null;
-        return new LineTilt(atCenter, slope, bands.Count, knots);
+        return new LineTilt(atCenter, slope, bands.Count);
     }
 
     /// <summary>Lean of one band's text lines: the angle whose projection profile is sharpest (lines line up), and how

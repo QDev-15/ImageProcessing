@@ -189,7 +189,9 @@ public sealed class PageRecord
     /// (<see cref="CropBend"/>). Renders made by older rules are redone once, in the background: 1 = side-length
     /// proportions, straight sides only; 2 = focal length measured from the outline, which made real A4 pages 1.57 to 3.07
     /// : 1 long (owner's "Tài liệu 1", pages 4, 6, 7, 8).</summary>
-    public const int GeometryVersion = 4; // 4: text lines levelled after straightening (ContentAligner)
+    public const int GeometryVersion = 5; // 5: ContentAligner no longer follows the 4 measured bands exactly (piecewise --
+    // could ripple a straight edge on noisy band measurements, owner's "T1" report 2026-09-29); only ever a straight-line
+    // fit now. 4: text lines levelled after straightening (ContentAligner).
 
     /// <summary>The rules the current render was made with (<see cref="GeometryVersion"/>); 0 for renders from before
     /// this was recorded.</summary>

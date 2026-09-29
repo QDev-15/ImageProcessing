@@ -468,3 +468,35 @@
 - 4 test cũ ngầm dựa vào "trang mới nhập là màu" (kiểm tra hành vi trang màu, không phải kiểm tra mặc định nhập ảnh)
   được sửa để tự đặt `PageColorMode.Color` ngay sau khi nhập trong rig test. Test mới:
   `A_newly_imported_page_defaults_to_black_and_white`. 194 test PASS.
+
+### Dòng chữ / mép trang gợn sóng (đợt 2026-09-29, chi tiết: MOBILE-STATUS.md mục 5q)
+- Owner báo trực tiếp trên máy (tài liệu T1, ảnh chụp camera): "một số trang các dòng chữ như bị gợn sóng." Chẩn đoán bằng chạm/vuốt +
+  screenshot trong app (bản Release, không `run-as` được) -- trang 2 có mép dưới tờ giấy (giáp nền đen) gợn sóng rõ.
+- Nguyên nhân: `ContentAligner` (đợt 2026-09-28b) khi đo được cả 4 dải rõ nét thì xoay TỪNG HÀNG ảnh theo góc nội suy tuyến tính từng đoạn
+  giữa 4 điểm đo (piecewise), không phải một đường thẳng chung -- tính năng này từng sửa đúng một trang thật khác (mép bị khuất, đường thẳng
+  chung bỏ sót một dải), nhưng trên trang T1 này 2 dải liền kề lệch nhau chỉ do nhiễu đo, và nội suy đúng qua điểm nhiễu biến mép thẳng thành
+  sóng.
+- Sửa: bỏ hẳn nội suy piecewise. `LineTilt.At(v)` chỉ còn `Angle + Slope * (v - 0.5)` (affine) -- không thể tạo hơn một đoạn cong, không bao giờ
+  ra sóng dù Angle/Slope thế nào. `PageRecord.GeometryVersion` tăng lên 5 (trang cũ dựng lại một lần ở nền).
+- Test: `ImageCore.Shared.Tests` 135 (thêm `A_straight_edge_never_comes_out_wavy`, kiểm trực tiếp ở tầng hình học: mép thẳng qua `Align` với
+  nhiều Angle/Slope không đổi hướng quá 1 lần). `DocScanner.Core.Tests` 199 không đổi cách khác.
+
+### Cài đặt: bỏ tự cập nhật, mô tả Pro, ký AAB (đợt 2026-09-29 tối, chi tiết: MOBILE-STATUS.md mục 5r)
+- Owner yêu cầu viết lại màn Cài đặt: ẩn phần cập nhật khỏi khách hàng (chỉ hiện version), đồng bộ version ở Thông tin ứng dụng, thêm mô tả lợi
+  ích Pro, rồi xuất AAB + cài máy thật.
+- Quyết định tự đưa ra: **gỡ bỏ hẳn** tính năng tự cập nhật (không chỉ ẩn UI) -- `AndroidAppUpdater`/`UpdateJobService`/`UpdateStatusReceiver`/
+  `IAppUpdater`/`UpdateManifest`/`UpdatePlanner`/`UPDATE-SERVER.md` xoá hết, cùng 4 quyền Android không còn cần (`UPDATE_PACKAGES_WITHOUT_USER_ACTION`,
+  `REQUEST_INSTALL_PACKAGES`, `POST_NOTIFICATIONS`, `RECEIVE_BOOT_COMPLETED`). Lý do: `UnsupportedReason` vốn đã tự tắt tính năng này khi cài từ
+  Play (mọi khách hàng thật), nên giữ code chỉ là nợ kỹ thuật; đây cũng đúng là nguồn gốc câu hỏi "chưa biết cập nhật xong upload vào đâu" của
+  owner. Cài Cài đặt còn lại mục "PHIÊN BẢN" (chỉ 1 dòng version) + khối lợi ích Pro dưới nút Mua Pro (IsVisible khi còn miễn phí).
+- Phát hiện khi bắt đầu (git diff, không phải tôi tạo): owner đã tự điền mã AdMob thật + đổi `LicenseService.ProProductId` sang ID Play Console
+  thật trước khi giao việc này -- `AdsConfig.HasRealIds` giờ true nên bản Release hiện quảng cáo thật, cẩn thận không bấm quảng cáo trên máy test
+  chưa đăng ký Test device.
+- `versionName` 1.1 -> 1.2, `versionCode` 2 -> 3. Tạo keystore upload key lần đầu (`Source/DocScanner/release/`, gitignore, xem
+  `KEYSTORE-README.md`) -- mật khẩu KHÔNG đặt trong `DocScanner.csproj` (file này nằm trong git) mà tách `release/Signing.props`, chỉ import khi
+  file tồn tại.
+- Build Release qua (188 test `DocScanner.Core.Tests` + 135 test `ImageCore.Shared.Tests` PASS), APK ký đúng keystore thật (`apksigner verify`).
+  Lần cài đầu bị Android từ chối (`INSTALL_FAILED_UPDATE_INCOMPATIBLE`, khoá mới khác khoá cài trước đó) -- **không tự gỡ bản cũ** vì sẽ mất tài
+  liệu owner đang test trên máy, dừng lại chờ owner. Owner tự gỡ app, báo lại; cài bản khoá thật thành công (máy hiện versionCode=3/versionName=1.2).
+  Xuất AAB `Source/DocScanner/release/DocScanner-1.2-versionCode3.aab` (50,5 MB, `jarsigner -verify` xác nhận hợp lệ) -- file owner tải lên Play.
+  Chi tiết đầy đủ: MOBILE-STATUS.md mục 5r.
