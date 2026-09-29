@@ -1,7 +1,8 @@
 # Doc Scanner (app mobile) -- trạng thái dự án và việc còn lại
 
-Cập nhật lần cuối: 2026-09-29 (Quảng cáo AdMob -- mục 5p). Đọc file này đầu tiên khi làm tiếp; chi tiết kỹ thuật từng bước nằm ở mục
-"App mobile" trong [CLAUDE.md](CLAUDE.md).
+Cập nhật lần cuối: 2026-09-29 tối (Quảng cáo AdMob -- mục 5p, sửa crash + vị trí banner + đo tốc độ trên máy thật). **Có checklist làm tiếp
+ngay cuối mục 5p** -- đọc file này rồi đọc checklist đó đầu tiên khi làm tiếp. Chi tiết kỹ thuật từng bước nằm ở mục "App mobile" trong
+[CLAUDE.md](CLAUDE.md).
 
 ## 1. Tóm tắt
 
@@ -697,19 +698,28 @@ cáo bằng mọi giá.
     ngay sau đó (dù có hiện hay không) để giữ sẵn 1 quảng cáo cho lần sau.
   - `ExportCoordinator.ExportAsync` gọi `ads.RegisterExport()` ngay sau `license.RecordExport()`, **trước** hộp thoại Chia sẻ / Lưu / Mở --
     không hiện quảng cáo trong lúc đang chia sẻ file (sẽ đá văng luồng share-intent) hay ở màn hình khác về sau.
-  - Banner: `<admob:BannerAd AdSize="SmartBanner">` ở màn chính (`HomePage.xaml`), một hàng riêng phía trên thanh dưới cùng (không đè lên nút
-    Chụp / Nhập ảnh / PDF đã xuất), ẩn hiện theo `HomeViewModel.ShowAds` (nghe `IAdsService.Changed`, giống cách `SettingsViewModel` nghe
-    `ILicenseService.Changed`). **Không đặt quảng cáo ở** màn camera, chỉnh 4 điểm, hay lúc đang xuất PDF -- dễ bấm nhầm và chính sách Play cấm
-    quảng cáo cản trở thao tác chính.
+  - Banner: `<admob:BannerAd AdSize="SmartBanner">` ở màn chính (`HomePage.xaml`), hàng **dưới cùng, sát mép màn hình**, dưới thanh Chụp / Nhập
+    ảnh / PDF đã xuất (chỗ đặt thường thấy nhất cho banner -- sửa lại 29/09 sau khi owner xem thử thấy tôi đặt ngược, ở trên thanh đó), ẩn hiện
+    theo `HomeViewModel.ShowAds` (nghe `IAdsService.Changed`, giống cách `SettingsViewModel` nghe `ILicenseService.Changed`). **Không đặt quảng
+    cáo ở** màn camera, chỉnh 4 điểm, hay lúc đang xuất PDF -- dễ bấm nhầm và chính sách Play cấm quảng cáo cản trở thao tác chính.
   - Cài đặt: mục "GÓI PRO" (đã có ở mục 5k) đổi câu gợi ý thành nhắc luôn cả quảng cáo: "Bản Pro bỏ giới hạn số lần xuất PDF và xoá mọi quảng
     cáo, dùng vĩnh viễn, mua một lần."
   - Đồng ý quảng cáo (Google UMP / GDPR) do chính `Plugin.AdMob` tự hiện khi cần lúc khởi động -- không phải tự viết.
 - **AndroidManifest.xml**: thêm `meta-data com.google.android.gms.ads.APPLICATION_ID`, `activity` AdActivity theo đúng tài liệu Plugin.AdMob,
   quyền `ACCESS_NETWORK_STATE` (INTERNET đã có sẵn từ tự cập nhật + Play Billing).
-- **`AdsConfig.cs`**: `AppId` / `BannerAdUnitId` / `InterstitialAdUnitId` hiện là **placeholder rỗng** (`ca-app-pub-REPLACE_ME/...`) -- vô hại vì
-  build Debug luôn ép `AdConfig.UseTestAdUnitIds = true` (chỉ quảng cáo thử nghiệm chính chủ của Google), nhưng **bắt buộc phải thay bằng ID
-  thật** trước khi build bản Release nộp Play (xem Bước 10). `AppId` cần sửa ở CẢ HAI chỗ: `AdsConfig.cs` và `AndroidManifest.xml` (file XML
-  tĩnh, không đọc được hằng số C#).
+- **`AdsConfig.cs`**: `BannerAdUnitId` / `InterstitialAdUnitId` hiện là **placeholder** (`ca-app-pub-REPLACE_ME/...`) -- vô hại, xem ngay dưới.
+  **App ID không còn nằm trong `AdsConfig.cs`** (bỏ hẳn hằng số đó): nó nằm trong `DocScanner.csproj`, thuộc tính MSBuild
+  `AndroidManifestPlaceholders` (`admobAppId=...`), thay thế token `${admobAppId}` trong `AndroidManifest.xml`. Lý do đổi: App ID sai định dạng
+  làm app **crash ngay khi mở**, trước cả khi code C# chạy (SDK kiểm tra trong một ContentProvider gắn trước `MauiProgram`) -- gặp thật trên máy
+  lúc 29/09 với chuỗi giữ chỗ `ca-app-pub-REPLACE_ME~REPLACE_ME`, sửa bằng App ID thử nghiệm chính thức của Google
+  (`ca-app-pub-3940256099942544~3347511713`, luôn hợp lệ, không hiện quảng cáo thật) đặt qua MSBuild property thay vì hằng số C#.
+- **Quảng cáo thử nghiệm áp dụng cho CẢ Debug lẫn Release** khi ID thật chưa có (`AdsConfig.HasRealIds`), không chỉ Debug như thiết kế ban đầu:
+  bản đầu chỉ ép `UseTestAdUnitIds = true` trong `#if DEBUG`, nên bản Release cài thử lên máy 29/09 xin quảng cáo bằng ID giữ chỗ, bị AdMob từ
+  chối, không hiện gì (không crash, nhưng cũng không thấy quảng cáo demo để xác nhận luồng hoạt động) -- owner phát hiện, đã sửa `MauiProgram.cs`:
+  Release cũng tự dùng test ads khi `!AdsConfig.HasRealIds`.
+- **Cả 3 lỗi trên đều do chính comment tiếng Anh của tôi**: viết `--` (hai gạch ngang liền) trong comment XML (`.csproj`, `AndroidManifest.xml`)
+  vài lần liên tiếp, MSBuild coi là comment không hợp lệ, báo lỗi khó đọc (`GetJavaPlatformJar`/`XmlTextReaderImpl` stack trace dài) chứ không chỉ
+  thẳng dòng sai kiểu C# -- nếu sửa comment trong 2 file XML này về sau, tránh `--`, dùng `:` hoặc xuống dòng mới thay cho `--`.
 - **Phiên bản gói NuGet**: `Plugin.AdMob` bản mới nhất (10.0.90) đòi `Microsoft.Maui.Controls >= 10.0.90`, cao hơn bản mặc định của workload
   đang cài (10.0.20) -- đã ghim thẳng `Microsoft.Maui.Controls` lên 10.0.90 trong `DocScanner.csproj` để khớp; build Debug qua, không thấy cảnh
   báo mới phát sinh từ việc nâng phiên bản này.
@@ -727,6 +737,35 @@ cáo bằng mọi giá.
 - **API của `Plugin.AdMob` được tra trực tiếp từ file DLL đã tải về** (đọc metadata assembly, không chỉ tin tài liệu web) để chắc đúng tên
   namespace / tham số trước khi build -- ví dụ tài liệu README tóm tắt sai chỗ `UseAdMob(defaultBannerAdUnitId: ...)`, tên tham số thật là
   `UseAdMob(androidDefaultBannerAdUnitId: ...)`.
+- **Đã cài thật lên Note 10+ (29/09, chiều)**: bản Debug crash ngay khi mở (App ID sai định dạng, xem trên) -- sửa xong, cài lại chạy ổn định.
+  Bản **Release** sau đó cũng cài + chạy ổn định (không crash), nhưng banner khi đó còn ở sai vị trí và quảng cáo demo không hiện (2 lỗi đã sửa
+  ngay sau, xem trên) -- **bản Release có đủ cả 2 chỗ sửa đó CHƯA được cài lại lên máy** (chỉ mới build Debug để xác nhận hết lỗi biên dịch).
+- **Đo tốc độ dò mép / nắn ảnh bằng log thật** (`adb logcat -s DocScanPerf`, đúng bản Release đã cài chiều 29/09, lúc owner nhập 9 ảnh): dò mép
+  218-540ms (1 trang 947ms), nắn phối cảnh 165-504ms, lọc đen trắng 388-746ms -- **khớp hoặc tốt hơn** số đo Release cũ ở mục 5f (dò mép trước đó
+  295-855ms, nắn phối cảnh trước đó 700-1100ms). Kết luận: **thuật toán không hề chậm đi** dù đã thêm AdMob + nâng MAUI 10.0.20 -> 10.0.90 hôm
+  nay. Owner vẫn thấy "chậm hơn nhiều" khi dùng thật -- nghi vấn còn lại: hàng đợi xử lý nền chạy **tuần tự từng trang một** (~1,2-1,9 giây/trang),
+  nhập nhiều ảnh cùng lúc thì mở trang cuối hàng đợi phải đợi cộng dồn; đã hỏi owner chỗ nào chậm cụ thể (mở màn chỉnh khung / giật khi kéo điểm /
+  cả app nói chung) nhưng **chưa có câu trả lời** -- xem checklist ngay dưới.
+
+### Checklist làm tiếp (lưu lúc 29/09 tối, để đọc lại hôm sau)
+
+**Owner tự làm (không cần tôi, cần tài khoản AdMob riêng):**
+1. [ ] Tạo tài khoản AdMob tại admob.google.com (dùng chung tài khoản Google với Play Console cũng được).
+2. [ ] Thêm app "Doc Scanner" trong AdMob -- chọn Android, "Không có trên cửa hàng" (app chưa lên Play).
+3. [ ] Tạo 2 đơn vị quảng cáo trong app đó: 1 **Banner**, 1 **Interstitial**.
+4. [ ] Lấy 3 mã: App ID (`ca-app-pub-...~...`), Banner ad unit ID, Interstitial ad unit ID (đều dạng `ca-app-pub-.../...`).
+5. [ ] Đăng ký máy Note 10+ làm **test device** trong AdMob (Settings > Test devices) -- bắt buộc, tránh bị tính gian lận click khi lỡ bấm
+   quảng cáo thật trên máy của mình.
+6. [ ] Trả lời câu hỏi chỗ chậm cụ thể (mở màn chỉnh khung phải đợi / giật lúc đang kéo 4 điểm / cả app nói chung) để tôi biết đo tiếp ở đâu.
+
+**Tôi làm tiếp khi có 3 mã ở bước 4:**
+7. [ ] Điền App ID vào `DocScanner.csproj` (`AndroidManifestPlaceholders`), điền 2 ad unit ID vào `AdsConfig.cs`.
+8. [ ] Build lại + cài **bản Release** lên máy (đã có sẵn 2 chỗ sửa hôm nay: banner sát mép dưới, Release tự dùng test ads khi chưa có ID thật --
+   xem trên; build này sẽ vừa mang 2 sửa đó vừa mang ID thật nếu owner đã gửi).
+9. [ ] Nếu owner trả lời được câu 6: đo tiếp đúng chỗ đó (nếu là "giật lúc kéo điểm" thì cần đo mới, `Perf.Log` hiện chưa bọc quanh thao tác kéo
+   trực tiếp trên màn `CropPage`/`QuadEditor`).
+10. [ ] Kiểm tra lại đủ 4 việc cũ: banner thật hiện đúng, interstitial sau 5 lần xuất PDF, chữ "GÓI PRO" trong Cài đặt, mua Pro xong tắt hết
+   quảng cáo.
 
 ## 6. Việc còn lại (theo thứ tự nên làm)
 
