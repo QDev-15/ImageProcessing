@@ -78,6 +78,20 @@ public sealed class PageRecord
     /// is just the whole frame (the fallback).</summary>
     public bool CropDetected { get; set; }
 
+    /// <summary>How outlines are detected now: 2 = the refined border is the steepest point of the paper's edge, not its
+    /// outer end; a side is fitted from a consensus line and only bulges where the evidence reaches both corners; a corner
+    /// the evidence does not reach stays with the detector (and within 1% of the frame); a sheet the frame cuts across a
+    /// corner is found. Automatic outlines by older rules (1 = before, corners 2-6% outside the sheet on the owner's
+    /// photos) are detected again once, in the background; outlines moved by hand are kept.</summary>
+    public const int DetectionVersion = 2;
+
+    /// <summary>The <see cref="DetectionVersion"/> the automatic outline was found with (0 before this was recorded).</summary>
+    public int CropDetection { get; set; }
+
+    /// <summary>An automatic outline found by older detection rules (see <see cref="DetectionVersion"/>).</summary>
+    [JsonIgnore]
+    public bool NeedsDetection => CropQuad == null || (!CropManual && CropDetection < DetectionVersion);
+
     /// <summary>Revision of the straightened page made from the original (0 = none yet). The files are
     /// named after it, so a new render never shows a stale cached picture.</summary>
     public int CroppedRevision { get; set; }
@@ -169,7 +183,7 @@ public sealed class PageRecord
     /// (<see cref="CropBend"/>). Renders made by older rules are redone once, in the background: 1 = side-length
     /// proportions, straight sides only; 2 = focal length measured from the outline, which made real A4 pages 1.57 to 3.07
     /// : 1 long (owner's "Tài liệu 1", pages 4, 6, 7, 8).</summary>
-    public const int GeometryVersion = 3;
+    public const int GeometryVersion = 4; // 4: text lines levelled after straightening (ContentAligner)
 
     /// <summary>The rules the current render was made with (<see cref="GeometryVersion"/>); 0 for renders from before
     /// this was recorded.</summary>

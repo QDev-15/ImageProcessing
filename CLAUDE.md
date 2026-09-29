@@ -404,3 +404,28 @@
   Thử: `adb reverse tcp:8080 tcp:8080`, `adb shell cmd jobscheduler run -f btk.docscanner 21840` (không force-stop app: force-stop xoá job).
   Đã kiểm chứng trên máy ảo: tự cài 1.1 -> 1.2 -> 1.3, lần job 01:00 cài im lặng khi app ở nền.
 - Script PowerShell có tiếng Việt: ghi file .ps1 kèm BOM hoặc dùng Edit; GNU sed hiểu `\u` là viết hoa (đừng dùng sed để ghi `\uXXXX`).
+
+### Dò mép bám sát + căn chữ thẳng hàng (đợt 2026-09-28b, chi tiết: MOBILE-STATUS.md mục 5l)
+- Xem khung dò trên ảnh thật: chép thư mục tài liệu từ máy (bản Debug: `run-as`), chạy
+  `dotnet run -c Release --project Source/Tools/EdgeProbe -- sheet <thư mục> <out.png>` (`CELL=700`, `TRACE=1`, `PAGE_OUT=<thư mục>`).
+  Xem ảnh xong thì xoá bản sao (ảnh cá nhân của owner).
+- `PageOutlineRefiner`: điểm dốc nhất của mép, đường đồng thuận + Tukey, neo góc bộ dò khi bằng chứng ra khỏi ảnh, `KeepInPicture` 1%.
+  `DocumentEdgeDetector`: thử góc ngoài khung tới 20% chỉ khi lượt thường thất bại. `ContentAligner` chạy sau nắn trong `CropRenderService`.
+- Đổi luật dò thì tăng `PageRecord.DetectionVersion` (khung tự động cũ được dò lại một lần); đổi luật nắn / dựng thì tăng `GeometryVersion`.
+- GDI+ thu nhỏ ảnh phải `ImageAttributes.SetWrapMode(TileFlipXY)`, nếu không viền tối 1 px bị bộ dò coi là mép giấy.
+
+### Chữ đen trắng "vỡ" khi phóng to (đợt 2026-09-28c, chi tiết: MOBILE-STATUS.md mục 5m)
+- Xem trước/sau bằng `dotnet run -c Release --project Source/Tools/EdgeProbe -- bw <thư mục>`: ảnh trang chữ giả lập chụp bằng điện thoại,
+  nhị phân hoá bằng đúng các bước app dùng, xuất crop 100% / cỡ màn hình / **phóng to 4x song tuyến** (đúng cách ImageView Android phóng ảnh)
+  và số liệu KB / % lệch so với bản gốc -- không cần ảnh thật của owner để so sánh chất lượng đen trắng.
+- Nguyên nhân: `PdfExportService` nhị phân hoá cứng (1-bit) trang đen trắng cho cả **Nhỏ và Vừa** (mặc định) khi xuất PDF -- ảnh lưu trong app
+  vốn đã mượt viền (8-bit), chỉ mất mượt lúc xuất. Đã thử siêu lấy mẫu (supersample) để mượt hơn nữa nhưng không rõ rệt và tốn nét mảnh, bỏ.
+- Sửa: `PdfQuality` thêm `GrayDpi` (null = nhị phân hoá như cũ). **Vừa**: `GrayDpi = 150`, thu nhỏ bằng `GrayImage.Resize` (mới, giống
+  `RgbImage.Resize`) nhưng giữ 8-bit mượt -- đổi lại trang đen trắng to hơn ~1,9 lần (350-400 KB thay vì 150-200 KB). **Nhỏ**: không đổi
+  (`GrayDpi = null`), vẫn 1-bit cho size bé nhất. **Cao**: không đổi (giữ nguyên file, đã mượt).
+
+### Xuất PDF tự động lưu vào Tải xuống/DocScanner (đợt 2026-09-28d, chi tiết: MOBILE-STATUS.md mục 5n)
+- `ExportCoordinator.ExportAsync` gọi `IDownloadsService.SaveAsync` ngay sau khi xuất xong (không chờ người dùng bấm "Lưu vào Tải xuống"); lỗi
+  lưu không làm hỏng lần xuất (file thư viện riêng của app vẫn còn, chỉ báo lỗi + vẫn có nút lưu tay).
+- `AndroidDownloadsService`: `RelativePath = Download/DocScanner` (hằng số `Subfolder`) thay vì `Download` -- MediaStore tự tạo thư mục con.
+- Chưa unit-test được (tầng Android MAUI); build Debug qua kiểm tra, cần owner xuất thử 1 tài liệu và xem `Tải xuống/DocScanner` trên máy.

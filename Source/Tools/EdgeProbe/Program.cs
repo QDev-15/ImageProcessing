@@ -5,6 +5,7 @@ using ImageCoreService;
 
 // usage: probe <maxEdge> <out.png> <img1> [img2 ...]  -> draws the detected outline on each image
 if (args[0] == "bw") { BwProbe.Run(args[1]); return; }
+if (args[0] == "sheet") { SheetProbe.Run(args[1], args[2]); return; }
 int maxEdge = int.Parse(args[0]);
 string outDir = args[1];
 Directory.CreateDirectory(outDir);
@@ -21,7 +22,13 @@ foreach (string path in args.Skip(2))
     double s = Math.Min(1.0, maxEdge / (double)Math.Max(bmp.Width, bmp.Height));
     int w = (int)(bmp.Width * s), h = (int)(bmp.Height * s);
     using var small = new Bitmap(w, h, PixelFormat.Format24bppRgb);
-    using (var g = Graphics.FromImage(small)) { g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBilinear; g.DrawImage(bmp, 0, 0, w, h); }
+    using (var g = Graphics.FromImage(small))
+    {
+        g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBilinear;
+        using var attr = new ImageAttributes();
+        attr.SetWrapMode(System.Drawing.Drawing2D.WrapMode.TileFlipXY); // else a dark 1 px rim (edge pixels blended with black)
+        g.DrawImage(bmp, new Rectangle(0, 0, w, h), 0, 0, bmp.Width, bmp.Height, GraphicsUnit.Pixel, attr);
+    }
 
     var rgb = new RgbImage(w, h);
     var bd = small.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);

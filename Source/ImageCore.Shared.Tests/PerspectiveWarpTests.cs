@@ -155,6 +155,36 @@ public class PerspectiveWarpTests(ITestOutputHelper output)
         Assert.Equal((333, 211), (small.Width, small.Height));
         Assert.All(small.Data, v => Assert.Equal(123, v));
     }
+
+    [Fact]
+    public void GrayImage_Resize_hits_the_requested_size_and_keeps_a_flat_level()
+    {
+        var img = new GrayImage(1000, 700);
+        Array.Fill(img.Data, (byte)77);
+
+        GrayImage small = img.Resize(333, 211);
+
+        Assert.Equal((333, 211), (small.Width, small.Height));
+        Assert.All(small.Data, v => Assert.Equal(77, v));
+    }
+
+    /// <summary>What black-and-white PDF export relies on (2026-09-28c: pages stay anti-aliased instead of 1-bit at
+    /// every quality): a hard black/white edge, shrunk, comes out with a genuine gray step at the edge -- true
+    /// anti-aliasing from the pixels it averaged, not the original hard 0/255.</summary>
+    [Fact]
+    public void GrayImage_Resize_turns_a_hard_edge_into_a_soft_one()
+    {
+        var img = new GrayImage(65, 40);
+        for (int y = 0; y < 40; y++)
+            for (int x = 0; x < 65; x++)
+                img.Data[y * 65 + x] = x < 33 ? (byte)0 : (byte)255;
+
+        GrayImage small = img.Resize(20, 12);
+
+        Assert.Equal(0, small[0, 6]);
+        Assert.Equal(255, small[19, 6]);
+        Assert.Contains(Enumerable.Range(0, 20), x => small[x, 6] is > 0 and < 255); // a genuine soft step at the old edge
+    }
 }
 
 public class A4ShapeTests

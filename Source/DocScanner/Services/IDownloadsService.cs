@@ -1,6 +1,7 @@
 namespace DocScanner.Services;
 
-/// <summary>Copies a finished file into the phone's public Downloads folder.</summary>
+/// <summary>Copies a finished file into the phone's public Downloads folder, in its own "DocScanner" subfolder (so it
+/// is easy to find later with any file manager, instead of mixed into the rest of Downloads).</summary>
 public interface IDownloadsService
 {
 	/// <summary>True when this Android version supports it without extra permissions (Android 10+).</summary>

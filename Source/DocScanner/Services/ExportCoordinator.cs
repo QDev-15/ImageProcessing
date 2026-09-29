@@ -7,8 +7,9 @@ namespace DocScanner.Services;
 
 /// <summary>
 /// "Xuất PDF" from any screen (document, crop, result): runs the export with its own progress overlay
-/// (<see cref="Views.ExportOverlay"/>, bound to this singleton), saves the PDF into the export library,
-/// then offers Share / Save to Downloads / Open.
+/// (<see cref="Views.ExportOverlay"/>, bound to this singleton), saves the PDF into the export library, copies it
+/// straight into the phone's Downloads/DocScanner folder (owner's request, 2026-09-28c: no extra tap needed to find
+/// it later with a file manager or another app), then offers Share / Save again / Open.
 ///
 /// This is also the one place that enforces the trial: exporting is the deliverable the user actually
 /// wants, so it is the point at which the free-use count is spent and, once spent, where Pro is asked
@@ -79,6 +80,22 @@ public partial class ExportCoordinator(DocumentStore store, PdfExportService exp
 		string summary = $"{result.PageCount} trang · {result.Bytes / 1024.0:0} KB";
 		if (result.SkippedPages.Count > 0)
 			summary += $"\nBỏ qua trang {string.Join(", ", result.SkippedPages)} (ảnh lỗi hoặc chưa cắt được).";
+
+		// Straight into Downloads/DocScanner, no extra tap: a failure here (old Android, or the folder is somehow not
+		// writable) does not fail the export itself -- the file is already safe in the app's own export library, and
+		// the action sheet below still offers "Lưu vào Tải xuống" as a manual fallback.
+		if (downloads.IsSupported)
+		{
+			try
+			{
+				await downloads.SaveAsync(result.Path, Path.GetFileName(result.Path), "application/pdf");
+				summary += "\nĐã lưu vào Tải xuống/DocScanner.";
+			}
+			catch (Exception ex)
+			{
+				summary += $"\nKhông tự lưu được vào Tải xuống ({ex.Message}); có thể lưu tay bên dưới.";
+			}
+		}
 		await OfferActionsAsync(result.Path, doc.Name, $"Đã xuất PDF ({summary})", allowDelete: false);
 	}
 
@@ -155,7 +172,7 @@ public partial class ExportCoordinator(DocumentStore store, PdfExportService exp
 					break;
 				case save:
 					string saved = await downloads.SaveAsync(path, Path.GetFileName(path), "application/pdf");
-					await Shell.Current.DisplayAlertAsync("Đã lưu", $"Đã lưu vào thư mục Tải xuống:\n{saved}", "OK");
+					await Shell.Current.DisplayAlertAsync("Đã lưu", $"Đã lưu vào Tải xuống/DocScanner:\n{saved}", "OK");
 					break;
 				case open:
 					await Launcher.Default.OpenAsync(new OpenFileRequest(title, new ReadOnlyFile(path, "application/pdf")));

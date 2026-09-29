@@ -21,11 +21,15 @@ public sealed class CropDetectionService(DocumentStore store, IImageService imag
         if (page == null || page.State != PageState.Ready) return null;
         int rotation = page.UserRotation;
 
-        RgbImage rgb;
+        // The proxy is decoded once, at full size, and shrunk for the detector here (box filter, then bilinear): the
+        // platform's own scaled decode (power-of-two sampling + plain bilinear on Android) left aliased, noisy edges that
+        // pulled outlines off the sheet on real photos, and made the phone disagree with the same code on a PC.
+        RgbImage proxy;
         using (Perf.Measure("detect: load proxy"))
-            rgb = await images.LoadRgbAsync(store.ProxyPath(docId, page), AnalysisEdge, ct);
+            proxy = await images.LoadRgbAsync(store.ProxyPath(docId, page), RefineEdge, ct);
         QuadDetection result = await Task.Run(() =>
         {
+            RgbImage rgb = ForDetector(proxy);
             using (Perf.Measure("detect: detector"))
                 return detector.Detect(rgb);
         }, ct);
@@ -35,9 +39,6 @@ public sealed class CropDetectionService(DocumentStore store, IImageService imag
         double[]? bends = null;
         if (result.Detected)
         {
-            RgbImage proxy;
-            using (Perf.Measure("detect: load proxy for refining"))
-                proxy = await images.LoadRgbAsync(store.ProxyPath(docId, page), RefineEdge, ct);
             PageOutlineRefiner.Result refined = await Task.Run(() =>
             {
                 using (Perf.Measure("detect: refine outline"))
@@ -61,7 +62,15 @@ public sealed class CropDetectionService(DocumentStore store, IImageService imag
             p.CropBend = bends;
             p.CropConfidence = result.Confidence;
             p.CropDetected = result.Detected;
+            p.CropDetection = PageRecord.DetectionVersion;
         });
         return result with { Quad = outline }; // what the screen shows: the refined outline
+    }
+
+    /// <summary>The picture the detector looks at: the proxy with its long edge <see cref="AnalysisEdge"/>.</summary>
+    public static RgbImage ForDetector(RgbImage proxy)
+    {
+        double s = Math.Min(1.0, (double)AnalysisEdge / Math.Max(proxy.Width, proxy.Height));
+        return s >= 1 ? proxy : proxy.Resize(Math.Max(1, (int)Math.Round(proxy.Width * s)), Math.Max(1, (int)Math.Round(proxy.Height * s)));
     }
 }

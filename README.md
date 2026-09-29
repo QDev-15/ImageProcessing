@@ -49,6 +49,18 @@
   miễn phí** rồi mới yêu cầu mua (chụp/chỉnh sửa không giới hạn); mục "GÓI PRO" trong Cài đặt; mã giảm giá dùng thẳng "Mã khuyến mãi" có sẵn của
   Play Console, không cần máy chủ riêng. Chi tiết: MOBILE-STATUS.md mục 5k. Cài lên Note 10+, giao diện hiện đúng; **chưa mua thử thật** (cần tạo
   sản phẩm trên Play Console trước).
+- **Đợt 2026-09-28b**: dò mép giấy bám sát tờ giấy trên ảnh thật (trên 10 ảnh của owner: khung không còn lòi ra ngoài / lọt vào bàn, tờ chéo bị
+  khung cắt góc giờ dò được); sau khi nắn, **tự căn dòng chữ thẳng hàng**, song song với cạnh trang (`ContentAligner`). Khung tự động cũ trên máy
+  được dò lại một lần ở nền, khung chỉnh tay giữ nguyên. Chi tiết: MOBILE-STATUS.md mục 5l.
+- **Đợt 2026-09-28c**: chữ đen trắng đỡ "vỡ" khi phóng to. Nguyên nhân chính: xuất PDF ở chất lượng **Vừa** (mặc định, khuyên dùng) và
+  **Nhỏ** nhúng trang đen trắng ở dạng **1-bit cứng** (mất hết viền mượt), nên phóng to quá cỡ trang là thấy bậc thang răng cưa; **Cao** vẫn
+  giữ nguyên (8-bit, đã mượt) nên không bị. Sửa: **Vừa** giờ thu nhỏ trang xuống 150 DPI nhưng **giữ nguyên ảnh xám 8-bit** (viền chữ mượt ở
+  mọi độ phóng to) thay vì nhị phân hoá; đổi lại file to hơn (đen trắng ~350-400 KB/trang thay vì ~150-200 KB, do PNG nén ảnh xám mượt kém hơn
+  nhiều so với đen trắng thuần). **Nhỏ** (dành riêng cho gửi Zalo / email, cần file bé nhất) vẫn giữ 1-bit như cũ, không đổi. Chi tiết:
+  MOBILE-STATUS.md mục 5m.
+- **Đợt 2026-09-28d**: xuất PDF giờ **tự động lưu thẳng vào Tải xuống/DocScanner** (không cần bấm "Lưu vào Tải xuống" nữa), ngoài bản vẫn giữ
+  trong thư viện riêng của app (màn "PDF đã xuất"). Lỗi lưu (máy Android cũ hơn 10, hoặc lỗi ghi) không làm hỏng lần xuất, chỉ báo lại và vẫn có
+  nút lưu tay dự phòng.
 - License bên thứ ba: [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 
 ```

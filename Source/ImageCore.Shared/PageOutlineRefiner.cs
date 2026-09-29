@@ -42,10 +42,11 @@ public static class PageOutlineRefiner
             var fits = new SideFit?[4];
             for (int side = 0; side < 4; side++)
             {
-                fits[side] = FitSide(image, current, side, range, paper);
+                (double s0, double s1) = Anchors(outline, current, side);
+                fits[side] = FitSide(image, current, side, range, paper, s0, s1);
                 // No border in reach at all: the detector latched onto a line of the table / background well away from
                 // the paper. Look much further (first pass only; the second one starts from corrected corners).
-                if (fits[side] == null && pass == 0) fits[side] = FitSide(image, current, side, Math.Min(200, 0.25 * minSide), paper);
+                if (fits[side] == null && pass == 0) fits[side] = FitSide(image, current, side, Math.Min(200, 0.25 * minSide), paper, s0, s1);
             }
 
             // Refined straight lines (endpoint offsets along the old outward normals), then new corners where they meet.
@@ -77,7 +78,36 @@ public static class PageOutlineRefiner
             refined = fits.Count(f => f != null);
             bends = new PageBends(Bend(fits[0], current, 0), Bend(fits[1], current, 1), Bend(fits[2], current, 2), Bend(fits[3], current, 3));
         }
+        if (refined > 0) current = KeepInPicture(current, outline, image.Width, image.Height);
         return new Result(current, bends is { IsFlat: false } ? bends : null, refined);
+    }
+
+    /// <summary>A refined corner is extrapolated from its two sides; where the detector saw the corner inside the picture,
+    /// it is not let go more than 1% of the picture beyond the frame (a corner well outside the frame fills the
+    /// straightened page with a white wedge). A sheet the frame really cuts can still be dragged out by hand.</summary>
+    private static Quad KeepInPicture(Quad refinedOutline, Quad detected, int width, int height)
+    {
+        double m = 0.01 * Math.Min(width, height);
+        PointD[] r = refinedOutline.ToArray(), d = detected.ToArray();
+        for (int k = 0; k < 4; k++)
+        {
+            bool detectedInside = d[k].X >= -1 && d[k].Y >= -1 && d[k].X <= width + 1 && d[k].Y <= height + 1;
+            if (!detectedInside) continue;
+            r[k] = new PointD(Math.Clamp(r[k].X, -m, width + m), Math.Clamp(r[k].Y, -m, height + m));
+        }
+        var q = new Quad(r[0], r[1], r[2], r[3]);
+        return q.IsConvex ? q : refinedOutline;
+    }
+
+    /// <summary>Where the detector's corners of <paramref name="side"/> lie relative to that side of
+    /// <paramref name="current"/> (pixels along its outward normal): the prior for an end without evidence.</summary>
+    private static (double Start, double End) Anchors(Quad detected, Quad current, int side)
+    {
+        PointD[] d = detected.ToArray(), c = current.ToArray();
+        (double nx, double ny, _) = PageBends.OutwardNormal(current, side);
+        int e = (side + 1) % 4;
+        return ((d[side].X - c[side].X) * nx + (d[side].Y - c[side].Y) * ny,
+                (d[e].X - c[e].X) * nx + (d[e].Y - c[e].Y) * ny);
     }
 
     /// <summary>Border offsets of one side: start / end of the refined straight line, and the bulge (all in pixels along
@@ -100,7 +130,8 @@ public static class PageOutlineRefiner
         return new SideBend(fit.C / length, fit.D / length);
     }
 
-    private static SideFit? FitSide(RgbImage img, Quad q, int side, double range, (double R, double G, double B) paper)
+    private static SideFit? FitSide(RgbImage img, Quad q, int side, double range, (double R, double G, double B) paper,
+        double anchorStart, double anchorEnd)
     {
         PointD[] c = q.ToArray();
         PointD a = c[side], b = c[(side + 1) % 4];
@@ -112,42 +143,69 @@ public static class PageOutlineRefiner
         var ts = new List<double>();
         var es = new List<double>();
         var ws = new List<double>();
+        var offPicture = new List<double>(); // positions along the side where the search window left the picture
         int steps = (int)Math.Ceiling(range);
         var profile = new (double R, double G, double B)[2 * steps + 1];
         for (int k = 0; k < SamplesPerSide; k++)
         {
             double t = 0.04 + 0.92 * k / (SamplesPerSide - 1);
             double px = a.X + dx * t, py = a.Y + dy * t;
-            bool inside = true;
-            for (int s = -steps; s <= steps && inside; s++)
-            {
-                // Averaged over 5 px along the side: text strokes and noise blur out, the border does not.
-                double r = 0, g = 0, bl = 0;
-                for (int j = -2; j <= 2; j++)
+            // The search window is cut where it leaves the picture (instead of dropping the sample): near a corner by
+            // the frame that is the only evidence of where a curved side ends up.
+            int sLo = -steps, sHi = steps;
+            for (int dir = 1; dir >= -1; dir -= 2)
+                for (int s = dir > 0 ? 0 : -1; s >= -steps && s <= steps; s += dir)
                 {
-                    double sx = px + nx * s + tx * j * 1.5, sy = py + ny * s + ty * j * 1.5;
-                    if (!Read(img, sx, sy, out double cr, out double cg, out double cb)) { inside = false; break; }
-                    r += cr; g += cg; bl += cb;
+                    // Averaged over 5 px along the side: text strokes and noise blur out, the border does not.
+                    double r = 0, g = 0, bl = 0;
+                    bool inside = true;
+                    for (int j = -2; j <= 2 && inside; j++)
+                    {
+                        double sx = px + nx * s + tx * j * 1.5, sy = py + ny * s + ty * j * 1.5;
+                        if (!Read(img, sx, sy, out double cr, out double cg, out double cb)) inside = false;
+                        r += cr; g += cg; bl += cb;
+                    }
+                    if (!inside)
+                    {
+                        if (dir > 0) sHi = s - 1; else sLo = s + 1;
+                        break;
+                    }
+                    profile[s + steps] = (r / 5, g / 5, bl / 5);
                 }
-                profile[s + steps] = (r / 5, g / 5, bl / 5);
-            }
-            if (!inside) continue; // this part of the side is off the picture: no evidence
+            int scanFrom = sLo + 3, scanTo = sHi - 7;
+            if (scanTo < scanFrom || sHi < 8 || sLo > -4) { offPicture.Add(t); continue; } // off the picture: no evidence
 
-            // Outermost strong step (inner side paper-like, outer side not, and not paper again a little further out).
+            // The outermost strong step (inner side paper-like, outer side not, and not paper again a little further out),
+            // located at its steepest point. The border of a photographed sheet is a soft ramp several pixels wide (lens,
+            // JPEG, the sheet's shadow): every position on the ramp passes the test, and taking the outermost one put the
+            // outline 1-2% outside the sheet (background wedges in the corners of the straightened page, owner's photos
+            // 2026-09-28). So: the outermost run of positions that pass, and in it the one with the largest step.
             double best = 0, bestS = 0;
             double maxStep = 0;
-            for (int s = -steps + 3; s <= steps - 7; s++)
+            for (int s = scanFrom; s <= scanTo; s++)
                 maxStep = Math.Max(maxStep, Diff(profile[s - 3 + steps], profile[s + 3 + steps]));
             if (maxStep < MinStep) continue;
-            for (int s = -steps + 3; s <= steps - 7; s++)
+            bool inRun = false;
+            double runBest = 0, runBestS = 0;
+            for (int s = scanFrom; s <= scanTo; s++)
             {
                 (double, double, double) inner = profile[s - 3 + steps], outer = profile[s + 3 + steps], beyond = profile[s + 7 + steps];
                 double step = Diff(inner, outer);
-                if (step < Math.Max(MinStep, 0.5 * maxStep)) continue;
-                if (Diff(inner, paper) > PaperTolerance) continue;               // inner side must be paper
-                if (Diff(outer, paper) < PaperTolerance * 0.5 && Diff(beyond, paper) < PaperTolerance * 0.5) continue; // paper again: text
-                if (s > bestS || best == 0) { best = step; bestS = s; }
+                bool passes = step >= Math.Max(MinStep, 0.5 * maxStep)
+                              && Diff(inner, paper) <= PaperTolerance                                              // inner side must be paper
+                              && !(Diff(outer, paper) < PaperTolerance * 0.5 && Diff(beyond, paper) < PaperTolerance * 0.5); // paper again: text
+                if (passes)
+                {
+                    if (!inRun) { inRun = true; runBest = 0; }
+                    if (step > runBest) { runBest = step; runBestS = s; }
+                }
+                else if (inRun)
+                {
+                    inRun = false;
+                    best = runBest; bestS = runBestS; // a later (outer) run replaces it
+                }
             }
+            if (inRun) { best = runBest; bestS = runBestS; }
             if (best == 0) continue;
             ts.Add(t);
             es.Add(bestS);
@@ -155,14 +213,78 @@ public static class PageOutlineRefiner
         }
         Trace?.Invoke($"side {side}: {ts.Count} border points of {SamplesPerSide}, range {range:0}");
         if (ts.Count < 12) return null;
-        double spread = ts.Max() - ts.Min();
-        bool curve = ts.Count >= 24 && spread > 0.6;
-        double[]? p = RobustFit(ts, es, ws, curve ? 4 : 2);
-        if (p == null) { Trace?.Invoke($"side {side}: robust fit failed"); return null; }
-        double c2 = curve ? p[2] : 0, d2 = curve ? p[3] : 0;
+
+        // Consensus line first: a least-squares start is dragged by a run of wrong points (the edge of the hand
+        // holding the sheet gave offsets swinging +50 .. -57 px on the owner's photos) and Tukey then converges on a
+        // tilted line. Only the points near the consensus line go on to the fit.
+        double tol = Math.Max(2.5, 0.006 * len);
+        (double A, double B)? consensus = Consensus(ts, es, ws, tol);
+        if (consensus is not { } cl) return null;
+        var kt = new List<double>(); var ke = new List<double>(); var kw = new List<double>();
+        for (int i = 0; i < ts.Count; i++)
+            if (Math.Abs(es[i] - (cl.A + cl.B * ts[i])) <= 3 * tol) { kt.Add(ts[i]); ke.Add(es[i]); kw.Add(ws[i]); }
+        if (kt.Count < 12) return null;
+        double lo = kt.Min(), hi = kt.Max();
+
+        // Evidence along a short stretch only (the rest under a hand, off the picture): extrapolating its slope to the
+        // corners turns small errors into big ones, so the side is moved, not turned.
+        if (hi - lo < 0.35)
+        {
+            double shift = Median(ke.ToArray());
+            Trace?.Invoke($"side {side}: shift only {shift:0.0} ({kt.Count} points in {lo:0.00}..{hi:0.00})");
+            return new SideFit(shift, shift, 0, 0);
+        }
+
+        // Evidence that stops short of a corner because the corner is at the picture's frame (the search
+        // window has no room outside it) leaves that end to extrapolation, which put corners 3-6% of the width
+        // outside the sheet on the owner's photos (a side bulging out in the middle and coming back at the corner).
+        // There the detector's own corner is added as a prior: a group of points the robust fit can still overrule.
+        double realLo = lo, realHi = hi;
+        double prior = kw.Max();
+        // Only where the evidence stops because the picture does (most samples beyond are off it): a border that is
+        // merely faint there (pale paper on a pale table) keeps the extrapolated line, the detector may be the one that
+        // is wrong (it put a side 140 px into the table on one of the photos).
+        bool offStart = offPicture.Count(v => v < lo) >= 0.5 * (lo - 0.04) * SamplesPerSide / 0.92;
+        bool offEnd = offPicture.Count(v => v > hi) >= 0.5 * (0.96 - hi) * SamplesPerSide / 0.92;
+        if (lo > 0.12 && offStart) { for (int i = 0; i < 6; i++) { kt.Add(0); ke.Add(anchorStart); kw.Add(prior); } lo = 0; }
+        if (hi < 0.88 && offEnd) { for (int i = 0; i < 6; i++) { kt.Add(1); ke.Add(anchorEnd); kw.Add(prior); } hi = 1; }
+
+        // A bulge only when the evidence reaches both ends of the side: otherwise the cubic term extrapolates freely
+        // and throws the chord's end (the corner) tens of pixels off.
+        bool curve = kt.Count >= 24 && lo < 0.12 && hi > 0.88 && realHi - realLo > 0.6;
+        double[]? p = curve ? RobustFit(kt, ke, kw, 4) : null;
         // Guard against wild bulges (a hand edge fitted as the border): at most 12% of the side.
-        if (curve && Math.Abs(0.25 * c2) + Math.Abs(0.15 * d2) > 0.12 * len) { c2 = 0; d2 = 0; }
+        if (p != null && Math.Abs(0.25 * p[2]) + Math.Abs(0.15 * p[3]) > 0.12 * len) p = null;
+        p ??= RobustFit(kt, ke, kw, 2);
+        if (p == null) { Trace?.Invoke($"side {side}: robust fit failed"); return null; }
+        double c2 = p.Length == 4 ? p[2] : 0, d2 = p.Length == 4 ? p[3] : 0;
+        Trace?.Invoke($"side {side}: start {p[0]:0.0} end {p[0] + p[1]:0.0} bulge {c2:0.0}/{d2:0.0} samples " +
+                      string.Join(" ", ts.Zip(es).Select(z => $"{z.First:0.00}:{z.Second:0}")));
         return new SideFit(p[0], p[0] + p[1], c2, d2);
+    }
+
+    /// <summary>The line e = A + B t through two of the points that most (strength-weighted) points lie within
+    /// <paramref name="tol"/> of; every pair is tried (at most 64 points), so the result is deterministic.</summary>
+    private static (double A, double B)? Consensus(List<double> ts, List<double> es, List<double> ws, double tol)
+    {
+        int n = ts.Count;
+        double bestScore = 0;
+        (double A, double B)? best = null;
+        for (int i = 0; i < n; i++)
+            for (int j = i + 1; j < n; j++)
+            {
+                double dt = ts[j] - ts[i];
+                if (dt < 0.1) continue; // too close together to fix a direction
+                double b = (es[j] - es[i]) / dt, a = es[i] - b * ts[i];
+                double score = 0;
+                for (int k = 0; k < n; k++)
+                {
+                    double r = Math.Abs(es[k] - (a + b * ts[k]));
+                    if (r <= tol) score += Math.Sqrt(ws[k]) * (1 - 0.5 * r / tol);
+                }
+                if (score > bestScore) { bestScore = score; best = (a, b); }
+            }
+        return best;
     }
 
     /// <summary>Weighted least squares of e(t) = p0 + p1 t [+ t(1-t)(p2 + p3 t)], reweighted with Tukey's biweight so

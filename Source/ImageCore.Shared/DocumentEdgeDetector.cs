@@ -36,6 +36,15 @@ public sealed class DocumentEdgeDetector : IEdgeDetector
     /// <summary>Smallest sheet (share of the frame) worth reporting: receipts, small notes.</summary>
     private const double MinAreaFraction = 0.04;
 
+    /// <summary>How far outside the frame a corner may be when the first search found nothing (share of the short side
+    /// of the picture). A sheet the frame
+    /// cuts across a corner (photographed at an angle, one corner off the picture) has that corner well outside; with
+    /// 4% such a sheet was not found at all on the owner's photos. Matches how far the outline editor lets a corner go.</summary>
+    private const double OutsideMargin = 0.2;
+
+    /// <summary>How far outside the frame a corner may be in the first search (share of the long side).</summary>
+    private const double NearFrameMargin = 0.04;
+
     /// <summary>Below this score the detection is reported as failed.</summary>
     public double MinConfidence { get; init; } = 0.42;
 
@@ -86,6 +95,7 @@ public sealed class DocumentEdgeDetector : IEdgeDetector
 
         Quad? bestQuad = null;
         double bestScore = 0;
+        var passes = new List<(List<Line> Lines, EdgeMap Edges)>();
         foreach ((double percentile, float floor) in Passes)
         {
             EdgeMap edges = EdgeMap.Compute(s, percentile, floor);
@@ -95,8 +105,9 @@ public sealed class DocumentEdgeDetector : IEdgeDetector
                 foreach (Line l in lines)
                     Trace($"  line theta={l.Theta / PiOver180:0.0} rho={l.Rho:0.0} votes={l.Votes} strength={l.Strength:0}");
             if (AllowFrameBorders) AddBorderLines(lines, s.Width, s.Height);
+            passes.Add((lines, edges));
 
-            (Quad quad, double score)? found = BestQuad(lines, edges, Trace, MaxScoredCount);
+            (Quad quad, double score)? found = BestQuad(lines, edges, Trace, MaxScoredCount, NearFrameMargin);
             Trace?.Invoke($"pass p={percentile}: best score {(found?.score ?? 0):0.000}");
             if (found != null && found.Value.score > bestScore * LooserPassMargin)
             {
@@ -105,12 +116,33 @@ public sealed class DocumentEdgeDetector : IEdgeDetector
             }
         }
 
+        // Nothing with its corners at most a hair outside the picture: perhaps a sheet the frame cuts across a corner.
+        // Only then are outlines with a corner well outside considered; allowing them from the start let outlines
+        // reach past the sheet into the table on photos that were fine before.
+        double limit = NearFrameMargin;
+        if (AllowFrameBorders && (bestQuad == null || bestScore < MinConfidence))
+        {
+            foreach ((List<Line> lines, EdgeMap edges) in passes)
+            {
+                (Quad quad, double score)? found = BestQuad(lines, edges, Trace, MaxScoredCount, OutsideMargin);
+                Trace?.Invoke($"corner outside the frame: best score {(found?.score ?? 0):0.000}");
+                if (found != null && found.Value.score > bestScore * LooserPassMargin)
+                {
+                    bestScore = found.Value.score;
+                    bestQuad = found.Value.quad;
+                    limit = OutsideMargin;
+                }
+            }
+        }
+
         double confidence = Math.Clamp(bestScore, 0, 1);
         if (bestQuad == null || confidence < MinConfidence) return fallback with { Confidence = confidence };
 
         Quad px = Order(bestQuad.Value);
-        // Pixel centers -> 0..1, clamped: corners may poke a hair outside the frame.
-        PointD Norm(PointD p) => new(Math.Clamp((p.X + 0.5) / s.Width, 0, 1), Math.Clamp((p.Y + 0.5) / s.Height, 0, 1));
+        // Pixel centers -> 0..1. Normally clamped to the frame (corners may poke a hair outside it); a sheet the frame
+        // cuts keeps its corners outside.
+        double lo = limit == NearFrameMargin ? 0 : -limit, hi = 1 - lo;
+        PointD Norm(PointD p) => new(Math.Clamp((p.X + 0.5) / s.Width, lo, hi), Math.Clamp((p.Y + 0.5) / s.Height, lo, hi));
         var normalized = new Quad(Norm(px.TopLeft), Norm(px.TopRight), Norm(px.BottomRight), Norm(px.BottomLeft));
         return new QuadDetection(normalized, confidence, true);
     }
@@ -473,7 +505,7 @@ public sealed class DocumentEdgeDetector : IEdgeDetector
 
     private readonly record struct Candidate(Quad Quad, int[] SideLine, double PreScore);
 
-    private static (Quad Quad, double Score)? BestQuad(List<Line> lines, EdgeMap e, Action<string>? trace, int maxScored)
+    private static (Quad Quad, double Score)? BestQuad(List<Line> lines, EdgeMap e, Action<string>? trace, int maxScored, double outsideMargin)
     {
         int w = e.W, h = e.H, minDim = Math.Min(w, h);
         double cx = (w - 1) / 2.0, cy = (h - 1) / 2.0;
@@ -495,7 +527,9 @@ public sealed class DocumentEdgeDetector : IEdgeDetector
         }
 
         var candidates = new List<Candidate>();
-        double margin = 0.04 * Math.Max(w, h);
+        // The near-frame margin is a share of the long side (as it always was), the wide one of the short side, so that
+        // it stays within what the result is clamped to.
+        double margin = outsideMargin * (outsideMargin > NearFrameMargin ? Math.Min(w, h) : Math.Max(w, h));
         for (int p = 0; p < pairs.Count; p++)
         {
             for (int q = p + 1; q < pairs.Count; q++)
@@ -536,7 +570,7 @@ public sealed class DocumentEdgeDetector : IEdgeDetector
                     // fraction of the side that has edge pixels on its line x how strong those edges are
                     pre += l.IsBorder ? 0.55 : Math.Min(1.0, l.Votes / Math.Max(1.0, len)) * (0.55 + 0.45 * Math.Clamp(l.Strength / 30, 0.2, 1));
                 }
-                pre *= 0.6 + 0.4 * Math.Sqrt(quad.Area / ((double)w * h));
+                pre *= 0.6 + 0.4 * Math.Sqrt(VisibleArea(quad, w, h) / ((double)w * h));
                 candidates.Add(new Candidate(quad, sideLine, pre));
             }
         }
@@ -721,10 +755,14 @@ public sealed class DocumentEdgeDetector : IEdgeDetector
 
     private static Scored Evaluate(Candidate c, List<Line> lines, EdgeMap e, double toBeat)
     {
-        double areaFraction = c.Quad.Area / ((double)e.W * e.H);
+        // Only the part inside the picture counts, and a part outside it costs a little: otherwise an outline reaching
+        // past the frame (into the table, beyond the sheet) grows for free and beats the sheet.
+        double visible = VisibleArea(c.Quad, e.W, e.H);
+        double areaFraction = visible / ((double)e.W * e.H);
+        double outsideShare = 1 - visible / Math.Max(1, c.Quad.Area);
         double angleDev = MaxAngleDeviation(c.Quad) / PiOver180;
         double angleFactor = 1 - Math.Clamp((angleDev - 15) / 45, 0, 0.6);
-        double shape = (0.35 + 0.65 * Math.Sqrt(areaFraction)) * angleFactor;
+        double shape = (0.35 + 0.65 * Math.Sqrt(areaFraction)) * angleFactor * (1 - 0.3 * outsideShare);
         // Best score this candidate could reach if every side not yet measured were perfect.
         // Most candidates are hopeless after one or two sides, so bail out early.
         if (shape <= toBeat) return new Scored(c, 0, 0);
@@ -863,6 +901,38 @@ public sealed class DocumentEdgeDetector : IEdgeDetector
         double x = (a.Rho * b.Ny - a.Ny * b.Rho) / det;
         double y = (a.Nx * b.Rho - a.Rho * b.Nx) / det;
         return new PointD(x, y);
+    }
+
+    /// <summary>Area of the quad inside the picture (the quad clipped to the frame, Sutherland-Hodgman).</summary>
+    private static double VisibleArea(Quad q, int w, int h)
+    {
+        var poly = new List<PointD>(q.ToArray());
+        // Each frame edge as (normal axis, limit, keep-below): x >= 0, x <= w, y >= 0, y <= h.
+        foreach ((bool onX, double limit, bool below) in new[] { (true, 0.0, false), (true, (double)w, true), (false, 0.0, false), (false, (double)h, true) })
+        {
+            if (poly.Count == 0) break;
+            var next = new List<PointD>(poly.Count + 2);
+            for (int i = 0; i < poly.Count; i++)
+            {
+                PointD a = poly[i], b = poly[(i + 1) % poly.Count];
+                double va = onX ? a.X : a.Y, vb = onX ? b.X : b.Y;
+                bool inA = below ? va <= limit : va >= limit, inB = below ? vb <= limit : vb >= limit;
+                if (inA) next.Add(a);
+                if (inA != inB)
+                {
+                    double t = (limit - va) / (vb - va);
+                    next.Add(new PointD(a.X + (b.X - a.X) * t, a.Y + (b.Y - a.Y) * t));
+                }
+            }
+            poly = next;
+        }
+        double area = 0;
+        for (int i = 0; i < poly.Count; i++)
+        {
+            PointD a = poly[i], b = poly[(i + 1) % poly.Count];
+            area += a.X * b.Y - b.X * a.Y;
+        }
+        return Math.Abs(area) / 2;
     }
 
     private static bool InsideFrame(Quad q, int w, int h, double margin)

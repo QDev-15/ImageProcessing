@@ -7,8 +7,10 @@ using ImageCoreService;
 /// <summary>
 /// Black-and-white quality on a simulated phone photo of a text page: renders an A4 page at 300 DPI, degrades it the
 /// way a camera does (smaller, lens blur, uneven light, noise, JPEG), scales it back to 300 DPI like the warp, then
-/// binarizes it with the old and the candidate settings. Writes 100 % crops and a phone-screen-size view of each, plus
-/// the PNG size, so the settings can be compared by eye.
+/// binarizes it with a few settings (production is "4_sharp_soft12"; "7_sharp_hard" is what PDF export at Nhỏ / Vừa
+/// used to embed before 2026-09-28c). Writes 100 % crops, a phone-screen-size view, and a 4x "phóng to" (pinch-zoom)
+/// crop of each, plus the PNG size, so the settings can be compared by eye. Also prints what PdfExportService embeds
+/// today at Nhỏ (unchanged, 1-bit) and Vừa (now shrunk but anti-aliased, "export_medium").
 /// usage: probe bw &lt;outDir&gt;
 /// </summary>
 internal static class BwProbe
@@ -30,12 +32,26 @@ internal static class BwProbe
         {
             ("2_old_hard", () => Despeckled(Binarizer.Sauvola(flat, window, k))),
             ("3_soft12", () => Binarizer.Sauvola(flat, window, k, 0, 12)),
-            ("4_sharp_soft12", () => Binarizer.Sauvola(Sharp(flat, 0.8), window, k, 0, 12)),
+            ("4_sharp_soft12", () => Binarizer.Sauvola(Sharp(flat, 0.8), window, k, 0, 12)), // production, at native resolution
             ("5_sharp_soft20", () => Binarizer.Sauvola(Sharp(flat, 0.8), window, k, 0, 20)),
             ("6_sharp15_soft16", () => Binarizer.Sauvola(Sharp(flat, 1.5), window, k, 0, 16)),
-            ("7_sharp_hard", () => Despeckled(Binarizer.Sauvola(Sharp(flat, 0.8), window, k))),
+            ("7_sharp_hard", () => Despeckled(Binarizer.Sauvola(Sharp(flat, 0.8), window, k))), // = old PDF export at Nhỏ/Vừa (BilevelAsync of variant 4)
             ("8_sharp_soft12_q4", () => Quantize(Binarizer.Sauvola(Sharp(flat, 0.8), window, k, 0, 12), 4)),
         };
+
+        // What PdfExportService actually embeds at each quality tier now (2026-09-28c: "chữ bị vỡ khi phóng to" at
+        // Vừa/Nhỏ traced to their hard 1-bit embedding -- variant 7 above is what that looked like; PdfQuality.Medium
+        // now shrinks the smooth page instead of bileveling it, PdfQuality.Small still bilevels, for a small file).
+        GrayImage prod = Binarizer.Sauvola(Sharp(flat, 0.8), window, k, 0, 12); // the page as saved in the app
+        Console.WriteLine($"{"export_small_1bit(unchanged)",-30} png {PngWriter.EncodeBilevel(Despeckled(Binarizer.Sauvola(Sharp(flat, 0.8), window, k))).Length / 1024,5} KB");
+        const int mediumDpi = 150; // must match PdfQuality.Medium.GrayDpi (DocScanner.Core/Export/PdfQuality.cs)
+        int mediumEdge = (int)Math.Round(11.69 * mediumDpi);
+        (int w, int h) = ((int)Math.Round(prod.Width * mediumEdge / (double)Math.Max(prod.Width, prod.Height)),
+                          (int)Math.Round(prod.Height * mediumEdge / (double)Math.Max(prod.Width, prod.Height)));
+        GrayImage medium = prod.Resize(w, h);
+        Save(medium, Path.Combine(outDir, "export_medium"));
+        Console.WriteLine($"{"export_medium_gray(new)",-30} png {PngWriter.EncodeGray8(medium).Length / 1024,5} KB  {w}x{h}");
+
         foreach ((string name, Func<GrayImage> make) in variants)
         {
             var sw = System.Diagnostics.Stopwatch.StartNew();
@@ -220,7 +236,13 @@ internal static class BwProbe
     private static void Save(GrayImage img, string path)
     {
         using var full = ToBitmap(img);
-        using (var crop = full.Clone(new Rectangle(180, 1700, 900, 500), full.PixelFormat)) crop.Save(path + "_crop.png");
+        // Every fixed region below was picked against the 2480x3508 truth page; a smaller (export-resolution) image
+        // scales the same rectangles down with it, so the crops still land on the same text.
+        double s = img.Width / 2480.0;
+        Rectangle Scaled(int x, int y, int w, int h) => Rectangle.Intersect(new Rectangle(0, 0, img.Width, img.Height),
+            new Rectangle((int)(x * s), (int)(y * s), Math.Max(1, (int)(w * s)), Math.Max(1, (int)(h * s))));
+
+        using (var crop = full.Clone(Scaled(180, 1700, 900, 500), full.PixelFormat)) crop.Save(path + "_crop.png");
         int sw = 1080, sh = (int)((long)img.Height * sw / img.Width);
         using var screen = new Bitmap(sw, sh, PixelFormat.Format24bppRgb);
         using (var g = Graphics.FromImage(screen))
@@ -228,6 +250,24 @@ internal static class BwProbe
             g.InterpolationMode = InterpolationMode.Bilinear;
             g.DrawImage(full, 0, 0, sw, sh);
         }
-        using (var part = screen.Clone(new Rectangle(0, 0, sw, 900), screen.PixelFormat)) part.Save(path + "_screen.png");
+        using (var part = screen.Clone(new Rectangle(0, 0, sw, Math.Min(900, sh)), screen.PixelFormat)) part.Save(path + "_screen.png");
+
+        // "Phóng to" (pinch-zoom past 100 %): a small crop blown up 4x with bilinear filtering, the way
+        // ZoomImageHost / Android's ImageView scales a bitmap up. One crop of the 12pt block, one of the smallest
+        // (8pt) text, where thin strokes / diacritics are most likely to break.
+        Zoom4x(full, path, "", Scaled(300, 1760, 260, 140));
+        Zoom4x(full, path, "_small", Scaled(300, 3020, 260, 140));
+    }
+
+    private static void Zoom4x(Bitmap full, string path, string suffix, Rectangle rect)
+    {
+        using var small = full.Clone(rect, full.PixelFormat);
+        using var zoomed = new Bitmap(small.Width * 4, small.Height * 4, PixelFormat.Format24bppRgb);
+        using (var g = Graphics.FromImage(zoomed))
+        {
+            g.InterpolationMode = InterpolationMode.Bilinear;
+            g.DrawImage(small, 0, 0, zoomed.Width, zoomed.Height);
+        }
+        zoomed.Save(path + "_zoom4x" + suffix + ".png");
     }
 }

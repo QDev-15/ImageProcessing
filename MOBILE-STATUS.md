@@ -543,6 +543,113 @@ biết gì về việc đổi mã: sau khi khách đổi mã, Play ghi nhận h�
 - Nợ nhỏ: `LastError` message tiếng Anh (từ exception gốc, chưa dịch); "Khôi phục giao dịch" hiện chưa phân biệt được lỗi mạng với "chưa từng
   mua" (đều rơi vào cùng nhánh `_ => "Không tìm thấy giao dịch..."` khi `LastError` là null); có thể tách rõ hơn nếu owner thấy cần.
 
+## 5l. Dò mép bám sát tờ giấy trên ảnh thật + tự căn chữ thẳng hàng (đợt 2026-09-28b)
+
+Dữ liệu: 2 tài liệu mới nhất trên Note 10+ ("Tài liệu 28-09-2026 18:43" và "20:27", cùng 10 ảnh 4608x2592 cầm tay / để bàn). Công cụ:
+`Source/Tools/EdgeProbe` chế độ `sheet <thư mục tài liệu chép từ máy> <out.png>` (mỗi trang: khung đã lưu | khung dò lại (đỏ = bộ dò, xanh đứt =
+sau tinh chỉnh) | bản dựng đã lưu | trang nắn mới | trang sau khi căn chữ). Biến môi trường: `CELL=700` (ô lớn), `TRACE=1` (in từng cạnh / từng dải),
+`PAGE_OUT=<thư mục>` (lưu trang nắn / trang căn chữ cỡ thật), `ANDROIDLIKE=1` (thu nhỏ ảnh như Android cũ).
+
+**Nguyên nhân khung lệch (đo trên 10 ảnh):**
+1. Ảnh đưa vào bộ dò trên điện thoại được thu nhỏ bằng `inSampleSize` + bilinear (răng cưa, nhiễu) -> khác PC, khung lệch. Giờ giải mã proxy 1600 px
+   một lần rồi thu nhỏ bằng `RgbImage.Resize` (`CropDetectionService.ForDetector`).
+2. `PageOutlineRefiner` lấy điểm **ngoài cùng** của dải chuyển mép (mép giấy trên ảnh là dốc mềm vài px) -> khung ra ngoài tờ 1-2%.
+   Giờ lấy điểm **dốc nhất** trong dải ngoài cùng.
+3. Bàn tay cầm giấy tạo chuỗi điểm sai (+50 .. -57 px), bình phương tối thiểu kéo lệch cả cạnh. Giờ tìm **đường đồng thuận** (thử mọi cặp điểm) rồi mới
+   fit Tukey trên các điểm gần nó. Chỉ có bằng chứng trên < 35% cạnh -> chỉ dời cạnh, không xoay.
+4. Cạnh cong (tờ cầm tay) mà bằng chứng dừng trước góc (góc sát khung ảnh, cửa sổ tìm không đủ chỗ) -> ngoại suy đẩy góc ra 3-6% bề ngang.
+   Giờ: cửa sổ tìm bị cắt tại mép ảnh thay vì bỏ điểm; chỉ cho phần cong khi bằng chứng tới cả hai đầu; đầu cạnh không có bằng chứng **vì ra khỏi ảnh**
+   thì lấy góc của bộ dò làm điểm neo (nếu mép chỉ mờ thì không neo: bộ dò có thể sai, như trang 9 cạnh dưới lọt vào mặt bàn 140 px).
+5. Chốt an toàn `KeepInPicture`: góc bộ dò thấy trong ảnh thì góc sau tinh chỉnh không ra ngoài khung quá 1% (tránh nêm trắng). Tờ bị khung cắt thật
+   thì người dùng kéo góc ra ngoài như cũ.
+6. Tờ giấy chéo bị khung cắt mất một góc (trang 7, độ tin cậy 0,24 -> **0,75**): `DocumentEdgeDetector` chỉ khi lượt đầu (góc ngoài khung <= 4%)
+   không tìm được mới thử lại cho góc ra ngoài tới 20% cạnh ngắn; điểm chấm theo **diện tích nằm trong ảnh** (`VisibleArea`) và trừ nhẹ phần ngoài ảnh.
+   Cho phép 20% ngay từ đầu làm các trang khác chọn khung lấn ra mặt bàn, nên chỉ dùng khi thất bại. Bộ dò camera trực tiếp (`Live()`) không đổi.
+
+Kết quả trên 10 ảnh: 9 trang trước / sau giống hệt ở bộ dò; sau tinh chỉnh khung ôm sát tờ ở trang 1-6, 8-10 (trước: 4, 5, 6, 8, 10 lòi ra ngoài,
+9 lọt vào bàn, 3 dính dải màn hình laptop); trang 7 từ "không dò được" thành đúng.
+
+**Tự căn chữ thẳng hàng (`ImageCore.Shared/ContentAligner.cs`)**: sau khi nắn (và xoay kết quả), đo độ nghiêng dòng chữ trong 4 dải ngang
+(projection profile trên ảnh Sauvola 1200 px, ±8°), rồi xoay từng hàng ảnh theo độ nghiêng tại độ cao đó (ngoài trang = trắng). Dải nào rõ nét
+(tương phản >= 3) thì đi theo đúng từng dải (nội suy giữa tâm các dải), không thì dùng đường thẳng khớp. Trang chữ chạy dọc (chụp nghiêng 90°, chưa xoay)
+được đo theo cột. Bỏ qua: trang không có dòng chữ rõ, nghiêng < 0,15°, hoặc chạm biên ±8° (nội dung cố ý nghiêng / tờ cong quá mức).
+Đo trên 10 trang thật: nghiêng còn lại sau khi nắn 1-6° (tờ cầm tay bị cong); trang 3 (mép trên khuất dưới viền laptop, -2,4 / -3,3 / -1,8 / -1,0°)
+sau khi căn thì dòng chữ và bảng nằm ngang. Trang 1 (cong > 8° ở phía dưới) để nguyên.
+Chạy trong `CropRenderService` cho cả bản xem trước và bản đầy đủ; `GeometryVersion = 4` nên mọi trang dựng lại một lần ở nền.
+
+**Khung cũ trên máy**: `PageRecord.DetectionVersion = 2` / `CropDetection`: khung **tự động** do luật cũ được dò lại một lần ở nền khi mở app
+(`PageIngestQueue.ResumePending`), rồi dựng lại; khung **chỉnh tay** giữ nguyên.
+
+Test: ImageCore.Shared 128 (thêm test ContentAligner: nghiêng đều / đổi dần / trang xoay 90° / trang thẳng / trang trống / nghiêng 12°),
+DocScanner.Core 191 (thêm test dò lại khung cũ một lần, giữ khung tay), SmokeTests ALL PASS.
+
+**Bản Release đã cài Note 10+ lúc 22:01 28/09** (đè bản Debug của đợt license, cùng mã nguồn nên vẫn có tính năng license). Bản Release không
+`run-as` được nên chưa kéo doc.json về để đối chiếu khung dò lại trên máy.
+
+**Owner cần xem trên máy**: mở 2 tài liệu trên, chờ các trang dò lại + dựng lại (vài giây / trang), xem mép và dòng chữ. Trang có tờ bị cắt mép / bàn tay
+che góc có thể vẫn cần kéo tay. Nếu thấy trang bị căn chữ sai (nghiêng hơn trước), gửi lại ảnh để chỉnh.
+
+## 5m. Chữ đen trắng "vỡ" khi phóng to (đợt 2026-09-28c)
+
+Yêu cầu của owner: "chuyển sang đen trắng chữ nó đẹp như chữ máy in được không? hiện tại chuyển sang chữ đen trắng phóng to lên thì thấy nó bị vỡ."
+
+**Tìm nguyên nhân**: dựng lại đúng những gì app làm bằng `Tools/EdgeProbe bw <thư mục>` (trang A4 300 DPI giả lập chụp bằng điện thoại: thu nhỏ,
+mờ ống kính, sáng lệch, nhiễu, nén JPEG, phóng lại đúng cỡ -- như bước nắn thật) rồi nhị phân hoá bằng đúng các bước app dùng, xuất crop 100%,
+crop cỡ màn hình, và **crop phóng to 4x bằng nội suy song tuyến** (đúng cách `ZoomImageHost` / `ImageView` Android phóng ảnh) để so trực tiếp:
+- Trang lưu trong app (`DocumentFilter.Apply`, luôn làm mượt viền: `Binarizer.Shade` ramp 12 mức xám trên nền đã làm nét -- ảnh xám 8-bit) khi
+  phóng to 4x **đã khá mượt**, không phải nguyên nhân chính.
+- **`PdfExportService.BilevelAsync`** (chạy cho chất lượng **Nhỏ** và **Vừa**, tức là mặc định / khuyên dùng) lấy đúng ảnh xám mượt đó rồi
+  **nhị phân hoá cứng** (`v >= 128 ? trắng : đen`, không viền mượt) trước khi nhúng vào PDF -- xấp xỉ mẫu thử "7_sharp_hard" trong công cụ.
+  Phóng to mẫu này lên **thấy rõ bậc thang răng cưa** ở các nét cong ("M", "y", dấu phẩy...), đúng như owner mô tả. Chỉ **Cao** (300 DPI) giữ
+  nguyên ảnh xám mượt nên không bị.
+- Kết luận: phần lớn người dùng thấy "vỡ chữ" khi mở / phóng to **file PDF đã xuất** ở chất lượng Vừa (mặc định) hoặc Nhỏ, vì trình xem PDF
+  thường cho phóng to hơn nhiều so với giới hạn 6x trong app (`ZoomController.MaxZoom`).
+
+**Đã thử và bỏ**: siêu lấy mẫu (supersampling) -- nắn/làm nét/ngưỡng ở độ phân giải x2-x3 rồi lấy trung bình khối về cỡ gốc (anti-alias thật
+theo diện tích phủ, giống cách font / máy scan làm mượt). Đo trên ảnh giả lập: viền mượt hơn một chút ở crop 4x nhưng **không rõ rệt** (giới hạn
+phóng to thật trong app chỉ 6x, tức phóng thêm ~1,85 lần so với cỡ vừa khít màn hình, không đủ để lộ bậc thang như test 4x), và **tốn nét mảnh
+hơn** (mất 4,2-5,0% nét mảnh so với 3,7% hiện tại, do làm nét trên bản nội suy phóng to thay vì ảnh gốc) -- không đáng đánh đổi, không áp dụng.
+
+**Sửa (đã áp dụng)**: `PdfExportService` + `PdfQuality` (thêm `GrayDpi`):
+- **Cao**: không đổi (giữ nguyên file đã lưu, đã mượt).
+- **Vừa (mặc định)**: không còn nhị phân hoá. Thu nhỏ ảnh xám mượt xuống 150 DPI bằng `GrayImage.Resize` (mới thêm, giống `RgbImage.Resize`:
+  lọc khối rồi song tuyến) và **giữ nguyên 8-bit** -- vẫn mượt ở mọi độ phóng to, chỉ đổi độ phân giải gốc. Đổi lại: file to hơn hẳn (đo trên
+  trang giả lập: 387 KB thay vì 202 KB, ~1,9 lần) vì PNG nén ảnh xám có viền mượt kém hơn nhiều so với đen trắng thuần (từng đo: xuống tới
+  100 DPI ảnh xám vẫn ~294 KB, so với 1-bit ở 150 DPI chỉ ~47 KB) -- không có cách giảm DPI đủ sâu để về lại cỡ cũ mà vẫn giữ được nét mượt rõ
+  rệt, nên chấp nhận đánh đổi vì owner ưu tiên chất lượng lần này.
+- **Nhỏ** (nhãn "gửi Zalo, email"): **không đổi**, vẫn nhị phân hoá 150 DPI (~150-200 KB) -- đây là mức dành riêng cho giới hạn dung lượng, chấp
+  nhận mất viền mượt là đánh đổi có chủ đích của mức này.
+- `GrayImage.Resize` mới (`ImageCore.Shared/GrayImage.cs`): giống `RgbImage.Resize` nhưng 1 kênh, dùng cho cả việc thu nhỏ này.
+
+Test: `ImageCore.Shared.Tests` 130 (thêm `GrayImage.Resize` giữ nguyên cỡ / màu phẳng, biến mép cứng thành mép mượt khi thu nhỏ),
+`DocScanner.Core.Tests` 193 (Vừa nhúng ảnh xám đã thu nhỏ đúng bằng `GrayImage.Resize`, Nhỏ vẫn 1-bit như cũ, Cao không đổi, hai test mới cho
+`PdfQuality.GrayLongEdgePx`). SmokeTests ALL PASS.
+
+**Owner cần xem**: xuất thử PDF ở "Vừa" từ một trang đen trắng thật, mở bằng trình xem PDF và phóng to hết cỡ để xác nhận chữ mượt như mong
+muốn; so cỡ file trước/sau (dự kiến to hơn ~2 lần cho các trang đen trắng) xem có chấp nhận được không -- nếu owner thấy file quá to, có thể
+hạ `PdfQuality.Medium.GrayDpi` (hiện 150) hoặc thêm một mức trung gian.
+
+**Bản Release đã cài Note 10+ lúc 23:14 28/09** (đè bản 22:01, gộp cả sửa dò mép mục 5l lẫn sửa đen trắng mục này).
+
+## 5n. Xuất PDF tự động lưu vào Tải xuống/DocScanner (đợt 2026-09-28d)
+
+Yêu cầu của owner: "khi xuất pdf, trực tiếp lưu vào folder DocScanner trong thư mục tải về của máy."
+
+- Trước đây: xuất PDF chỉ lưu vào thư mục riêng của app (`AppDataDirectory/exports`, dùng cho màn "PDF đã xuất" trong app); muốn có bản trong
+  Tải xuống (để mở bằng app khác / dùng USB kéo ra máy tính) phải tự bấm "Lưu vào Tải xuống" ở hộp thoại sau khi xuất.
+- Giờ: `ExportCoordinator.ExportAsync` tự gọi `IDownloadsService.SaveAsync` ngay sau khi xuất xong (không cần bấm gì thêm) -- bản trong thư
+  viện riêng của app vẫn được giữ như cũ (màn "PDF đã xuất" không đổi), thêm một bản vào **Tải xuống/DocScanner** (thư mục con riêng, để không
+  lẫn vào các file tải khác). `AndroidDownloadsService` đổi `RelativePath` từ `Download` thành `Download/DocScanner` (MediaStore tự tạo thư mục
+  con nếu chưa có, không cần quyền lưu trữ thêm -- vẫn dùng `MediaStore.Downloads`, Android 10+).
+- Lưu tự động lỗi (máy Android cũ hơn 10 -- `IDownloadsService.IsSupported = false`, hoặc lỗi ghi) **không làm hỏng lần xuất**: file trong thư
+  viện riêng của app vẫn còn, hộp thoại sau khi xuất báo lỗi lưu và vẫn có nút "Lưu vào Tải xuống" để thử lại tay. Nút đó (và "PDF đã xuất" ->
+  Lưu vào Tải xuống của một bản export cũ) cũng lưu vào `Tải xuống/DocScanner` từ giờ, thống nhất một chỗ.
+- Không thêm cờ Cài đặt để tắt lưu tự động (owner không yêu cầu); có thể thêm nếu owner thấy phiền.
+
+**Chưa kiểm chứng trên máy** (thay đổi chỉ ở tầng Android MAUI, không unit-test được như DocScanner.Core): build Debug qua kiểm tra biên dịch,
+build Release cài lên Note 10+ nhưng **chưa tự bấm xuất PDF để xem file có thật sự xuất hiện trong Tải xuống/DocScanner** (mở app Files hoặc
+`adb shell ls /sdcard/Download/DocScanner`). Owner nên xuất thử 1 tài liệu rồi kiểm tra thư mục đó.
+
 ## 6. Việc còn lại (theo thứ tự nên làm)
 
 ### Bước 9 -- Hoàn thiện

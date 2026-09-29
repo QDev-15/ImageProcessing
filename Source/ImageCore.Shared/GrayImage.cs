@@ -50,6 +50,34 @@ public sealed class GrayImage
         return dst;
     }
 
+    /// <summary>Resamples to exactly <paramref name="width"/> x <paramref name="height"/>: an integer box filter down to
+    /// within 2x of the target (so a big shrink does not alias), then bilinear. Upscaling is plain bilinear. Twin of
+    /// <see cref="RgbImage.Resize"/>, one channel.</summary>
+    public GrayImage Resize(int width, int height)
+    {
+        if (width == Width && height == Height) return this;
+        int factor = Math.Max(1, Math.Min(Width / Math.Max(1, width), Height / Math.Max(1, height)));
+        GrayImage s = Downscale(factor);
+        var dst = new GrayImage(width, height);
+        double kx = (double)s.Width / width, ky = (double)s.Height / height;
+        Parallel.For(0, height, ParallelScope.Options, y =>
+        {
+            double sy = (y + 0.5) * ky - 0.5;
+            int y0 = Math.Clamp((int)Math.Floor(sy), 0, s.Height - 1), y1 = Math.Min(y0 + 1, s.Height - 1);
+            double fy = Math.Clamp(sy - y0, 0, 1);
+            for (int x = 0; x < width; x++)
+            {
+                double sx = (x + 0.5) * kx - 0.5;
+                int x0 = Math.Clamp((int)Math.Floor(sx), 0, s.Width - 1), x1 = Math.Min(x0 + 1, s.Width - 1);
+                double fx = Math.Clamp(sx - x0, 0, 1);
+                double top = s.Data[y0 * s.Width + x0] * (1 - fx) + s.Data[y0 * s.Width + x1] * fx;
+                double bot = s.Data[y1 * s.Width + x0] * (1 - fx) + s.Data[y1 * s.Width + x1] * fx;
+                dst.Data[y * width + x] = (byte)(top * (1 - fy) + bot * fy + 0.5);
+            }
+        });
+        return dst;
+    }
+
     /// <summary>Turned clockwise by <paramref name="turns"/> x 90 degrees (any integer; 0 returns this image).</summary>
     public GrayImage RotateClockwise(int turns)
     {

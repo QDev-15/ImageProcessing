@@ -143,7 +143,8 @@ public sealed class PageIngestQueue
     public void Enqueue(string docId, string pageId) => Add(new Job(docId, pageId, Stage.Thumb));
 
     /// <summary>Picks up pages left unfinished by an earlier run (app killed, crash): pending ones start
-    /// over, half-done ones continue, and finished pages that never got an outline get one.</summary>
+    /// over, half-done ones continue, and finished pages that never got an outline (or have an automatic one by older
+    /// detection rules, <see cref="PageRecord.DetectionVersion"/>) get one.</summary>
     public void ResumePending()
     {
         foreach (DocumentRecord doc in _store.List())
@@ -155,7 +156,7 @@ public sealed class PageIngestQueue
                 {
                     case PageState.Pending: Add(new Job(doc.Id, page.Id, Stage.Thumb)); break;
                     case PageState.Preview: Add(new Job(doc.Id, page.Id, Stage.Proxy)); break;
-                    case PageState.Ready when page.CropQuad == null && _detection != null:
+                    case PageState.Ready when page.NeedsDetection && _detection != null:
                         Add(new Job(doc.Id, page.Id, Stage.Detect));
                         break;
                     case PageState.Ready when page.CropQuad != null && page.NeedsRender && page.RenderError == null:
@@ -286,7 +287,7 @@ public sealed class PageIngestQueue
                     ProxyEdge, page.EffectiveOrientation, CancellationToken.None);
                 bool kept = Change(job, p => p.State = PageState.Ready);
                 // A page that already has an outline (rotated by the user, or edited by hand) keeps it.
-                if (kept && _detection != null && page.CropQuad == null) Add(new Job(job.DocId, job.PageId, Stage.Detect));
+                if (kept && _detection != null && page.NeedsDetection) Add(new Job(job.DocId, job.PageId, Stage.Detect));
                 else if (kept && page.CropQuad != null) EnqueuePrerender(job.DocId, job.PageId);
                 break;
             }
@@ -308,7 +309,7 @@ public sealed class PageIngestQueue
                 Raise(job);
                 break;
 
-            case Stage.Detect when _detection != null && page.State == PageState.Ready && page.CropQuad == null:
+            case Stage.Detect when _detection != null && page.State == PageState.Ready && page.NeedsDetection:
                 try
                 {
                     await _detection.DetectAsync(job.DocId, job.PageId);

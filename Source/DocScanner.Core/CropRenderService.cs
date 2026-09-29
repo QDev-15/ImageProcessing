@@ -49,7 +49,7 @@ public sealed class CropRenderService(DocumentStore store, IImageService images,
         FilteredPage result = await Task.Run(async () =>
         {
             // Straighten, turn, then filter: the same order as the result screen's preview.
-            RgbImage flat = (await WarpAsync(docId, page, quadValues, bendValues, CropPlanner.MaxLongEdge, ct)).RotateClockwise(outputRotation / 90);
+            RgbImage flat = Level((await WarpAsync(docId, page, quadValues, bendValues, CropPlanner.MaxLongEdge, ct)).RotateClockwise(outputRotation / 90));
             ThrowIfStale();
             FilteredPage filtered;
             using (Perf.Measure($"render filter {filter.Mode} {flat.Width}x{flat.Height}"))
@@ -70,7 +70,7 @@ public sealed class CropRenderService(DocumentStore store, IImageService images,
         else if (result.IsBilevel)
             await File.WriteAllBytesAsync(flatPath, PngWriter.EncodeBilevel(result.Gray!), ct); // lossless, tiny, embeds straight into PDF
         else if (result.IsBlackWhite)
-            await File.WriteAllBytesAsync(flatPath, PngWriter.EncodeGray8(result.Gray!), ct); // anti-aliased edges; the PDF export makes it 1-bit unless "Cao"
+            await File.WriteAllBytesAsync(flatPath, PngWriter.EncodeGray8(result.Gray!), ct); // anti-aliased edges; PDF export shrinks it (Vừa / Cao) or bilevels it (Nhỏ)
         else
             await images.SaveJpegAsync(RgbImage.FromGray(result.Gray!), flatPath, JpegQuality, ct);
         await images.SaveJpegAsync(MakeThumb(result), thumbPath, ThumbQuality, ct);
@@ -152,7 +152,15 @@ public sealed class CropRenderService(DocumentStore store, IImageService images,
         double[] quadValues = page.CropQuad ?? Quad.Inset(0.03).ToValues();
         int turns = page.OutputRotation / 90;
         double[]? bendValues = page.CropBend;
-        return await Task.Run(async () => (await WarpAsync(docId, page, quadValues, bendValues, maxLongEdge, ct)).RotateClockwise(turns), ct);
+        return await Task.Run(async () => Level((await WarpAsync(docId, page, quadValues, bendValues, maxLongEdge, ct)).RotateClockwise(turns)), ct);
+    }
+
+    /// <summary>The straightened, upright page with its text lines made level (<see cref="ContentAligner"/>): the outline
+    /// is never perfect, and a line of text climbing across the page shows at once.</summary>
+    private static RgbImage Level(RgbImage page)
+    {
+        using (Perf.Measure($"level text lines {page.Width}x{page.Height}"))
+            return ContentAligner.Align(page, ContentAligner.Measure(page));
     }
 
     /// <summary>Decodes only the part of the original that holds the page (outline mapped back to the stored, possibly

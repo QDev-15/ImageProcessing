@@ -393,6 +393,53 @@ public class StoreAndImportTests
     }
 
     [Fact]
+    public async Task Automatic_outlines_by_older_detection_rules_are_detected_again_once_and_hand_made_ones_are_kept()
+    {
+        using var root = new TempRoot();
+        var first = new DocumentStore(root.Path);
+        DocumentRecord doc = first.Create();
+        double[] old = [0.1, 0.1, 0.9, 0.1, 0.9, 0.9, 0.1, 0.9];
+        var pages = new[]
+        {
+            new PageRecord { Id = "auto", State = PageState.Ready, CropQuad = old, CropDetected = true },
+            new PageRecord { Id = "missed", State = PageState.Ready, CropQuad = old, CropDetected = false },
+            new PageRecord { Id = "hand", State = PageState.Ready, CropQuad = old, CropManual = true },
+        };
+        foreach (PageRecord p in pages)
+        {
+            Directory.CreateDirectory(first.PageFolder(doc.Id, p.Id));
+            File.WriteAllText(first.OriginalPath(doc.Id, p), p.Id);
+            File.WriteAllText(first.ProxyPath(doc.Id, p), "proxy");
+        }
+        first.Update(doc.Id, d => d.Pages.AddRange(pages));
+
+        var store = new DocumentStore(root.Path);
+        var images = new FakeImageService();
+        int detections = 0;
+        var detection = new CropDetectionService(store, images, new FakeEdgeDetector(() =>
+        {
+            Interlocked.Increment(ref detections);
+            return new QuadDetection(SomeQuad, 0.7, true);
+        }));
+        var queue = new PageIngestQueue(store, images, detection);
+        queue.ResumePending();
+        await queue.WaitIdleAsync();
+
+        PageRecord Page(string id) => store.Pages(doc.Id).Single(p => p.Id == id);
+        Assert.Equal(SomeQuad.ToValues(), Page("auto").CropQuad);
+        Assert.Equal(PageRecord.DetectionVersion, Page("auto").CropDetection);
+        Assert.True(Page("missed").CropDetected);
+        Assert.Equal(old, Page("hand").CropQuad);
+        Assert.Equal(2, detections);
+
+        // Once: the next start finds nothing to detect.
+        var again = new PageIngestQueue(store, images, detection);
+        again.ResumePending();
+        await again.WaitIdleAsync();
+        Assert.Equal(2, detections);
+    }
+
+    [Fact]
     public async Task DeletePage_and_Delete_remove_files()
     {
         using var rig = new Rig();

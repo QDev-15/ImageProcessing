@@ -12,7 +12,8 @@ public sealed record PdfExportResult(string Path, int PageCount, IReadOnlyList<i
 /// Exports a document as a PDF, one page per page in the document's order. Pages that are still
 /// being imported, or whose straightened render is missing or stale, are finished first through the
 /// background queue (so an export never races the queue on the same page); every page then goes into
-/// the PDF as the exact file the app shows (JPEG or 1-bit PNG), without re-encoding.
+/// the PDF as the file the app shows (JPEG or PNG), shrunk to the export quality first
+/// (<see cref="ShrinkColorPagesAsync"/>).
 /// </summary>
 public sealed class PdfExportService(DocumentStore store, PageIngestQueue queue, IImageService images)
 {
@@ -66,8 +67,10 @@ public sealed class PdfExportService(DocumentStore store, PageIngestQueue queue,
     }
 
     /// <summary>Re-encodes the JPEG (color / gray) pages at the export quality: shrunk to the quality's resolution
-    /// (never enlarged) and saved at its JPEG quality into <paramref name="work"/>. Black-and-white pages with anti-aliased
-    /// edges (8-bit gray PNG) become 1-bit (~4x smaller) except at <see cref="PdfQuality.High"/>; 1-bit ones are kept.</summary>
+    /// (never enlarged) and saved at its JPEG quality into <paramref name="work"/>. Black-and-white pages (8-bit gray
+    /// PNG, anti-aliased edges) are shrunk to <see cref="PdfQuality.GrayDpi"/> the same way, staying anti-aliased,
+    /// except at <see cref="PdfQuality.High"/> (kept exactly as saved) and <see cref="PdfQuality.Small"/> (no
+    /// <see cref="PdfQuality.GrayDpi"/>: becomes 1-bit instead, the smallest a page of text gets).</summary>
     private async Task<List<PdfPageSource>> ShrinkColorPagesAsync(List<PdfPageSource> sources, PdfQuality quality, string work,
         IProgress<ExportProgress>? progress, CancellationToken ct)
     {
@@ -79,7 +82,9 @@ public sealed class PdfExportService(DocumentStore store, PageIngestQueue queue,
             PdfPageSource page = sources[i];
             if (!IsJpeg(page.ImageFile))
             {
-                result.Add(quality == PdfQuality.High ? page : await BilevelAsync(page, i, work, ct));
+                result.Add(quality == PdfQuality.High ? page
+                    : quality.GrayLongEdgePx is { } grayEdge ? await ShrinkGrayAsync(page, i, grayEdge, work, ct)
+                    : await BilevelAsync(page, i, work, ct));
                 continue;
             }
 
@@ -92,7 +97,8 @@ public sealed class PdfExportService(DocumentStore store, PageIngestQueue queue,
         return result;
     }
 
-    /// <summary>A smooth black-and-white page as 1-bit (dark below 128: the same strokes, without the soft edges).</summary>
+    /// <summary>A smooth black-and-white page as 1-bit (dark below 128: the same strokes, without the soft edges).
+    /// Used only for <see cref="PdfQuality.Small"/>, which has no <see cref="PdfQuality.GrayDpi"/>.</summary>
     private static async Task<PdfPageSource> BilevelAsync(PdfPageSource page, int index, string work, CancellationToken ct)
     {
         byte[] png = await File.ReadAllBytesAsync(page.ImageFile, ct);
@@ -102,6 +108,27 @@ public sealed class PdfExportService(DocumentStore store, PageIngestQueue queue,
         Directory.CreateDirectory(work);
         string file = Path.Combine(work, $"{index}.png");
         await File.WriteAllBytesAsync(file, bilevel, ct);
+        return page with { ImageFile = file };
+    }
+
+    /// <summary>A smooth black-and-white page shrunk to <paramref name="longEdge"/> px (never enlarged), staying an
+    /// anti-aliased 8-bit gray PNG: unlike <see cref="BilevelAsync"/>, the soft stroke edges survive, so the page still
+    /// looks smooth zoomed in, not a pixel staircase.</summary>
+    private static async Task<PdfPageSource> ShrinkGrayAsync(PdfPageSource page, int index, int longEdge, string work, CancellationToken ct)
+    {
+        byte[] png = await File.ReadAllBytesAsync(page.ImageFile, ct);
+        PngReader.PngData header = PngReader.Read(png);
+        if (header.ColorType != 0 || header.BitDepth != 8) return page; // already 1-bit (an old page): nothing to shrink
+        GrayImage gray = await Task.Run(() => PngReader.DecodeGray8(png), ct);
+        double scale = Math.Min(1.0, (double)longEdge / Math.Max(gray.Width, gray.Height));
+        if (scale < 1)
+        {
+            int w = Math.Max(1, (int)Math.Round(gray.Width * scale)), h = Math.Max(1, (int)Math.Round(gray.Height * scale));
+            gray = await Task.Run(() => gray.Resize(w, h), ct);
+        }
+        Directory.CreateDirectory(work);
+        string file = Path.Combine(work, $"{index}.png");
+        await File.WriteAllBytesAsync(file, PngWriter.EncodeGray8(gray), ct);
         return page with { ImageFile = file };
     }
 

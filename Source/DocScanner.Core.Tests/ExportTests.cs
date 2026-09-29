@@ -86,17 +86,26 @@ public class ExportTests
         Assert.True(File.Exists(rig.Store.CroppedPath(doc.Id, r1)));                    // the page kept in the app is untouched
         Assert.Empty(Directory.GetDirectories(Path.GetDirectoryName(result.Path)!, ".work_*")); // temp files cleaned up
 
-        // The black-and-white page (kept in the app with anti-aliased edges, 8-bit gray) goes in as 1-bit at "Vừa":
-        // exactly the app's page thresholded at 128.
+        // The black-and-white page (kept in the app with anti-aliased edges, 8-bit gray) is shrunk to "Vừa"'s
+        // black-and-white target (150 DPI) and stays anti-aliased at "Vừa": a hard 1-bit edge showed a visible pixel
+        // staircase once a page was zoomed past its own resolution (owner's report 2026-09-28c), which shrinking a
+        // 1-bit page cannot fix, only keeping the soft edge does.
         byte[] kept = File.ReadAllBytes(rig.Store.CroppedPath(doc.Id, rig.Store.Pages(doc.Id)[1]));
-        Assert.Equal(8, PngReader.Read(kept).BitDepth);
-        PngReader.PngData png = PngReader.Read(PngWriter.EncodeBilevel(PngReader.DecodeGray8(kept)));
+        PngReader.PngData keptPng = PngReader.Read(kept);
+        Assert.Equal(8, keptPng.BitDepth);
+        GrayImage keptGray = PngReader.DecodeGray8(kept);
+        int grayEdge = PdfQuality.Medium.GrayLongEdgePx!.Value;
+        Assert.True(Math.Max(keptGray.Width, keptGray.Height) > grayEdge, "the fake page should be large enough that Vừa actually shrinks it");
+        double scale = (double)grayEdge / Math.Max(keptGray.Width, keptGray.Height);
+        GrayImage expectedGray = keptGray.Resize(Math.Max(1, (int)Math.Round(keptGray.Width * scale)), Math.Max(1, (int)Math.Round(keptGray.Height * scale)));
+        PngReader.PngData expected = PngReader.Read(PngWriter.EncodeGray8(expectedGray));
 
         IPdfImage img2 = p2.GetImages().Single();
-        Assert.Equal(1, img2.BitsPerComponent);
-        Assert.Equal(png.ZlibData, img2.RawBytes.ToArray());
+        Assert.Equal(8, img2.BitsPerComponent);
+        Assert.Equal((expectedGray.Width, expectedGray.Height), (img2.WidthInSamples, img2.HeightInSamples));
+        Assert.Equal(expected.ZlibData, img2.RawBytes.ToArray());
         Assert.True(img2.TryGetBytesAsMemory(out Memory<byte> bits), "Flate + PNG predictor must decode");
-        Assert.Equal((img2.WidthInSamples + 7) / 8 * img2.HeightInSamples, bits.Length);
+        Assert.Equal((long)img2.WidthInSamples * img2.HeightInSamples, bits.Length);
     }
 
     [Fact]
@@ -112,6 +121,23 @@ public class ExportTests
         IPdfImage img = pdf.GetPage(1).GetImages().Single();
         Assert.Equal(8, img.BitsPerComponent);
         Assert.Equal(PngReader.Read(kept).ZlibData, img.RawBytes.ToArray()); // embedded as it is
+    }
+
+    /// <summary>Small ("Nhỏ · gửi Zalo, email") has no black-and-white target and keeps the old 1-bit embedding: the
+    /// tier is explicitly for a size limit, and losing the smooth edge is the accepted trade there.</summary>
+    [Fact]
+    public async Task Small_quality_still_embeds_black_and_white_as_1_bit()
+    {
+        using var rig = new Rig();
+        DocumentRecord doc = await rig.DocWithPages(1);
+        rig.Edit.SetFilter(doc.Id, rig.Store.Pages(doc.Id)[0].Id, PageColorMode.BlackWhite);
+        PdfExportResult result = await rig.Export.ExportAsync(doc.Id, rig.OutPath(), null, default, PdfQuality.Small);
+
+        byte[] kept = File.ReadAllBytes(rig.Store.CroppedPath(doc.Id, rig.Store.Pages(doc.Id)[0]));
+        using PdfDocument pdf = PdfDocument.Open(File.ReadAllBytes(result.Path));
+        IPdfImage img = pdf.GetPage(1).GetImages().Single();
+        Assert.Equal(1, img.BitsPerComponent);
+        Assert.Equal(PngReader.Read(PngWriter.EncodeBilevel(PngReader.DecodeGray8(kept))).ZlibData, img.RawBytes.ToArray());
     }
 
     [Fact]
@@ -281,6 +307,18 @@ public class ExportQualityTests
     {
         Assert.Same(PdfQuality.Medium, PdfQuality.FromKey(null));
         Assert.Same(PdfQuality.Medium, PdfQuality.FromKey("huge"));
+    }
+
+    /// <summary>Small has no black-and-white target (it stays 1-bit, the smallest a page of text gets); Medium and High
+    /// do, so their black-and-white pages stay anti-aliased instead of a hard, staircase edge when zoomed
+    /// (2026-09-28c). High's target is its own full resolution: <see cref="PdfExportService"/> keeps that page exactly
+    /// as saved rather than resizing it, but the value still holds so callers do not need to special-case it.</summary>
+    [Fact]
+    public void Small_has_no_black_and_white_target_Medium_and_High_do()
+    {
+        Assert.Null(PdfQuality.Small.GrayLongEdgePx);
+        Assert.Equal((int)Math.Round(11.69 * 150), PdfQuality.Medium.GrayLongEdgePx);
+        Assert.Equal(PdfQuality.High.LongEdgePx, PdfQuality.High.GrayLongEdgePx);
     }
 }
 
