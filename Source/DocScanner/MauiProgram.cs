@@ -5,6 +5,7 @@ using DocScanner.ViewModels;
 using DocScanner.Views;
 using ImageCoreService;
 using Microsoft.Extensions.Logging;
+using Plugin.AdMob; // UseAdMob() extension (Plugin.AdMob.Config)
 
 namespace DocScanner;
 
@@ -15,9 +16,21 @@ public static class MauiProgram
 		// Stage timings to logcat (adb logcat -s DocScanPerf): cheap, and the only way to see real speeds on a phone.
 		Perf.Sink = line => Android.Util.Log.Info("DocScanPerf", line);
 		Perf.Log("startup: CreateMauiApp");
+
+		// Ads: Debug always uses Google's own test ad units, whatever AdsConfig says, so development never
+		// risks a policy strike from clicking a real ad. Release does too, UNLESS AdsConfig.HasRealIds --
+		// otherwise a Release build made before AdMob is set up would request the still-placeholder IDs,
+		// which AdMob rejects, and show no ad at all instead of a working test one.
+#if DEBUG
+		Plugin.AdMob.Configuration.AdConfig.UseTestAdUnitIds = true;
+#else
+		Plugin.AdMob.Configuration.AdConfig.UseTestAdUnitIds = !AdsConfig.HasRealIds;
+#endif
+
 		var builder = MauiApp.CreateBuilder();
 		builder
 			.UseMauiApp<App>()
+			.UseAdMob(androidDefaultBannerAdUnitId: AdsConfig.BannerAdUnitId, androidDefaultInterstitialAdUnitId: AdsConfig.InterstitialAdUnitId)
 			.ConfigureFonts(fonts =>
 			{
 				fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular");
@@ -47,6 +60,7 @@ public static class MauiProgram
 		builder.Services.AddSingleton<ExportCoordinator>();
 		builder.Services.AddSingleton<IDownloadsService, AndroidDownloadsService>();
 		builder.Services.AddSingleton<ILicenseService, LicenseService>();
+		builder.Services.AddSingleton<IAdsService, AdsService>();
 		builder.Services.AddSingleton<PermissionService>();
 		builder.Services.AddSingleton<ImportCoordinator>();
 

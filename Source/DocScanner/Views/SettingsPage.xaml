@@ -37,7 +37,7 @@
             <Label Text="GÓI PRO" Style="{StaticResource Section}" />
             <VerticalStackLayout Style="{StaticResource Card}" Spacing="8" Padding="16,12">
                 <Label Text="{Binding LicenseSummaryText}" Style="{StaticResource Name}" FontFamily="OpenSansSemibold" />
-                <Label Text="Bản Pro bỏ giới hạn số lần xuất PDF, dùng vĩnh viễn, mua một lần." Style="{StaticResource Hint}"
+                <Label Text="Bản Pro bỏ giới hạn số lần xuất PDF và xoá mọi quảng cáo, dùng vĩnh viễn, mua một lần." Style="{StaticResource Hint}"
                        IsVisible="{Binding IsFree}" />
                 <Grid ColumnDefinitions="*,*" ColumnSpacing="10" IsVisible="{Binding IsFree}">
                     <Button Text="{Binding ProPriceText, StringFormat='Mua Pro · {0}', TargetNullValue='Mua Pro'}"

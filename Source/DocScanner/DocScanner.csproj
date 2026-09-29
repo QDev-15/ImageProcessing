@@ -33,6 +33,14 @@
 		<ApplicationVersion>2</ApplicationVersion>
 
 		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">26.0</SupportedOSPlatformVersion>
+
+		<!-- AdMob App ID, substituted into Platforms/Android/AndroidManifest.xml's ${admobAppId} token (a
+		     malformed / placeholder value here crashes the app at startup, before any C# runs: the SDK
+		     checks it in a ContentProvider that attaches ahead of MauiProgram). Set to Google's own,
+		     publicly documented test App ID for now (always valid, never serves a real ad). TODO before a
+		     Google Play release: replace with the real App ID from your AdMob console (Apps > Doc Scanner >
+		     App settings); AdsConfig.cs has the matching ad unit IDs to fill in at the same time. -->
+		<AndroidManifestPlaceholders>admobAppId=ca-app-pub-3940256099942544~3347511713</AndroidManifestPlaceholders>
 	</PropertyGroup>
 
 	<!-- Release: every assembly compiled ahead of time with LLVM. Mono JIT / plain AOT code is slow for the image loops
@@ -69,11 +77,17 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
+		<!-- Plugin.AdMob 10.0.90 needs Microsoft.Maui.Controls >= 10.0.90 (the workload's own default,
+		     $(MauiVersion), currently resolves to 10.0.20); pin the newer patch explicitly here. -->
+		<PackageReference Include="Microsoft.Maui.Controls" Version="10.0.90" />
 		<PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.0" />
 		<!-- MIT -->
 		<PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
 		<PackageReference Include="Plugin.InAppBilling" Version="10.0.0" />
+		<!-- MIT: banner + interstitial ads for the free tier (see Services/AdsService.cs). Pulls in the
+		     Google Mobile Ads SDK itself, which is proprietary (Google's own terms, not MIT); see
+		     THIRD-PARTY-NOTICES.md. -->
+		<PackageReference Include="Plugin.AdMob" Version="10.0.90" />
 		<!-- Apache-2.0 (AndroidX CameraX) / MIT (.NET bindings): the in-app document camera (Platforms/Android/Camera) -->
 		<PackageReference Include="Xamarin.AndroidX.Camera.Camera2" Version="1.6.2" />
 		<PackageReference Include="Xamarin.AndroidX.Camera.Lifecycle" Version="1.6.2" />

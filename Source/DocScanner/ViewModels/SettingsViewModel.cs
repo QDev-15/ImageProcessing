@@ -166,7 +166,7 @@ public partial class SettingsViewModel(IAppUpdater updater, DocumentStore store,
 			{
 				case PurchaseOutcome.Purchased:
 				case PurchaseOutcome.AlreadyOwned:
-					await Shell.Current.DisplayAlertAsync("Cảm ơn bạn!", "Đã nâng cấp Doc Scanner Pro. Mọi giới hạn dùng thử được gỡ bỏ.", "OK");
+					await Shell.Current.DisplayAlertAsync("Cảm ơn bạn!", "Đã nâng cấp Doc Scanner Pro. Mọi giới hạn dùng thử được gỡ bỏ, không còn quảng cáo.", "OK");
 					break;
 				case PurchaseOutcome.Cancelled:
 					break;

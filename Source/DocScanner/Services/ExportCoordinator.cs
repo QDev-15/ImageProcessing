@@ -17,7 +17,7 @@ namespace DocScanner.Services;
 /// <see cref="ILicenseService"/> and MOBILE-STATUS.md ("License &amp; khuyến mãi").
 /// </summary>
 public partial class ExportCoordinator(DocumentStore store, PdfExportService exporter, ExportLibrary library, IDownloadsService downloads,
-	ILicenseService license)
+	ILicenseService license, IAdsService ads)
 	: ObservableObject
 {
 	private CancellationTokenSource? _cts;
@@ -77,6 +77,8 @@ public partial class ExportCoordinator(DocumentStore store, PdfExportService exp
 
 		if (result == null) return;
 		license.RecordExport(); // no-op once Pro; a cancelled or failed export above never reaches here
+		ads.RegisterExport(); // every 5th free export: a full-screen ad now, before the share sheet below --
+		                       // never during it (would fight the share intent) and never on a later screen
 		string summary = $"{result.PageCount} trang · {result.Bytes / 1024.0:0} KB";
 		if (result.SkippedPages.Count > 0)
 			summary += $"\nBỏ qua trang {string.Join(", ", result.SkippedPages)} (ảnh lỗi hoặc chưa cắt được).";
@@ -107,7 +109,7 @@ public partial class ExportCoordinator(DocumentStore store, PdfExportService exp
 		bool buy = await Shell.Current.DisplayAlertAsync("Đã hết lượt xuất PDF miễn phí",
 			$"Bạn đã dùng hết {license.State.ExportsUsed} lượt xuất PDF miễn phí. Nâng cấp Pro"
 			+ (license.ProPriceText != null ? $" ({license.ProPriceText})" : "")
-			+ " để xuất không giới hạn, dùng vĩnh viễn.",
+			+ " để xuất không giới hạn và bỏ quảng cáo, dùng vĩnh viễn.",
 			"Mua Pro", "Để sau");
 		if (!buy) return false;
 

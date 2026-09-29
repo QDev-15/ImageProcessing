@@ -1,6 +1,6 @@
 # Doc Scanner (app mobile) -- trạng thái dự án và việc còn lại
 
-Cập nhật lần cuối: 2026-09-28 (License & khuyến mãi -- mục 5k). Đọc file này đầu tiên khi làm tiếp; chi tiết kỹ thuật từng bước nằm ở mục
+Cập nhật lần cuối: 2026-09-29 (Quảng cáo AdMob -- mục 5p). Đọc file này đầu tiên khi làm tiếp; chi tiết kỹ thuật từng bước nằm ở mục
 "App mobile" trong [CLAUDE.md](CLAUDE.md).
 
 ## 1. Tóm tắt
@@ -673,6 +673,61 @@ Yêu cầu của owner: "hiện tại đang để trang màu làm mặc định 
 - **Chưa cài lên máy** (máy không cắm dây lúc làm xong): build Debug qua kiểm tra biên dịch. Owner nhập ảnh mới thử
   xem trang có mặc định hiện đen trắng đúng không.
 
+## 5p. Quảng cáo (AdMob) (đợt 2026-09-29)
+
+Owner chốt: dùng **Google AdMob**, kết hợp với gói Pro (mục 5k) -- người chưa mua thấy quảng cáo, mua Pro thì **tắt hết**, không cần sản phẩm
+Play thứ hai (bản Pro hiện có đã bao gồm "bỏ quảng cáo", không tăng giá thêm gói riêng). Mức độ: banner ở màn chính (đặt theo đề xuất của tôi),
+**quảng cáo toàn màn hình (interstitial) sau mỗi 5 lần xuất PDF** (yêu cầu đúng của owner) -- không phải mỗi lần, để không làm phiền quá mức và
+giữ giá trị cho nút "mua Pro để bỏ quảng cáo"; mục tiêu owner nói rõ là khuyến khích dùng app và giữ đánh giá tốt, không tối đa doanh thu quảng
+cáo bằng mọi giá.
+
+### Kiến trúc
+
+- **`DocScanner.Core/Ads/AdsPolicy.cs`** (thuần .NET, test được, không đụng AdMob): `AdsState` (record, chỉ 1 số:
+  `ExportsSinceLastInterstitial`), `AdsPolicy.AfterExport(state, isPro)` -- hàm thuần, gọi sau MỖI lần xuất PDF thành công (kể cả khi đã Pro, để
+  bộ đếm không "đứng hình" rồi hiện quảng cáo ngay khi Pro bị hoàn tiền), trả về trạng thái mới và có nên hiện quảng cáo ngay bây giờ không.
+  `ExportsPerInterstitial = 5`, hằng số dễ đổi. Test: `DocScanner.Core.Tests/AdsPolicyTests.cs` (6 test: 4 lần đầu im lặng, lần thứ 5 hiện rồi
+  đếm lại từ đầu, lặp lại đúng chu kỳ, Pro không bao giờ hiện nhưng bộ đếm vẫn chạy ngầm, giá trị âm bất thường được kẹp về hợp lý).
+- **`DocScanner/Services/AdsService.cs`** (implement `IAdsService` bằng `Plugin.AdMob` 10.0.90, MIT -- gói duy nhất trong app nói chuyện với
+  AdMob, giống cách `LicenseService` là nơi duy nhất nói chuyện với Play Billing):
+  - `ShowAds` = `!license.State.IsPro`, cập nhật ngay khi mua Pro (nghe `ILicenseService.Changed`) -- màn chính bind thẳng vào đây.
+  - `RegisterExport()`: gọi `AdsPolicy.AfterExport`, lưu bộ đếm vào `Preferences` (giống cách `LicenseService` lưu `ExportsUsed`); nếu đến lượt
+    hiện quảng cáo VÀ quảng cáo đã tải xong (`IsAdLoaded`) thì `ShowAd()` ngay; nếu quảng cáo chưa kịp tải (mạng chậm) thì **bỏ qua lượt đó
+    trong im lặng** thay vì bắt người dùng chờ -- quảng cáo không bao giờ được làm chậm hay làm hỏng luồng xuất PDF. Luôn gọi `PrepareAd()` lại
+    ngay sau đó (dù có hiện hay không) để giữ sẵn 1 quảng cáo cho lần sau.
+  - `ExportCoordinator.ExportAsync` gọi `ads.RegisterExport()` ngay sau `license.RecordExport()`, **trước** hộp thoại Chia sẻ / Lưu / Mở --
+    không hiện quảng cáo trong lúc đang chia sẻ file (sẽ đá văng luồng share-intent) hay ở màn hình khác về sau.
+  - Banner: `<admob:BannerAd AdSize="SmartBanner">` ở màn chính (`HomePage.xaml`), một hàng riêng phía trên thanh dưới cùng (không đè lên nút
+    Chụp / Nhập ảnh / PDF đã xuất), ẩn hiện theo `HomeViewModel.ShowAds` (nghe `IAdsService.Changed`, giống cách `SettingsViewModel` nghe
+    `ILicenseService.Changed`). **Không đặt quảng cáo ở** màn camera, chỉnh 4 điểm, hay lúc đang xuất PDF -- dễ bấm nhầm và chính sách Play cấm
+    quảng cáo cản trở thao tác chính.
+  - Cài đặt: mục "GÓI PRO" (đã có ở mục 5k) đổi câu gợi ý thành nhắc luôn cả quảng cáo: "Bản Pro bỏ giới hạn số lần xuất PDF và xoá mọi quảng
+    cáo, dùng vĩnh viễn, mua một lần."
+  - Đồng ý quảng cáo (Google UMP / GDPR) do chính `Plugin.AdMob` tự hiện khi cần lúc khởi động -- không phải tự viết.
+- **AndroidManifest.xml**: thêm `meta-data com.google.android.gms.ads.APPLICATION_ID`, `activity` AdActivity theo đúng tài liệu Plugin.AdMob,
+  quyền `ACCESS_NETWORK_STATE` (INTERNET đã có sẵn từ tự cập nhật + Play Billing).
+- **`AdsConfig.cs`**: `AppId` / `BannerAdUnitId` / `InterstitialAdUnitId` hiện là **placeholder rỗng** (`ca-app-pub-REPLACE_ME/...`) -- vô hại vì
+  build Debug luôn ép `AdConfig.UseTestAdUnitIds = true` (chỉ quảng cáo thử nghiệm chính chủ của Google), nhưng **bắt buộc phải thay bằng ID
+  thật** trước khi build bản Release nộp Play (xem Bước 10). `AppId` cần sửa ở CẢ HAI chỗ: `AdsConfig.cs` và `AndroidManifest.xml` (file XML
+  tĩnh, không đọc được hằng số C#).
+- **Phiên bản gói NuGet**: `Plugin.AdMob` bản mới nhất (10.0.90) đòi `Microsoft.Maui.Controls >= 10.0.90`, cao hơn bản mặc định của workload
+  đang cài (10.0.20) -- đã ghim thẳng `Microsoft.Maui.Controls` lên 10.0.90 trong `DocScanner.csproj` để khớp; build Debug qua, không thấy cảnh
+  báo mới phát sinh từ việc nâng phiên bản này.
+
+### Đã kiểm tra / chưa kiểm tra
+
+- **199 test `DocScanner.Core.Tests` PASS** (thêm 6 test `AdsPolicyTests`, không sửa test nào cũ). Build Android (Debug, `net10.0-android`) sạch,
+  0 lỗi, không phát sinh cảnh báo mới.
+- **Chưa cài lên máy** (không có máy cắm lúc làm) -- **chưa thấy banner / interstitial thật hiện ra**, dù là bản test ads. Owner cần: cài bản
+  Debug, vào màn chính xem có banner (quảng cáo thử của Google, khung "Test Ad") ở trên thanh dưới cùng không, xuất PDF 5 lần liền xem có hiện
+  quảng cáo toàn màn hình sau lần thứ 5 không, mua Pro (license tester, xem mục 5k) xong xem quảng cáo có biến mất ngay không.
+- **Chưa thể kiểm chứng cho tới khi owner tạo app + đơn vị quảng cáo thật trên AdMob console**: quảng cáo thật (không phải test ads) hiện đúng,
+  form xin đồng ý UMP thật hiện ở khu vực EEA/UK (mô phỏng bằng `AdConfig.TestDevices` + vị trí giả lập, xem tài liệu Consent của Plugin.AdMob),
+  doanh thu ghi nhận trong AdMob console.
+- **API của `Plugin.AdMob` được tra trực tiếp từ file DLL đã tải về** (đọc metadata assembly, không chỉ tin tài liệu web) để chắc đúng tên
+  namespace / tham số trước khi build -- ví dụ tài liệu README tóm tắt sai chỗ `UseAdMob(defaultBannerAdUnitId: ...)`, tên tham số thật là
+  `UseAdMob(androidDefaultBannerAdUnitId: ...)`.
+
 ## 6. Việc còn lại (theo thứ tự nên làm)
 
 ### Bước 9 -- Hoàn thiện
@@ -687,12 +742,17 @@ Yêu cầu của owner: "hiện tại đang để trang màu làm mặc định 
 ### Bước 10 -- Phát hành Google Play
 - Chạy thử bản **Release** trên máy (đã build được trên PC); keystore ký; versionCode / versionName; AAB.
 - Play Console (25 USD một lần): tạo app, tạo sản phẩm managed `pro_upgrade` (đúng ID này, xem mục 5k), thêm license tester, Data safety (app
-  giờ CÓ dùng INTERNET: tự cập nhật + Google Play Billing; ảnh / tài liệu vẫn không rời máy, chỉ trạng thái mua hàng đi qua Play), privacy
-  policy, ảnh chụp màn hình, mô tả.
+  giờ CÓ dùng INTERNET: tự cập nhật + Google Play Billing + AdMob; ảnh / tài liệu vẫn không rời máy -- chỉ trạng thái mua hàng và dữ liệu quảng
+  cáo/Advertising ID đi qua Play / Google), khai "Có chứa quảng cáo", privacy policy, ảnh chụp màn hình, mô tả.
+- **AdMob console** (tài khoản AdMob riêng, có thể liên kết cùng tài khoản Google với Play Console): tạo app "Doc Scanner", tạo 1 đơn vị quảng
+  cáo Banner + 1 Interstitial, lấy App ID và 2 Ad unit ID thật, điền vào `AdsConfig.cs` (cả 3 giá trị) VÀ `Platforms/Android/AndroidManifest.xml`
+  (App ID), xoá dòng ép `AdConfig.UseTestAdUnitIds = true` chỉ tồn tại trong `#if DEBUG` (bản Release không cần đụng, đã tự tắt) -- xem mục 5p.
 - Tạo mã khuyến mãi ra mắt trong Play Console (mục 5k) sau khi sản phẩm đã duyệt.
 - Thử ít nhất 5 máy Android (Samsung / Xiaomi / Oppo...): mua Pro thật bằng license tester, xuất PDF hết 5 lượt rồi bị chặn đúng lúc, đổi mã
-  khuyến mãi trên Play Store rồi mở app thấy chuyển Pro. Cập nhật `THIRD-PARTY-NOTICES.md` cho mọi thư viện mới (hiện: MAUI,
-  CommunityToolkit.Mvvm, Plugin.InAppBilling = MIT; Play Billing / Play Services bindings = điều khoản Google; xUnit, PdfPig chỉ test).
+  khuyến mãi trên Play Store rồi mở app thấy chuyển Pro; banner quảng cáo thật hiện ở màn chính, quảng cáo toàn màn hình hiện sau mỗi 5 lần xuất
+  PDF, mua Pro xong quảng cáo biến mất ngay lập tức (banner lẫn interstitial). Cập nhật `THIRD-PARTY-NOTICES.md` cho mọi thư viện mới (hiện:
+  MAUI, CommunityToolkit.Mvvm, Plugin.InAppBilling, Plugin.AdMob = MIT; Play Billing / Play Services / Google Mobile Ads SDK bindings = điều
+  khoản Google; xUnit, PdfPig chỉ test).
 
 ### Để sau (v2)
 iOS (cần Mac hoặc Mac cloud: tạo lại `Platforms/iOS`, viết `IImageService` + `IDownloadsService` + camera cho iOS), OCR (ML Kit / Vision),
