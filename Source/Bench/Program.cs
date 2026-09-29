@@ -212,16 +212,18 @@ Time($"export PDF {exportN} pages, G4+JPEG, no OCR", () =>
     DocumentExporter.ExportPdf(all.Take(exportN).ToList(), new ExportOptions { PdfA = true }, outPdf),
     () => $"{new FileInfo(outPdf).Length / 1024} KB");
 
-string outJb = Path.Combine(root, "out_jb2.pdf");
-Time($"export PDF {exportN} pages, JBIG2+JP2, no OCR", () =>
-    DocumentExporter.ExportPdf(all.Take(exportN).ToList(), new ExportOptions { PdfA = true, UseJBig2 = true, UseJpeg2000 = true }, outJb),
-    () => $"{new FileInfo(outJb).Length / 1024} KB");
-
 int ocrN = Math.Min(all.Count, 12);
 string outOcr = Path.Combine(root, "out_ocr.pdf");
-Time($"export PDF {ocrN} pages, JBIG2+JP2 + OCR", () =>
-    DocumentExporter.ExportPdf(all.Take(ocrN).ToList(), new ExportOptions { PdfA = true, UseJBig2 = true, UseJpeg2000 = true, Ocr = true }, outOcr),
+Time($"export PDF {ocrN} pages, G4+JPEG + OCR", () =>
+    DocumentExporter.ExportPdf(all.Take(ocrN).ToList(), new ExportOptions { PdfA = true, Ocr = true }, outOcr),
     () => $"{new FileInfo(outOcr).Length / 1024} KB");
+
+// jpgImported (the color/photo pages, not the text-only ones above): all-text `all.Take(N)` above
+// never reaches past `processed`, so it never exercises the gray/color codec.
+string outColorJpeg = Path.Combine(root, "out_color_jpeg.pdf");
+Time($"export PDF {jpgImported.Count} COLOR pages, JPEG", () =>
+    DocumentExporter.ExportPdf(jpgImported, new ExportOptions { PdfA = true }, outColorJpeg),
+    () => $"{new FileInfo(outColorJpeg).Length / 1024} KB");
 
 Say("");
 string resultsDir = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "results"));

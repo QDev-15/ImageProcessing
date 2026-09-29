@@ -113,7 +113,8 @@ Solution: `Source/DocScanner.slnx` (mobile) và `Source/ImageProcessing.sln` (ow
 - **Bộ dò mép chưa tốt với ảnh thật**: mới thử 2 ảnh thật. Cần bộ 20-30 ảnh thật (xem CLAUDE.md, Bước 4). Tốc độ ~1,7 s/trang/worker trên máy trước đợt tối ưu; bản mới nhanh ~3,8 lần trên PC (mục 5b), chưa đo lại trên máy.
 - Đổi kiểu trang (Màu / Xám / Đen trắng, độ đậm) dựng lại cả trang từ ảnh gốc. Nếu trên máy thấy chậm: giữ bản màu đã nắn trong bộ nhớ đệm
   (hoặc xem trước trên bản thu nhỏ) rồi mới dựng bản đầy đủ khi thả tay.
-- Trang đen trắng trong PDF nén bằng Flate (PNG). CCITT G4 / JBIG2 sẽ nhỏ hơn khoảng 2-3 lần; hiện đã rất nhỏ (vài chục KB / trang A4) nên để sau.
+- Trang đen trắng trong PDF nén bằng Flate (PNG): 1-bit ở Nhỏ, 8-bit mượt ở Vừa/Cao (mục 5m). JBIG2 đã bị owner quyết định
+  loại bỏ hẳn khỏi app desktop (2026-09-29, xem CLAUDE.md) nên không xét làm hướng giảm dung lượng cho mobile nữa.
 - Lưu vào Tải xuống chỉ có trên Android 10+ (MediaStore). Android 8-9 chỉ có Chia sẻ / Mở.
 - Hoàn tác chỉ **1 bước** (lần xoá / chuyển trang gần nhất); trang đã xoá bị xoá hẳn khi thao tác tiếp, rời tài liệu khác, hoặc mở lại app.
 - Chỉ có test tự động cho `ImageCore.Shared` và `DocScanner.Core`; **ViewModel / XAML / QuadEditor không có test tự động** (kiểm bằng tay + adb).
@@ -649,6 +650,28 @@ Yêu cầu của owner: "khi xuất pdf, trực tiếp lưu vào folder DocScann
 **Chưa kiểm chứng trên máy** (thay đổi chỉ ở tầng Android MAUI, không unit-test được như DocScanner.Core): build Debug qua kiểm tra biên dịch,
 build Release cài lên Note 10+ nhưng **chưa tự bấm xuất PDF để xem file có thật sự xuất hiện trong Tải xuống/DocScanner** (mở app Files hoặc
 `adb shell ls /sdcard/Download/DocScanner`). Owner nên xuất thử 1 tài liệu rồi kiểm tra thư mục đó.
+
+## 5o. Trang mới nhập mặc định là đen trắng, không phải màu (đợt 2026-09-29)
+
+Yêu cầu của owner: "hiện tại đang để trang màu làm mặc định khi import ảnh vào. đổi sang mặc định là đen trắng."
+
+- Đổi ở `ImportService.AddPlaceholders` (nơi duy nhất tạo `PageRecord` mới, dùng chung cho cả nhập từ thư viện lẫn
+  chụp camera): mỗi trang mới tạo được gán thẳng `ColorMode = PageColorMode.BlackWhite`, thay vì để trống lấy theo
+  mặc định của thuộc tính.
+- **Không đổi mặc định của chính thuộc tính `PageRecord.ColorMode`** (vẫn là `Color`) -- có test
+  (`A_document_saved_before_page_looks_existed_still_reads_as_rendered_color_pages`) xác nhận một `doc.json` cũ
+  thiếu hẳn trường này (lưu từ trước khi tính năng kiểu trang tồn tại) phải đọc ra là trang màu, đúng với ảnh màu đã
+  render sẵn trên đĩa lúc đó. Nếu đổi mặc định của thuộc tính, tài liệu cũ dạng này sẽ tự nhận nhầm là "đã đúng đen
+  trắng" mà không dựng lại, dù file trên đĩa vẫn là JPEG màu -- đã tự phát hiện ra rủi ro này nhờ chạy lại test trước
+  khi báo xong.
+- Người dùng vẫn đổi được từng trang / cả tài liệu sang Màu bằng các nút bộ lọc ở màn Kết quả như cũ, không mất tính
+  năng nào.
+- Test: `DocScanner.Core.Tests` 194 (thêm `A_newly_imported_page_defaults_to_black_and_white`; sửa 4 test khác từng
+  ngầm dựa vào "trang mới nhập là màu" -- các trang này giờ tự đặt lại `PageColorMode.Color` ngay sau khi nhập, vì
+  bản thân các test đó đang kiểm tra hành vi của trang màu, không phải kiểm tra mặc định nhập ảnh). `ImageCore.Shared.Tests`
+  130 không đổi.
+- **Chưa cài lên máy** (máy không cắm dây lúc làm xong): build Debug qua kiểm tra biên dịch. Owner nhập ảnh mới thử
+  xem trang có mặc định hiện đen trắng đúng không.
 
 ## 6. Việc còn lại (theo thứ tự nên làm)
 

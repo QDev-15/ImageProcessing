@@ -225,6 +225,24 @@ public class StoreAndImportTests
         Assert.All(rig.Store.Pages(doc.Id), p => Assert.Equal(PageState.Ready, p.State));
     }
 
+    /// <summary>Owner's request 2026-09-29: most scans are documents, not photos, so a newly imported page defaults to
+    /// black-and-white instead of color (one tap on the filter cards switches a page that does need color). This is set
+    /// explicitly when the page is created (<see cref="ImportService.AddPlaceholders"/>), not through
+    /// <see cref="PageRecord.ColorMode"/>'s own default, which stays <see cref="PageColorMode.Color"/> so a doc.json
+    /// saved before this field existed still reads as the color page it was actually rendered as.</summary>
+    [Fact]
+    public async Task A_newly_imported_page_defaults_to_black_and_white()
+    {
+        using var rig = new Rig();
+        DocumentRecord doc = rig.Store.Create();
+
+        await rig.Import.ImportAsync(doc, [Src("a.jpg", "AAA")]);
+
+        PageRecord page = rig.Store.Pages(doc.Id).Single();
+        Assert.Equal(PageColorMode.BlackWhite, page.ColorMode);
+        Assert.Equal(PageColorMode.BlackWhite, page.Filter.Mode);
+    }
+
     [Fact]
     public async Task Every_thumbnail_is_made_before_any_proxy()
     {

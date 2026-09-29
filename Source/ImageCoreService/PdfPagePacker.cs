@@ -61,32 +61,6 @@ public sealed class PdfBuilder
         AddImagePage(image, widthPx, heightPx, dpiX, dpiY, words);
     }
 
-    public void AddJBig2Page(byte[] pageBytes, byte[]? globalsBytes, int widthPx, int heightPx, int dpi, IReadOnlyList<OcrWord>? words = null) =>
-        AddJBig2Page(pageBytes, globalsBytes, widthPx, heightPx, dpi, dpi, words);
-
-    private readonly Dictionary<byte[], PdfDictionary> _jbig2Globals = new(ReferenceEqualityComparer.Instance);
-
-    public void AddJBig2Page(byte[] pageBytes, byte[]? globalsBytes, int widthPx, int heightPx, int dpiX, int dpiY, IReadOnlyList<OcrWord>? words = null)
-    {
-        PdfDictionary image = NewImage(pageBytes, widthPx, heightPx, "/JBIG2Decode", 1, "/DeviceGray");
-        if (globalsBytes is { Length: > 0 })
-        {
-            // One shared globals object per distinct array (EncodeSymbolMultiPage hands every
-            // page the SAME array) -- embedding it once is the whole point of symbol mode.
-            if (!_jbig2Globals.TryGetValue(globalsBytes, out PdfDictionary? globals))
-            {
-                globals = new PdfDictionary(_doc);
-                globals.CreateStream(globalsBytes);
-                _doc.Internals.AddObject(globals);
-                _jbig2Globals[globalsBytes] = globals;
-            }
-            var dp = new PdfDictionary(_doc);
-            dp.Elements["/JBIG2Globals"] = globals.Reference;
-            image.Elements["/DecodeParms"] = dp;
-        }
-        AddImagePage(image, widthPx, heightPx, dpiX, dpiY, words);
-    }
-
     public void AddJpegPage(byte[] jpegBytes, int widthPx, int heightPx, int dpi, IReadOnlyList<OcrWord>? words = null) =>
         AddJpegPage(jpegBytes, widthPx, heightPx, dpi, dpi, words);
 
@@ -102,16 +76,6 @@ public sealed class PdfBuilder
             foreach (int v in new[] { 1, 0, 1, 0, 1, 0, 1, 0 }) decode.Elements.Add(new PdfInteger(v));
             image.Elements["/Decode"] = decode;
         }
-        AddImagePage(image, widthPx, heightPx, dpiX, dpiY, words);
-    }
-
-    public void AddJpxPage(byte[] jp2Bytes, int widthPx, int heightPx, int dpi, IReadOnlyList<OcrWord>? words = null) =>
-        AddJpxPage(jp2Bytes, widthPx, heightPx, dpi, dpi, words);
-
-    public void AddJpxPage(byte[] jp2Bytes, int widthPx, int heightPx, int dpiX, int dpiY, IReadOnlyList<OcrWord>? words = null)
-    {
-        // No /ColorSpace: for JPXDecode the colour space inside the JP2 (colr box) is used.
-        PdfDictionary image = NewImage(jp2Bytes, widthPx, heightPx, "/JPXDecode", null, null);
         AddImagePage(image, widthPx, heightPx, dpiX, dpiY, words);
     }
 

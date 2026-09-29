@@ -1,0 +1,76 @@
+=== jp2_vs_jpeg  2026-09-29 10:49  pages=40  cores=8 ===
+data generated in 15.8s  (PDF 3260 KB, 40 JPEG 1292 KB each)
+
+import PDF (40 pages): render+save            17.59 s   PageImporter.Import
+    pdf.render                   7.98 s  x40
+    pdf.save                     5.83 s  x40
+import PDF: limit + auto-process              16.16 s   ResolutionLimiter + PageProcessor
+    proc.osd                     8.39 s  x40
+    decode                       2.90 s  x80
+    proc.skewdetect              2.15 s  x40
+    limit                        1.62 s  x40
+    proc.blank                   1.08 s  x40
+    proc.cropdetect              0.20 s  x40
+import 40 JPEG: copy + limit + auto-process    14.45 s   
+    proc.osd                     5.43 s  x40
+    decode                       4.70 s  x80
+    limit                        2.65 s  x40
+    proc.skewdetect              2.44 s  x40
+    proc.blank                   1.01 s  x40
+    proc.cropdetect              0.18 s  x40
+[project] import PDF (40 pages)               20.95 s   list complete after 0.0s, first page ready after 1.3s (workers=2)
+    ingest.page                 40.81 s  x40
+    proc.osd                    19.45 s  x40
+    cache.proxy                  7.72 s  x40
+    pdf.render                   5.80 s  x40
+    proc.skewdetect              2.77 s  x40
+    proc.blank                   1.56 s  x40
+    proc.cropdetect              0.11 s  x40
+[project] import 40 JPEG                      17.44 s   list complete after 0.2s, first page ready after 1.0s (workers=2)
+    ingest.page                 34.66 s  x40
+    cache.proxy                 14.77 s  x40
+    proc.osd                     4.54 s  x40
+    decode                       2.73 s  x40
+    proc.skewdetect              2.66 s  x40
+    proc.blank                   1.62 s  x40
+    proc.cropdetect              0.09 s  x40
+[project] thumbnails cold (80 pages)          17.27 s   
+    cache.thumb                 17.21 s  x80
+    decode                       1.15 s  x80
+[project] thumbnails warm (80 pages)           0.04 s   
+    decode                       0.00 s  x80
+[project] preview proxy, cold (10 pages)       1.95 s   
+    decode                       0.15 s  x10
+[project] preview proxy, warm (10 pages)       1.93 s   
+    decode                       0.14 s  x10
+[project] preview full-size (10 pages)        11.59 s   
+    pdf.render                   2.92 s  x10
+[project] rotate 10 pages (op + new thumbnails)     2.19 s   
+    cache.thumb                  2.18 s  x10
+    decode                       0.14 s  x10
+thumbnails (80 pages, decode + scale)          8.94 s   
+    decode                       3.52 s  x80
+preview decode (10 pages)                      0.37 s   
+    decode                       0.34 s  x10
+export PDF 40 pages, G4+JPEG, no OCR           5.15 s   3284 KB
+    exp.binarize                13.00 s  x40
+    decode                       1.92 s  x40
+    exp.write                    0.04 s  x1
+export PDF 40 pages, G4+JP2, no OCR            5.22 s   3284 KB
+    exp.binarize                12.91 s  x40
+    decode                       1.91 s  x40
+    exp.write                    0.03 s  x1
+export PDF 12 pages, G4+JP2 + OCR              5.45 s   991 KB
+    exp.ocr                     15.22 s  x12
+    exp.binarize                 3.94 s  x12
+    decode                       0.56 s  x12
+    exp.write                    0.02 s  x1
+export PDF 40 COLOR pages, JPEG                1.50 s   51622 KB
+    decode                       2.50 s  x40
+    exp.write                    0.33 s  x1
+export PDF 40 COLOR pages, JPEG2000           38.59 s   25518 KB
+    exp.jp2                    124.56 s  x40
+    decode                       2.78 s  x40
+    exp.write                    0.60 s  x1
+
+

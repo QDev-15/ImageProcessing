@@ -1,3 +1,5 @@
+using ImageCoreService;
+
 namespace DocScanner.Core;
 
 /// <summary>One photo to import; the stream is opened lazily, one photo at a time.</summary>
@@ -53,8 +55,12 @@ public sealed class ImportService(DocumentStore store, PageIngestQueue queue)
     /// <summary>Appends <paramref name="count"/> placeholder pages; returns their ids (empty when the document is gone).</summary>
     public IReadOnlyList<string> AddPlaceholders(string docId, int count)
     {
+        // Black-and-white by default (owner's request 2026-09-29): most imported pages are documents, not photos, and
+        // black-and-white is both the crisper look and the much smaller file. One tap on the filter cards switches a
+        // page that does need color. PageRecord.ColorMode itself still defaults to Color -- that default is for a
+        // doc.json saved before the field existed, not for a genuinely new page (see the field's own doc comment).
         var pages = Enumerable.Range(0, count)
-            .Select(_ => new PageRecord { Id = Guid.NewGuid().ToString("N"), State = PageState.Importing })
+            .Select(_ => new PageRecord { Id = Guid.NewGuid().ToString("N"), State = PageState.Importing, ColorMode = PageColorMode.BlackWhite })
             .ToList();
         return count > 0 && store.Update(docId, d => d.Pages.AddRange(pages)) ? pages.Select(p => p.Id).ToList() : [];
     }

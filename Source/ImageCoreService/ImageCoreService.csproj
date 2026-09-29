@@ -8,8 +8,8 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <AssemblyName>ImageCoreService</AssemblyName>
     <RootNamespace>ImageCoreService</RootNamespace>
-    <!-- Every native dependency shipped (pdfium, tesseract/leptonica, openjpeg, jbig2enc
-         runtime) is used as x64; pin it so AnyCPU never picks the wrong bitness. -->
+    <!-- Every native dependency shipped (pdfium, tesseract/leptonica runtime) is used as x64;
+         pin it so AnyCPU never picks the wrong bitness. -->
     <PlatformTarget>x64</PlatformTarget>
   </PropertyGroup>
 
@@ -39,18 +39,13 @@
     <PackageReference Include="ZXing.Net" Version="0.16.10" />
   </ItemGroup>
 
-  <!-- Vendored external encoders (see tools/README.md for exact source/version/license
-       of each). Copied to the output folder (and, via the normal ProjectReference
-       copy-local flow, next to any consuming exe) so Process.Start can find them at
-       AppContext.BaseDirectory\tools\... without needing them on PATH. -->
   <ItemGroup>
-    <None Include="tools\openjpeg\**" CopyToOutputDirectory="PreserveNewest" LinkBase="tools\openjpeg" />
-    <None Include="tools\jbig2enc\**" CopyToOutputDirectory="PreserveNewest" LinkBase="tools\jbig2enc" />
-    <!-- Tesseract language data (tessdata_fast vie/eng + tessdata osd, Apache-2.0). -->
+    <!-- Tesseract language data (tessdata_fast vie/eng + tessdata osd, Apache-2.0). Copied to the
+         output folder (and, via the normal ProjectReference copy-local flow, next to any
+         consuming exe). -->
     <None Include="tessdata\**" CopyToOutputDirectory="PreserveNewest" LinkBase="tessdata" />
     <!-- App-local Microsoft VC++ 2015-2022 x64 runtime (redistributable) for tesseract50.dll /
-         leptonica, next to the exe so OCR works on machines without the VC++ redist.
-         (tools\jbig2enc carries its own x86 msvcr120.dll for the same reason.) -->
+         leptonica, next to the exe so OCR works on machines without the VC++ redist. -->
     <None Include="native\vcruntime-x64\*.dll" CopyToOutputDirectory="PreserveNewest" Link="%(Filename)%(Extension)" />
   </ItemGroup>
 

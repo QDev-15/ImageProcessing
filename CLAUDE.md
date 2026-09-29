@@ -82,11 +82,40 @@
 ### Chưa làm / đề xuất đợt sau
 
 - Ký số exe / MSI (cần chứng chỉ code signing).
-- Tự build jbig2enc từ source (bản Windows hiện tại do bên thứ ba build), thay PdfiumViewer đã
-  ngừng phát triển, cân nhắc NTwain bản ổn định.
+- Thay PdfiumViewer đã ngừng phát triển, cân nhắc NTwain bản ổn định.
 - OCR song song nhiều trang (hiện ~2-3 s/trang, chạy tuần tự).
 - Form Cài đặt dạng tab "đẹp" thay cho PropertyGrid, nếu cần cho người dùng cuối.
 - Unit test chuẩn (xUnit) thay cho SmokeTests dạng console, và chạy trên CI.
+
+### JBIG2 đã bị gỡ bỏ hoàn toàn (đợt 2026-09-29, quyết định của owner)
+- Owner: "loại bỏ hẳn JBig2 trong code luôn, chỉ sử dụng CCITT G4" -- lý do: không muốn theo dõi rủi ro bằng sáng chế /
+  nguồn gốc bản build (bản Windows của jbig2enc là do bên thứ ba build lại, không phải chính chủ) mà JBIG2 kéo theo.
+- Xoá: `JBig2Encoder.cs`, `tools/jbig2enc/` (5 MB, cả file thực thi), enum `JBig2Mode` + các thuộc tính
+  `UseJBig2`/`JBig2Mode`/`JBig2Threshold` trong `AppSettings`, `PdfBuilder.AddJBig2Page`, `TiffPageCodec.JBig2`,
+  checkbox JBIG2 trong form Cài đặt. Trang trắng đen giờ luôn nén **CCITT G4** (không còn nhánh rẽ theo cài đặt).
+  JPEG2000 (ảnh màu/xám) không đổi, vẫn là tuỳ chọn.
+- File cấu hình cũ (`settings.xml` của người dùng) còn `<UseJBig2>`/`<JBig2Mode>`/`<JBig2Threshold>` vẫn đọc được bình
+  thường -- `XmlSerializer` bỏ qua phần tử không còn khai báo, không cần code chuyển đổi (migration).
+  Build solution + SmokeTests (89 kiểm tra) + `DocScanner.Core.Tests` (193) + `ImageCore.Shared.Tests` (130) đều PASS.
+
+### JPEG2000 cũng bị gỡ bỏ hoàn toàn (cùng ngày 2026-09-29, quyết định của owner)
+- Owner hỏi trước: bỏ JBIG2 có làm app chậm không -> đo bằng `Source/Bench`, thấy JBIG2 mất thêm ~2s/40 trang do
+  bước mã hoá theo lô, JPEG2000 mất thêm ~37s/40 trang MÀU (đo trước đó dùng nhầm bộ dữ liệu toàn trang chữ, không hề
+  chạm tới JPEG2000 -- đã sửa `Source/Bench/Program.cs` thêm test `jpgImported` để đo đúng trang màu/ảnh). Owner:
+  "bỏ hẳn jpeg2000 để tốc độ app tăng tối đa."
+- Nguyên nhân JPEG2000 chậm: gọi `opj_compress.exe` (tiến trình ngoài) **cho từng trang một**, không gộp theo lô như
+  JBIG2 từng làm -- ghi PNG tạm, chạy tiến trình, đọc lại kết quả, mỗi trang màu tốn trung bình ~3 giây riêng bước
+  này (`exp.jp2` đo được 124,56 s cộng dồn cho 40 trang chạy song song, so với `exp.jbig2sym` chỉ ~2 s CHO CẢ LÔ).
+- Xoá: `OpenJpegEncoder.cs`, `tools/openjpeg/` (3,1 MB), thuộc tính `UseJpeg2000`/`Jpeg2000Ratio` trong `AppSettings`
+  và `ExportOptions`, `PdfBuilder.AddJpxPage`, `TiffPageCodec.Jpeg2000`, checkbox JPEG2000 trong form Cài đặt (nhóm
+  "Codec nén" trong form Cài đặt giờ trống hẳn nên đã bỏ luôn cả nhóm, PropertyGrid chiếm hết chỗ đó). Trang xám/màu
+  giờ luôn nén **JPEG** (không còn nhánh rẽ theo cài đặt) -- cũng đồng nghĩa cơ chế theo dõi file tạm (`temps` list,
+  `AddTemp`, `DeleteTempFiles` trong `DocumentExporter`) không còn ai dùng nữa (JBIG2 và JPEG2000 là hai chỗ duy nhất
+  từng tạo file tạm), nên đã bỏ luôn -- `ExportPdf`/`ExportTiff` không còn khối `try/finally` dọn file tạm.
+- File cấu hình cũ còn `<UseJpeg2000>`/`<Jpeg2000Ratio>` vẫn đọc được bình thường (lý do giống JBIG2 ở trên).
+  Build solution + SmokeTests (89 kiểm tra, sửa lại 3 chỗ dùng `UseJpeg2000` làm test round-trip / resilience) PASS.
+- Đổi lại: trang xám/màu to hơn khoảng 2 lần so với JPEG2000. Owner đã biết và chấp nhận đánh đổi này trước khi yêu
+  cầu bỏ (số đo đưa ra trước khi làm, không phải làm xong mới báo).
 
 ## App mobile (đợt 2026-09-25, kế hoạch đã chốt với owner)
 
@@ -429,3 +458,13 @@
   lưu không làm hỏng lần xuất (file thư viện riêng của app vẫn còn, chỉ báo lỗi + vẫn có nút lưu tay).
 - `AndroidDownloadsService`: `RelativePath = Download/DocScanner` (hằng số `Subfolder`) thay vì `Download` -- MediaStore tự tạo thư mục con.
 - Chưa unit-test được (tầng Android MAUI); build Debug qua kiểm tra, cần owner xuất thử 1 tài liệu và xem `Tải xuống/DocScanner` trên máy.
+
+### Trang mới nhập mặc định đen trắng (đợt 2026-09-29, chi tiết: MOBILE-STATUS.md mục 5o)
+- Gán `ColorMode = PageColorMode.BlackWhite` ngay khi tạo `PageRecord` mới, trong `ImportService.AddPlaceholders` (nơi
+  duy nhất tạo trang mới) -- KHÔNG đổi default của chính thuộc tính `PageRecord.ColorMode` (vẫn `Color`), vì default đó
+  còn phục vụ việc đọc đúng `doc.json` cũ thiếu trường này (trang màu đã render sẵn, xem test
+  `A_document_saved_before_page_looks_existed_still_reads_as_rendered_color_pages`) -- đổi default ở đó sẽ làm tài liệu
+  cũ dạng này tự nhận nhầm "đã đúng đen trắng" mà không dựng lại.
+- 4 test cũ ngầm dựa vào "trang mới nhập là màu" (kiểm tra hành vi trang màu, không phải kiểm tra mặc định nhập ảnh)
+  được sửa để tự đặt `PageColorMode.Color` ngay sau khi nhập trong rig test. Test mới:
+  `A_newly_imported_page_defaults_to_black_and_white`. 194 test PASS.

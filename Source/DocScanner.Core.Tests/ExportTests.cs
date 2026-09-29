@@ -48,6 +48,7 @@ public class ExportTests
         using var rig = new Rig();
         DocumentRecord doc = await rig.DocWithPages(3);
         IReadOnlyList<PageRecord> pages = rig.Store.Pages(doc.Id);
+        rig.Edit.SetFilter(doc.Id, pages[0].Id, PageColorMode.Color); // a new import defaults to black-and-white now
         rig.Edit.SetFilter(doc.Id, pages[1].Id, PageColorMode.BlackWhite);
         rig.Edit.SetFreeAspect(doc.Id, pages[2].Id, true);
         Assert.All(rig.Store.Pages(doc.Id), p => Assert.True(p.NeedsRender)); // nothing rendered yet

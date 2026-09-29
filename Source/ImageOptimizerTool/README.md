@@ -44,7 +44,7 @@ Mở `Source/ImageProcessing.sln` bằng Visual Studio 2022+ (hoặc `dotnet bui
 | `Logging/Perf.cs` | Đo thời gian từng bước (dùng bởi `Source/Bench`). |
 | `Settings/AppSettings.cs`, `SettingsStore.cs` | Mọi tuỳ chọn, lưu XML. |
 | `Logging/Log.cs` | Log theo ngày, giữ 30 ngày. |
-| `JBig2Encoder.cs`, `OpenJpegEncoder.cs`, `G4Encoder.cs`, `JpegEncoderSimple.cs` | Codec (JBIG2 / JPEG2000 gọi tool trong `tools\`). |
+| `G4Encoder.cs`, `JpegEncoderSimple.cs` | Codec (CCITT G4 / JPEG, cả hai tự viết / dùng GDI+, không gọi tool ngoài). |
 
 ## Mô hình dự án (từ đợt 2026-09-25, M0-M4)
 
@@ -72,16 +72,19 @@ Mở `Source/ImageProcessing.sln` bằng Visual Studio 2022+ (hoặc `dotnet bui
   độ phân giải và lúc xuất** (tuỳ chọn *Giới hạn DPI theo cài đặt scan*, mặc định bật); file gốc
   không bị đổi. DPI bằng hoặc thấp hơn thì giữ nguyên, không bao giờ phóng to. Trang PDF được
   render thẳng ở DPI đó (không vượt DPI thật của ảnh nhúng, tối đa 36 MP / trang).
-- **Xuất file không bao giờ hỏng vì codec ngoài:** `jbig2.exe` (32-bit) hoặc `opj_compress.exe`
-  lỗi / hết RAM thì trang đó tự chuyển codec (JBIG2 Symbol → JBIG2 generic → CCITT G4;
-  JPEG2000 → JPEG), có ghi log. Các trang được mã hoá song song (tối đa 4, mỗi luồng một engine
-  Tesseract riêng) và kết quả giữ đúng thứ tự.
+- **Xuất file không gọi tiến trình ngoài nào:** CCITT G4 và JPEG đều mã hoá bằng GDI+/code tự viết,
+  trong tiến trình app. Các trang được mã hoá song song (tối đa 4, mỗi luồng một engine Tesseract
+  riêng) và kết quả giữ đúng thứ tự.
 - **Chất lượng:** file gốc giữ nguyên (không mất dữ liệu); mọi chỉnh sửa là thao tác trên bản ghi trang. Chỉ có đúng
   1 lần nén mất dữ liệu, lúc xuất file. File JPEG gốc chưa chỉnh sửa (không xoay / cắt / thu nhỏ) được nhúng nguyên
   byte vào PDF.
 - **Codec từng trang** (chế độ màu *Tự động*):
-  - trang trắng đen → **CCITT G4**, hoặc **JBIG2** nếu tích tuỳ chọn;
-  - trang xám / màu → **JPEG**, hoặc **JPEG2000** nếu tích tuỳ chọn.
+  - trang trắng đen → **CCITT G4** (JBIG2 đã bỏ hẳn khỏi app, quyết định của owner đợt 2026-09-29 --
+    không muốn theo dõi rủi ro bằng sáng chế / nguồn gốc bản build của thư viện JBIG2 nữa);
+  - trang xám / màu → **JPEG** (JPEG2000 đã bỏ hẳn khỏi app cùng đợt, quyết định của owner
+    2026-09-29 -- đo thật: xuất 40 trang màu bằng JPEG mất 1,5 s, bằng JPEG2000 mất 38,6 s
+    (~25 lần chậm hơn) vì gọi `opj_compress.exe` cho từng trang một; owner chọn tốc độ, chấp nhận
+    file màu/xám to hơn khoảng 2 lần).
 - **Cài đặt:** menu *Cài đặt → Cài đặt... (F9)*. File người dùng:
   `%LocalAppData%\ImageOptimizerTool\settings.xml`. Lần chạy đầu, file này được tạo từ
   `Config\settings.default.xml` (có sẵn cạnh exe). File hỏng thì được sao lưu (`.bad-*`) rồi

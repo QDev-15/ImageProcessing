@@ -4,10 +4,12 @@ using ImageCoreService;
 namespace ImageOptimizerTool;
 
 /// <summary>
-/// App settings editor. The two codec switches are explicit checkboxes (unchecked = CCITT G4 /
-/// JPEG); every other option comes from <see cref="AppSettings"/>' attributes through the
-/// property grid, so new settings appear here automatically. Edits a copy; the caller saves
-/// <see cref="Result"/> on OK.
+/// App settings editor. Every option comes from <see cref="AppSettings"/>' attributes through
+/// the property grid, so new settings appear here automatically. Codecs are fixed, not settings:
+/// bitonal pages always use CCITT G4, gray/color pages always JPEG (JBIG2 and JPEG2000 were both
+/// removed from the app, owner's decision 2026-09-29 -- they added real export time for a size
+/// win the owner decided was not worth it). Edits a copy; the caller saves <see cref="Result"/>
+/// on OK.
 /// </summary>
 internal partial class SettingsForm : Form
 {
@@ -23,8 +25,6 @@ internal partial class SettingsForm : Form
 
     private void Bind()
     {
-        chkJBig2.Checked = Result.UseJBig2;
-        chkJpeg2000.Checked = Result.UseJpeg2000;
         propertyGrid.SelectedObject = Result;
     }
 
@@ -41,8 +41,6 @@ internal partial class SettingsForm : Form
 
     private void btnOK_Click(object? sender, EventArgs e)
     {
-        Result.UseJBig2 = chkJBig2.Checked;
-        Result.UseJpeg2000 = chkJpeg2000.Checked;
         Result.Normalize();
 
         if (Result.Ocr && !OcrEngine.IsLanguageAvailable(Result.OcrLanguages))

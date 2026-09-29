@@ -179,16 +179,6 @@ Run("export", () =>
     byte[] pdfBytes = File.ReadAllBytes(pdf1);
     Check("original JPEG embedded unchanged", IndexOf(pdfBytes, jpg) >= 0);
 
-    var opt2 = new ExportOptions { UseJBig2 = true, UseJpeg2000 = true, Ocr = false, PdfA = true };
-    string pdf2 = Path.Combine(outDir, "out_jbig2_jp2.pdf");
-    DocumentExporter.ExportPdf(pages, opt2, pdf2);
-    VerifyPdf(pdf2, 3, null);
-    string g4Only = Path.Combine(outDir, "text_g4.pdf"), jb2Only = Path.Combine(outDir, "text_jbig2.pdf");
-    DocumentExporter.ExportPdf(new[] { textPng, textPng }, new ExportOptions(), g4Only);
-    DocumentExporter.ExportPdf(new[] { textPng, textPng }, new ExportOptions { UseJBig2 = true }, jb2Only);
-    Check("JBIG2 text pages smaller than G4", new FileInfo(jb2Only).Length < new FileInfo(g4Only).Length,
-        $"{new FileInfo(jb2Only).Length / 1024} KB vs {new FileInfo(g4Only).Length / 1024} KB");
-
     string meta = Path.Combine(outDir, "out_meta.pdf");
     DocumentExporter.ExportPdf(new[] { textPng }, new ExportOptions { Ocr = true, Metadata = new PdfMetadata { Title = "Hợp đồng số 1", Author = "Nguyễn Văn A", Subject = "Mua bán & <test>", Keywords = "hợp đồng, 2026" } }, meta);
     VerifyPdf(meta, 1, "HỢP");
@@ -239,28 +229,30 @@ Run("resolution limiter", () =>
     tiny.SetResolution(300, 300);
     string tinyPng = Save(tiny, "tiny.png");
     string tinyPdf = Path.Combine(exportFolder, "tiny.pdf");
-    DocumentExporter.ExportPdf(new[] { tinyPng }, new ExportOptions { UseJpeg2000 = true, UseJBig2 = true }, tinyPdf);
+    DocumentExporter.ExportPdf(new[] { tinyPng }, new ExportOptions(), tinyPdf);
     Check("export of a tiny page succeeds whatever the codec does", new FileInfo(tinyPdf).Length > 0);
 
-    // External encoders unavailable / crashing (e.g. out of memory): export still completes.
+    // Both codecs that used to shell out to an external tool (JBIG2, JPEG2000) are gone: G4 and
+    // JPEG are pure managed code. Kept as a guard in case an external tool dependency ever comes
+    // back -- export must not depend on the "tools" folder existing.
     string toolsDir = Path.Combine(AppContext.BaseDirectory, "tools");
     string hiddenTools = toolsDir + "_hidden";
-    Directory.Move(toolsDir, hiddenTools);
+    if (Directory.Exists(toolsDir)) Directory.Move(toolsDir, hiddenTools);
     try
     {
         using Bitmap col = TextPage(Color.White);
         using (Graphics g = Graphics.FromImage(col)) g.FillEllipse(Brushes.Blue, 1500, 2800, 500, 400);
         string colPng = Save(col, "resil_color.png"), txtPng = Save(TextPage(Color.White), "resil_text.png");
         string fbPdf = Path.Combine(exportFolder, "fallback.pdf");
-        DocumentExporter.ExportPdf(new[] { txtPng, colPng, txtPng }, new ExportOptions { UseJBig2 = true, UseJpeg2000 = true }, fbPdf);
+        DocumentExporter.ExportPdf(new[] { txtPng, colPng, txtPng }, new ExportOptions(), fbPdf);
         VerifyPdf(fbPdf, 3, null);
         string fbTif = Path.Combine(exportFolder, "fallback.tif");
-        DocumentExporter.ExportTiff(new[] { txtPng, colPng }, new ExportOptions { UseJBig2 = true, UseJpeg2000 = true }, fbTif);
-        Check("export survives missing jbig2 / openjpeg (JBIG2 -> G4, JP2 -> JPEG)", new FileInfo(fbTif).Length > 0);
+        DocumentExporter.ExportTiff(new[] { txtPng, colPng }, new ExportOptions(), fbTif);
+        Check("export does not need a \"tools\" folder", new FileInfo(fbTif).Length > 0);
     }
     finally
     {
-        Directory.Move(hiddenTools, toolsDir);
+        if (Directory.Exists(hiddenTools)) Directory.Move(hiddenTools, toolsDir);
     }
 
     // Many pages in parallel keep their order.
@@ -574,11 +566,11 @@ Run("ocr cache", () =>
 Run("settings", () =>
 {
     AppSettings s = SettingsStore.Load();
-    s.UseJBig2 = true;
+    s.PassThroughOriginalJpeg = true;
     s.JpegQuality = 77;
     SettingsStore.Save(s);
     AppSettings back = SettingsStore.Load();
-    Check("settings XML round-trip", back.UseJBig2 && back.JpegQuality == 77 && back.ScanProfiles.Count > 0);
+    Check("settings XML round-trip", back.PassThroughOriginalJpeg && back.JpegQuality == 77 && back.ScanProfiles.Count > 0);
 });
 
 Console.WriteLine(failures == 0 ? "ALL PASS" : $"{failures} FAILURE(S)");

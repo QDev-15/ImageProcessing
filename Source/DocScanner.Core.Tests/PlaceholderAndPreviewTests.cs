@@ -26,11 +26,16 @@ public class PlaceholderAndPreviewTests
             Edit = new PageEditService(Store, Queue, detection);
         }
 
+        /// <summary>A freshly imported page, forced to <see cref="PageColorMode.Color"/>: a new import defaults to
+        /// black-and-white (owner's request 2026-09-29), but most tests using this helper are specifically about the
+        /// color / preview pipeline and set their own filter right after when they need something else.</summary>
         public async Task<(string DocId, PageRecord Page)> OneReadyPage()
         {
             DocumentRecord doc = Store.Create();
             await Import.ImportAsync(doc, [new ImportSource("a.jpg", _ => Task.FromResult<Stream>(new MemoryStream([1, 2, 3])))]);
             await Queue.WaitIdleAsync();
+            PageRecord page = Store.Pages(doc.Id).Single();
+            Edit.SetFilter(doc.Id, page.Id, PageColorMode.Color);
             return (doc.Id, Store.Pages(doc.Id).Single());
         }
 

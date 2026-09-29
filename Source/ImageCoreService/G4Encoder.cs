@@ -6,13 +6,11 @@ using BitMiracle.LibTiff.Classic;
 namespace ImageCoreService;
 
 /// <summary>
-/// Baseline for comparison: encodes exactly like the main app's ArchivePageFactory
-/// does today for bitonal pages (single-strip CCITT Group 4, MINISWHITE), via the
-/// same GDI+ TIFF encoder pattern already validated in OpenImaging.Tests
-/// (ExportPipelineTests.MakeCcittTiff). Returns just the raw G4 codestream bytes
-/// (what actually gets embedded in the PDF via /CCITTFaxDecode) so the size
-/// comparison against JBIG2 is apples-to-apples, not inflated by TIFF container
-/// overhead.
+/// The only codec for bitonal pages (JBIG2 was removed, owner's decision 2026-09-29): encodes
+/// exactly like the main app's ArchivePageFactory does for bitonal pages (single-strip CCITT
+/// Group 4, MINISWHITE), via the same GDI+ TIFF encoder pattern already validated in
+/// OpenImaging.Tests (ExportPipelineTests.MakeCcittTiff). Returns just the raw G4 codestream
+/// bytes (what actually gets embedded in the PDF via /CCITTFaxDecode), not a TIFF container.
 /// </summary>
 public static class G4Encoder
 {

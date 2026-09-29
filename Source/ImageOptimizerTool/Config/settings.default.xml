@@ -1,7 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <AppSettings xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
-  <UseJBig2>true</UseJBig2>
-  <UseJpeg2000>true</UseJpeg2000>
   <WorkFolder>C:\ImageTestWokingSpace</WorkFolder>
   <OutputFolder>C:\Users\Downloads\Documents</OutputFolder>
   <ThumbnailSize>120</ThumbnailSize>
@@ -33,9 +31,6 @@
   <ColorMode>Auto</ColorMode>
   <JpegQuality>60</JpegQuality>
   <PassThroughOriginalJpeg>false</PassThroughOriginalJpeg>
-  <Jpeg2000Ratio>40</Jpeg2000Ratio>
-  <JBig2Mode>Symbol</JBig2Mode>
-  <JBig2Threshold>0.85</JBig2Threshold>
   <PdfA>true</PdfA>
   <Ocr>true</Ocr>
   <OcrLanguages>vie+eng</OcrLanguages>

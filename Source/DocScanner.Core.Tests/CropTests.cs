@@ -395,11 +395,17 @@ public class RenderStageTests
             Import = new ImportService(Store, Queue);
         }
 
+        /// <summary>A freshly imported page, forced to <see cref="PageColorMode.Color"/>: a new import defaults to
+        /// black-and-white (owner's request 2026-09-29), but most tests using this helper are about the render
+        /// pipeline's mechanics (staleness, file replacement...), not about color mode, and are written against a
+        /// color page (checking for a ".jpg" render, in particular).</summary>
         public async Task<(DocumentRecord Doc, PageRecord Page)> OnePage()
         {
             DocumentRecord doc = Store.Create();
             await Import.ImportAsync(doc, [new ImportSource("a.jpg", _ => Task.FromResult<Stream>(new MemoryStream([1, 2, 3])))]);
             await Queue.WaitIdleAsync();
+            PageRecord page = Store.Pages(doc.Id).Single();
+            Edit.SetFilter(doc.Id, page.Id, PageColorMode.Color);
             return (doc, Store.Pages(doc.Id).Single());
         }
 

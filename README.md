@@ -61,7 +61,17 @@
 - **Đợt 2026-09-28d**: xuất PDF giờ **tự động lưu thẳng vào Tải xuống/DocScanner** (không cần bấm "Lưu vào Tải xuống" nữa), ngoài bản vẫn giữ
   trong thư viện riêng của app (màn "PDF đã xuất"). Lỗi lưu (máy Android cũ hơn 10, hoặc lỗi ghi) không làm hỏng lần xuất, chỉ báo lại và vẫn có
   nút lưu tay dự phòng.
+- **Đợt 2026-09-29 (app desktop Image Optimizer Tool)**: **gỡ bỏ hoàn toàn JBIG2 rồi JPEG2000** khỏi code (quyết định
+  của owner, đo tốc độ trước khi bỏ) -- trang trắng đen luôn **CCITT G4**, trang xám/màu luôn **JPEG**, không còn
+  nhánh chọn codec nào. Lý do chính là tốc độ: cả hai codec cũ đều gọi tiến trình ngoài, JPEG2000 nặng nhất (đo thật:
+  xuất 40 trang màu bằng JPEG 1,5 s so với JPEG2000 38,6 s, ~25 lần). Đổi lại trang xám/màu to hơn ~2 lần. Xoá
+  `JBig2Encoder.cs` + `OpenJpegEncoder.cs`, `tools/jbig2enc/` + `tools/openjpeg/` (bản thực thi vendor), mọi tuỳ chọn
+  liên quan trong Cài đặt. Chi tiết: CLAUDE.md.
+- **Đợt 2026-09-29 (app mobile Doc Scanner)**: trang mới nhập (thư viện hoặc chụp) mặc định là **Đen trắng** thay vì
+  Màu như trước -- hầu hết ảnh nhập vào là tài liệu, không phải ảnh chụp thường; đổi sang Màu vẫn chỉ 1 chạm ở bộ lọc
+  màn Kết quả cho trang cần giữ màu. Chi tiết: MOBILE-STATUS.md mục 5o.
 - License bên thứ ba: [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+- Tóm tắt bản quyền + mô hình thu tiền (app mobile): [LICENSE-MONETIZATION.md](LICENSE-MONETIZATION.md).
 
 ```
 dotnet build Source/ImageProcessing.sln                                    # build

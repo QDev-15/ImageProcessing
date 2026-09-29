@@ -2,10 +2,10 @@ using BitMiracle.LibTiff.Classic;
 
 namespace ImageCoreService;
 
-public enum TiffPageCodec { CcittG4, JBig2, Jpeg, Jpeg2000 }
+public enum TiffPageCodec { CcittG4, Jpeg }
 
 /// <summary>One already-encoded page. HSampling/VSampling only matter for JPEG,
-/// Components for JPEG / JPEG2000 (1 = gray, 3 = color).</summary>
+/// Components for JPEG (1 = gray, 3 = color).</summary>
 public sealed record TiffPage(TiffPageCodec Codec, byte[] Bytes, int Width, int Height, int DpiX, int DpiY,
     int HSampling = 2, int VSampling = 2, int Components = 3);
 
@@ -15,16 +15,9 @@ public sealed record TiffPage(TiffPageCodec Codec, byte[] Bytes, int Width, int 
 /// builder, so all codecs go through ONE consistent TIFF-assembly mechanism
 /// (Compression/Photometric tags + WriteRawStrip + WriteDirectory per page). Pages may mix
 /// codecs (a bitonal G4 page next to a color JPEG page) -- each IFD is self-describing.
-///
-/// JBIG2 (34661) and JPEG2000/JP2 (34712) ARE registered TIFF Compression tag values, but
-/// reader support outside specialized tooling is spotty at best -- only G4 and JPEG TIFFs
-/// should be handed to arbitrary viewers.
 /// </summary>
 public static class TiffPagePacker
 {
-    private const Compression Jbig2Compression = (Compression)34661;
-    private const Compression Jp2Compression = (Compression)34712;
-
     public static void Save(IReadOnlyList<TiffPage> pages, string destPath)
     {
         if (pages.Count == 0) throw new ArgumentException("No pages to export.", nameof(pages));
@@ -48,10 +41,9 @@ public static class TiffPagePacker
                 switch (p.Codec)
                 {
                     case TiffPageCodec.CcittG4:
-                    case TiffPageCodec.JBig2:
                         tiff.SetField(TiffTag.BITSPERSAMPLE, 1);
                         tiff.SetField(TiffTag.SAMPLESPERPIXEL, 1);
-                        tiff.SetField(TiffTag.COMPRESSION, p.Codec == TiffPageCodec.CcittG4 ? Compression.CCITTFAX4 : Jbig2Compression);
+                        tiff.SetField(TiffTag.COMPRESSION, Compression.CCITTFAX4);
                         tiff.SetField(TiffTag.PHOTOMETRIC, Photometric.MINISWHITE);
                         tiff.SetField(TiffTag.FILLORDER, FillOrder.MSB2LSB);
                         break;
@@ -73,13 +65,6 @@ public static class TiffPagePacker
                             tiff.SetField(TiffTag.PHOTOMETRIC, Photometric.YCBCR);
                             tiff.SetField(TiffTag.YCBCRSUBSAMPLING, p.HSampling, p.VSampling);
                         }
-                        break;
-
-                    case TiffPageCodec.Jpeg2000:
-                        tiff.SetField(TiffTag.BITSPERSAMPLE, 8);
-                        tiff.SetField(TiffTag.SAMPLESPERPIXEL, p.Components);
-                        tiff.SetField(TiffTag.PHOTOMETRIC, p.Components == 1 ? Photometric.MINISBLACK : Photometric.RGB);
-                        tiff.SetField(TiffTag.COMPRESSION, Jp2Compression);
                         break;
                 }
 

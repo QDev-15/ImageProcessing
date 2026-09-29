@@ -920,8 +920,8 @@ public partial class MainForm : Form
 
         long bytes = outputs.Sum(f => new FileInfo(f).Length);
         string codecs = format == ExportFormat.Pdf
-            ? $"{(settings.UseJBig2 ? "JBIG2" : "CCITT G4")} / {(settings.UseJpeg2000 ? "JPEG2000" : "JPEG")}{(settings.PdfA ? ", PDF/A-2b" : "")}{(settings.Ocr ? ", OCR" : "")}"
-            : $"{(settings.UseJBig2 ? "JBIG2" : "CCITT G4")} / {(settings.UseJpeg2000 ? "JPEG2000" : "JPEG")}";
+            ? $"CCITT G4 / JPEG{(settings.PdfA ? ", PDF/A-2b" : "")}{(settings.Ocr ? ", OCR" : "")}"
+            : "CCITT G4 / JPEG";
         SetStatus($"Đã xuất {outputs.Count} file ({bytes / 1024.0:0.0} KB, {codecs}) trong {sw.Elapsed.TotalSeconds:0.0}s: {outputs[0]}{(outputs.Count > 1 ? " ..." : "")}");
         if (MessageBox.Show(this, $"Đã xuất {outputs.Count} file ({bytes / 1024.0:0.0} KB).\n\nMở thư mục chứa file?", "Xuất file",
                 MessageBoxButtons.YesNo, MessageBoxIcon.Information) == DialogResult.Yes)

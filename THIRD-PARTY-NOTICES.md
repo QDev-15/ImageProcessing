@@ -37,21 +37,15 @@ thương mại, với điều kiện giữ thông báo bản quyền / license (
 | `DocScanner/Resources/Fonts/MaterialIcons-Regular.ttf` (biểu tượng giao diện app mobile) | Apache-2.0 (Google) | github.com/google/material-design-icons (thư mục `font/`) |
 | `DocScanner/Resources/Fonts/OpenSans-Regular.ttf`, `OpenSans-Semibold.ttf` (chữ giao diện app mobile, đi kèm mẫu dự án .NET MAUI) | SIL Open Font License 1.1 (dùng thương mại được, được nhúng trong app; không bán riêng font) | fonts.google.com/specimen/Open+Sans |
 
-## Công cụ chạy ngoài (thư mục `tools\`)
-
-| Thành phần | License | Ghi chú |
-|---|---|---|
-| OpenJPEG 2.5.4 (`opj_compress.exe`, `openjp2.dll`) | BSD-2-Clause | Bản build chính thức của dự án OpenJPEG. |
-| jbig2enc 0.29 (`jbig2.exe`) | Apache-2.0 | ⚠ Bản Windows do bên thứ ba build (SourceForge), không phải từ dự án gốc agl/jbig2enc. Nên tự build lại từ source trước khi bán. |
-| leptonica 1.76.0 (đi kèm jbig2enc) | Leptonica license (kiểu BSD-2) | |
+**Công cụ chạy ngoài (thư mục `tools\`): không còn thành phần nào** (2026-09-29). Từng có OpenJPEG
+2.5.4 (`opj_compress.exe`, BSD-2-Clause) và jbig2enc 0.29 (`jbig2.exe`, Apache-2.0) -- cả hai đã bị
+owner gỡ bỏ hoàn toàn khỏi app (xem mục Codec bên dưới).
 
 ## Microsoft Visual C++ Runtime (triển khai trong thư mục app)
 
 | File | Dùng cho |
 |---|---|
 | `vcruntime140.dll`, `vcruntime140_1.dll`, `msvcp140.dll` (x64, 14.44) | tesseract50.dll / leptonica-1.82.0.dll |
-| `tools\jbig2enc\msvcr120.dll` (x86, VC++ 2013) | leptonica-1.76.0.dll của jbig2enc |
-| `tools\openjpeg\vcruntime140.dll`, `msvcp140*.dll`, `concrt140.dll` (x64) | OpenJPEG |
 
 Các file này thuộc danh sách "Redistributable Code" của Visual Studio, được phép phân phối kèm
 ứng dụng. ⚠ Các file x64 / msvcr120 hiện được copy từ máy dev (System32 / SysWOW64). Với bản
@@ -74,9 +68,15 @@ chạy VC++ Redistributable chính thức.
 |---|---|
 | CCITT G4 (T.6, 1988) | Các bằng sáng chế đã hết hạn từ lâu. |
 | JPEG baseline (1992) | Các bằng sáng chế đã hết hạn (các vụ Forgent / "JPEG patent" đều hết hạn trước 2007-2011). |
-| JPEG 2000 Part 1 | Ủy ban JPEG có chính sách Part 1 miễn phí bản quyền (royalty-free) từ các bên đóng góp chính. ⚠ Không loại trừ hoàn toàn bằng sáng chế của bên thứ ba. |
-| JBIG2 (ISO/IEC 14492:2001) | Có các khai báo bằng sáng chế lịch sử (xem `tools/jbig2enc/PATENTS.txt`). Chuẩn công bố năm 2000-2001, nên các bằng sáng chế cốt lõi nộp giai đoạn đó hẳn đã quá thời hạn 20 năm. ⚠ Cần luật sư xác nhận trước khi bán. JBIG2 là tuỳ chọn và **mặc định TẮT** (mặc định dùng CCITT G4). |
 
-Ngoài ra, JBIG2 ở chế độ Symbol có thể **thay nhầm ký tự rất giống nhau** (sự cố máy Xerox năm
-2013, 6 ↔ 8). App mặc định dùng ngưỡng 0.92 (thận trọng) và có chế độ `Lossless` để loại bỏ
-hoàn toàn rủi ro này. Với tài liệu pháp lý / tài chính nên dùng `Lossless` hoặc CCITT G4.
+**JBIG2 đã bị gỡ bỏ hoàn toàn khỏi app** (quyết định của owner, 2026-09-29): không còn `JBig2Encoder.cs`, không còn
+`tools/jbig2enc/` (đã xoá khỏi repo), không còn tuỳ chọn JBIG2 trong Cài đặt. Trang trắng đen giờ luôn dùng **CCITT
+G4** -- bằng sáng chế đã hết hạn từ lâu, không có rủi ro thay nhầm ký tự (sự cố máy Xerox năm 2013, 6 ↔ 8, chỉ áp
+dụng cho JBIG2 chế độ Symbol) và không phải theo dõi nguồn gốc bản build / bằng sáng chế lịch sử của JBIG2 nữa.
+
+**JPEG 2000 (Part 1) cũng đã bị gỡ bỏ hoàn toàn khỏi app** (quyết định của owner, cùng ngày 2026-09-29, lý do tốc
+độ chứ không phải bằng sáng chế -- Part 1 vốn miễn phí bản quyền theo chính sách của uỷ ban JPEG, dù không loại trừ
+hoàn toàn bằng sáng chế của bên thứ ba ⚠): không còn `OpenJpegEncoder.cs`, không còn `tools/openjpeg/`, không còn
+tuỳ chọn JPEG2000 trong Cài đặt. Trang xám/màu giờ luôn dùng **JPEG** -- đo thật cho thấy JPEG2000 (gọi
+`opj_compress.exe` cho từng trang) chậm hơn JPEG khoảng 25 lần khi xuất, dù file nhỏ hơn khoảng 2 lần; owner chọn
+tốc độ.

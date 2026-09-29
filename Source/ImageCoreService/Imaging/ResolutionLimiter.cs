@@ -7,9 +7,8 @@ namespace ImageCoreService;
 /// <summary>
 /// Scan / import step: a page whose DPI is higher than the scan setting is resampled down
 /// to exactly that DPI. Lower or equal DPI is never touched (no upscaling). This is the
-/// single biggest lever on speed and memory for everything downstream -- binarization,
-/// OCR, JPEG2000 / JBIG2 encoding and the 32-bit external tools all scale with pixel count
-/// (an 85 MP page becomes ~9 MP at 300 dpi).
+/// single biggest lever on speed and memory for everything downstream -- binarization and OCR
+/// both scale with pixel count (an 85 MP page becomes ~9 MP at 300 dpi).
 /// </summary>
 public static class ResolutionLimiter
 {

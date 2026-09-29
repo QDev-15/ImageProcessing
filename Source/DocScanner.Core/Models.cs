@@ -120,7 +120,13 @@ public sealed class PageRecord
     /// <summary>Why the last render failed, if it did.</summary>
     public string? RenderError { get; set; }
 
-    /// <summary>Color / gray / black-and-white. Pages from before this setting existed are color.</summary>
+    /// <summary>Color / gray / black-and-white. Pages from before this setting existed are color (that is what the old
+    /// code always rendered): this default stays <see cref="PageColorMode.Color"/> so a doc.json missing the field
+    /// entirely still reads as the color page it was actually rendered as -- see
+    /// <c>A_document_saved_before_page_looks_existed_still_reads_as_rendered_color_pages</c>. A newly imported page
+    /// gets black-and-white explicitly, in <see cref="ImportService"/> (owner's request 2026-09-29: most scans are
+    /// documents, not photos, and black-and-white is both the crisper look and the much smaller file -- color is one
+    /// tap away on the filter cards for the pages that do need it), not through this default.</summary>
     [JsonConverter(typeof(JsonStringEnumConverter<PageColorMode>))]
     public PageColorMode ColorMode { get; set; } = PageColorMode.Color;
 
