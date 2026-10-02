@@ -42,7 +42,7 @@ public partial class ExportCoordinator(DocumentStore store, PdfExportService exp
 			return;
 		}
 
-		if (!license.State.CanExport && !await OfferUpgradeAsync()) return;
+		//if (!license.State.CanExport && !await OfferUpgradeAsync()) return;
 
 		PdfQuality? quality = await AskQualityAsync();
 		if (quality == null) return;
