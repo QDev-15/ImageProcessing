@@ -19,7 +19,7 @@ public sealed class LicenseService : ILicenseService
     /// <summary>Product id of the one-time "remove the trial limit" unlock. MUST match the managed
     /// product created in Play Console &gt; Monetize &gt; Products &gt; In-app products exactly, or Play
     /// will report it as unknown and <see cref="PurchaseProAsync"/> will fail.</summary>
-    public const string ProProductId = "pro_upgrade";
+    public const string ProProductId = "doc_scanner_pro_upgrade_guidid_20260930_1131_101_01051989";
 
     private const string ExportsUsedKey = "license_exports_used";
     private const string CachedIsProKey = "license_is_pro_cached";

@@ -58,15 +58,17 @@ bao), thanh toán qua **Google Play Billing** -- không có máy chủ license r
 - **Dùng thử miễn phí**: **5 lượt xuất PDF** đầu tiên miễn phí, không giới hạn theo ngày. Chụp ảnh, dò mép, chỉnh
   sửa, xem trước -- dùng thoải mái không giới hạn ở mọi lượt; chỉ chặn đúng lúc xuất PDF (lúc khách nhận thành phẩm),
   để khách trải nghiệm đủ trước khi bị mời mua.
-- **Gói trả phí**: **"Pro"**, sản phẩm Play Console tên `pro_upgrade`, kiểu **managed / mua một lần** (không tiêu
-  hao, không gia hạn) -- mua xong dùng vĩnh viễn, xuất PDF không giới hạn.
-- **Play là "máy chủ license"**: app chỉ hỏi Google Play "tài khoản này đã mua `pro_upgrade` chưa" mỗi lần mở app /
+- **Gói trả phí**: **"Pro"**, sản phẩm Play Console tên `doc_scanner_pro_upgrade_guidid_20260930_1131_101_01051989`
+  (owner tự đặt, đã điền vào code đợt 2026-09-29 tối), kiểu **managed / mua một lần** (không tiêu hao, không gia
+  hạn) -- mua xong dùng vĩnh viễn, xuất PDF không giới hạn.
+- **Play là "máy chủ license"**: app chỉ hỏi Google Play "tài khoản này đã mua gói Pro chưa" mỗi lần mở app /
   mở Cài đặt -- không có license key, không server riêng. Khách bị hoàn tiền / Google thu hồi giao dịch thì lần hỏi
   tiếp theo Play tự trả lời "chưa mua", app tự khoá lại, không cần owner làm gì.
-- **Giá bán**: do **owner tự đặt trong Play Console** (chưa đặt -- sản phẩm `pro_upgrade` **chưa được tạo trên Play
-  Console**, nên hiện tại app chưa hiển thị giá thật, nút Mua Pro chưa hoạt động được với tiền thật).
+- **Giá bán**: do **owner tự đặt trong Play Console**. Code đã có đúng ID sản phẩm; owner cần tự xác nhận đã **tạo
+  sản phẩm managed với đúng ID này trên Play Console** và đặt giá, nếu chưa thì nút Mua Pro chưa hoạt động được
+  với tiền thật.
 - **Khuyến mãi ra mắt**: dùng thẳng **mã giảm giá (Promo codes) có sẵn trong Play Console** (Kiếm tiền > Sản phẩm >
-  `pro_upgrade` > Khuyến mãi) -- owner tự tạo mã, đặt % giảm hoặc miễn phí, hạn dùng, rồi phát cho khách (Facebook,
+  chọn sản phẩm Pro > Khuyến mãi) -- owner tự tạo mã, đặt % giảm hoặc miễn phí, hạn dùng, rồi phát cho khách (Facebook,
   Zalo...). Khách đổi mã ngay trong **app Google Play Store** (không phải trong Doc Scanner); Play tự ghi nhận đã
   mua, app tự nhận ra ở lần mở tiếp theo -- **không cần owner báo code gì cho app biết**.
 - **Play thu phí dịch vụ**: Google Play luôn giữ lại một phần doanh thu mỗi giao dịch bán hàng trong app theo chính
@@ -77,10 +79,11 @@ bao), thanh toán qua **Google Play Billing** -- không có máy chủ license r
 ### Owner cần tự làm trên Play Console để bắt đầu có thu nhập thật (không làm thay được, cần tài khoản riêng của owner)
 
 1. Tạo app trên Play Console (phí đăng ký nhà phát triển một lần theo chính sách Google hiện hành), điền Data
-   safety (app hiện CÓ dùng Internet: tự cập nhật + Play Billing; ảnh/tài liệu vẫn không rời máy), chính sách quyền
-   riêng tư, ảnh chụp màn hình, mô tả app.
-2. Tạo sản phẩm **managed** đúng ID `pro_upgrade` (phải khớp chính xác, xem `LicenseService.ProProductId`), đặt giá
-   bán.
+   safety (app hiện CÓ dùng Internet: Play Billing + AdMob -- không còn tự cập nhật, tính năng đó đã gỡ bỏ đợt
+   2026-09-29 vì Play tự cập nhật; ảnh/tài liệu vẫn không rời máy), chính sách quyền riêng tư, ảnh chụp màn hình,
+   mô tả app.
+2. Tạo sản phẩm **managed** đúng ID hiện có trong code (xem `LicenseService.ProProductId`; phải khớp chính xác
+   từng ký tự), đặt giá bán.
 3. Thêm tài khoản Gmail của owner làm **license tester** để bấm Mua Pro thử không mất tiền thật, kiểm tra toàn bộ
    luồng trước khi phát hành thật.
 4. Sau khi sản phẩm được duyệt: tạo mã khuyến mãi ra mắt nếu muốn, phát hành app lên Play (bản Release đã build được

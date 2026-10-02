@@ -43,7 +43,8 @@
 - **Đợt 2026-09-27h**: sửa lỗi trình xem PDF (trang sau bị đen: trang PdfRenderer không được đóng); sửa lỗi trang cắt ra dài hơn A4
   (tiêu cự "đo" từ 4 góc sai trên ảnh thật -> dùng tiêu cự điện thoại cố định, trang có dáng tờ giấy ra đúng A4; "Tài liệu 1" cả 10
   trang ra A4); màn chính: tìm kiếm (không dấu), thư mục, chọn nhiều / kéo thả vào thư mục / xoá; màn Cài đặt + Thông tin ứng dụng;
-  tự cập nhật lúc 01:00 (hướng dẫn phát hành: [UPDATE-SERVER.md](UPDATE-SERVER.md)); màn khởi động. Phiên bản 1.1 (versionCode 2).
+  tự cập nhật lúc 01:00 (hướng dẫn phát hành: UPDATE-SERVER.md -- tính năng này đã gỡ bỏ đợt 2026-09-29 tối, xem bên dưới); màn khởi động.
+  Phiên bản 1.1 (versionCode 2).
   Chi tiết: MOBILE-STATUS.md mục 5j.
 - **Đợt 2026-09-28**: License / bán hàng qua **Google Play Billing** (mua đứt "Pro" một lần, gói `pro_upgrade`); dùng thử **5 lượt xuất PDF
   miễn phí** rồi mới yêu cầu mua (chụp/chỉnh sửa không giới hạn); mục "GÓI PRO" trong Cài đặt; mã giảm giá dùng thẳng "Mã khuyến mãi" có sẵn của
@@ -70,6 +71,16 @@
 - **Đợt 2026-09-29 (app mobile Doc Scanner)**: trang mới nhập (thư viện hoặc chụp) mặc định là **Đen trắng** thay vì
   Màu như trước -- hầu hết ảnh nhập vào là tài liệu, không phải ảnh chụp thường; đổi sang Màu vẫn chỉ 1 chạm ở bộ lọc
   màn Kết quả cho trang cần giữ màu. Chi tiết: MOBILE-STATUS.md mục 5o.
+- **Đợt 2026-09-29 (app mobile Doc Scanner)**: sửa **mép / dòng chữ gợn sóng** trên một số trang (owner báo trực tiếp trên máy, tài liệu "T1") --
+  do bước tự căn dòng chữ thẳng hàng (`ContentAligner`) xoay lệch từng dải theo nhiễu đo đạc; giờ chỉ còn xoay theo một độ dốc đều suốt trang,
+  không thể tạo ra sóng nữa. Trang cũ tự dựng lại một lần ở nền. Chi tiết: MOBILE-STATUS.md mục 5q.
+- **Đợt 2026-09-29 (app mobile Doc Scanner, tối)**: **gỡ bỏ hẳn tính năng tự cập nhật** (app giờ phát hành qua Google Play, Play tự lo cập nhật;
+  UPDATE-SERVER.md cũng xoá theo) -- màn Cài đặt bớt mục "CẬP NHẬT" phức tạp, chỉ còn "PHIÊN BẢN" hiện một dòng số phiên bản, khớp với màn
+  "Thông tin ứng dụng" (cả hai đọc chung `AppInfo.Current`). Thêm mô tả lợi ích mua Pro dưới nút Mua Pro. `versionName` 1.1 -> **1.2**,
+  `versionCode` 2 -> **3**. Owner đã tự điền mã AdMob thật + đổi ID sản phẩm Play Billing trong code trước khi giao việc này (xem
+  LICENSE-MONETIZATION.md) -- **bản Release từ giờ hiện quảng cáo thật**, không còn quảng cáo test. Thiết lập ký Release lần đầu: tạo keystore
+  upload key (`Source/DocScanner/release/`, đã gitignore, xem `KEYSTORE-README.md` -- owner cần tự sao lưu ra ngoài máy), build AAB để owner
+  tải lên Play, cài bản Release lên Note 10+ để test. Chi tiết: MOBILE-STATUS.md mục 5r.
 - License bên thứ ba: [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 - Tóm tắt bản quyền + mô hình thu tiền (app mobile): [LICENSE-MONETIZATION.md](LICENSE-MONETIZATION.md).
 

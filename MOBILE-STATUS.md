@@ -767,6 +767,96 @@ cáo bằng mọi giá.
 10. [ ] Kiểm tra lại đủ 4 việc cũ: banner thật hiện đúng, interstitial sau 5 lần xuất PDF, chữ "GÓI PRO" trong Cài đặt, mua Pro xong tắt hết
    quảng cáo.
 
+## 5q. Dòng chữ / mép trang gợn sóng sau khi căn thẳng (đợt 2026-09-29)
+
+Owner (máy đang cắm, xem trực tiếp tài liệu **T1** -- 4 trang phiếu bài tập chụp bằng camera): "một số trang các dòng chữ như bị gợn sóng."
+
+**Chẩn đoán trên máy thật** (không cần lấy file ra ngoài -- bản Release không `run-as` được, nhưng chỉ cần chạm/vuốt trong app rồi chụp màn
+hình): mở tài liệu T1, xem lần lượt 4 trang -- trang 1, 3, 4 bình thường; **trang 2** có đường biên dưới của tờ giấy (chỗ giáp nền đen) gợn sóng
+rõ (2-3 đợt lên xuống), dòng chữ trong thân trang vẫn thẳng ở lần xem này nhưng đường biên là bằng chứng trực tiếp của lỗi hình học.
+
+**Nguyên nhân**: `ContentAligner` (đợt 2026-09-28b, tự căn dòng chữ thẳng hàng) đo độ nghiêng dòng chữ theo 4 dải ngang độc lập, rồi -- khi cả
+4 dải đều đo rõ (tương phản >= 3) -- áp góc xoay **theo đúng từng dải đo được**, nội suy tuyến tính từng đoạn giữa 4 điểm (không phải một đường
+thẳng chung). Đây là tính năng cố tình thêm cho MỘT trang thật trước đó (mép trên bị khuất dưới viền laptop, đo được -2,4/-3,3/-1,8/-1,0° --
+đường thẳng chung bỏ sót một dải). Nhưng trên trang T1-2 này, 2 dải liền kề đo lệch nhau chỉ do **nhiễu đo đạc** (không phải mép trang thật bị
+cong nhiều đoạn), và nội suy chính xác qua các điểm nhiễu đó biến một đường thẳng thật (mép trang) thành đường gợn sóng khi xoay từng hàng ảnh
+theo góc nội suy đó -- xoay mỗi hàng theo một góc hơi khác nhau rồi ghép lại đúng là cách vẽ ra sóng từ nhiễu, không phải phóng đại lỗi có sẵn.
+
+**Sửa**: bỏ hẳn kiểu nội suy theo từng dải (piecewise). `LineTilt.At(v)` giờ CHỈ còn `Angle + Slope * (v - 0.5)` -- một đường thẳng/độ dốc đều
+suốt trang (affine): về mặt toán học không thể tạo ra hơn một đoạn cong, không bao giờ ra sóng, dù Angle/Slope là bao nhiêu. Đánh đổi: trang có
+mép bị khuất kiểu kia (hiếm) sẽ không còn được chỉnh khớp chính xác từng dải như trước, chỉ được chỉnh bằng độ dốc trung bình -- chấp nhận được
+vì ưu tiên không tự vẽ thêm lỗi mới lên trang vốn đã thẳng.
+- `PageRecord.GeometryVersion` tăng lên **5** để trang đã dựng bằng luật cũ (có thể đã bị gợn sóng) tự dựng lại một lần ở nền.
+- Test: `ImageCore.Shared.Tests` 135 (thêm `A_straight_edge_never_comes_out_wavy`: một mép thẳng tuyệt đối, xoay bằng `Align` với nhiều tổ hợp
+  Angle/Slope, kiểm tra đường biên trong ảnh kết quả không đổi hướng quá 1 lần -- tức không gợn sóng, kiểm trực tiếp ở tầng hình học chứ không
+  cần dựng lại đúng kịch bản nhiễu đo đạc). `DocScanner.Core.Tests` 199 không đổi cách khác.
+- Đã cài bản Release có fix này lên Note 10+ cùng đêm đó; owner cần tự mở lại trang T1-2 (chờ dựng lại ở nền vài giây) để xác nhận hết gợn sóng
+  bằng mắt -- chưa có xác nhận bằng lời từ owner tính đến mục 5r bên dưới.
+
+## 5r. Cài đặt: bỏ tự cập nhật, mô tả lợi ích Pro, ký AAB, cài máy thật (đợt 2026-09-29, tối)
+
+Owner: "xem xét rồi viết lại phần cài đặt ... phần cập nhật không show cho khách hàng, chỉ show version" (owner nói thêm: "tôi cũng lơ mơ chưa
+biết sau cập nhật thì làm gì upload vào đâu" -- tức không muốn duy trì hạ tầng tự cập nhật riêng nữa) + "Thông tin ứng dụng cũng nên cập nhật lại
+phiên bản cho khớp" + thêm mô tả lợi ích Pro dưới nút Mua Pro + xuất AAB + cài bản thật lên máy để test.
+
+**Trước khi làm việc này, owner đã tự điền mã thật vào code** (thấy trong git diff khi bắt đầu, không phải tôi tạo ra): AdMob App ID thật
+(`ca-app-pub-5182523644830048~7154978937`), 2 ad unit ID thật trong `AdsConfig.cs` (banner + interstitial), và đổi `LicenseService.ProProductId`
+từ `pro_upgrade` sang `doc_scanner_pro_upgrade_guidid_20260930_1131_101_01051989` (khớp tên file `Guid-upload.md` owner nhắc tới -- không phải
+tài liệu mới, chỉ là bản owner lưu lại đúng checklist tôi đưa hôm trước). Từ giờ `AdsConfig.HasRealIds` = true nên **bản Release sẽ hiện quảng
+cáo thật**, không còn quảng cáo test -- cần cẩn thận không bấm vào quảng cáo trên máy test trừ khi máy đã được đăng ký Test device trong AdMob
+Console (việc ① owner tự làm, xem mục 5p).
+
+**Quyết định: gỡ bỏ hẳn tính năng tự cập nhật, không chỉ ẩn trên UI.** Lý do:
+1. App giờ phát hành qua Google Play; `AndroidAppUpdater.UnsupportedReason` vốn đã tự phát hiện cài từ Play
+   (`InstallingPackageName == "com.android.vending"`) và tắt hết UI cập nhật -- tức với MỌI khách hàng thật (100% cài qua Play), tính năng này
+   không bao giờ chạy. Giữ lại code chỉ để không dùng là nợ kỹ thuật.
+2. Đây đúng là nguồn gốc câu hỏi "lơ mơ chưa biết sau cập nhật thì làm gì upload vào đâu" của owner: hạ tầng tự cập nhật cần owner tự lưu
+   `update.json` + APK ở đâu đó và cập nhật file đó sau mỗi bản -- việc không cần thiết nữa khi Play tự lo cập nhật.
+3. `UPDATE_PACKAGES_WITHOUT_USER_ACTION` (quyền xin trong manifest để cài lặng lẽ không hỏi xác nhận) là quyền cấp hệ thống
+   (signature|privileged) -- **không app bên thứ ba thường nào được Android cấp quyền này thật**, kể cả cài ngoài Play; nó chỉ có tác dụng khi
+   test qua ADB cấp quyền tay (đã làm trong môi trường dev phiên trước), không có tác dụng gì với khách hàng.
+
+**Đã xoá:** `Platforms/Android/Updates/AndroidAppUpdater.cs` (gồm 3 lớp: `AndroidAppUpdater`, `UpdateJobService`, `UpdateStatusReceiver`),
+`Services/IAppUpdater.cs`, `DocScanner.Core/Updates/UpdateManifest.cs` (+ `UpdatePlanner`), `DocScanner.Core.Tests/UpdateTests.cs`,
+`UPDATE-SERVER.md`; bỏ đăng ký DI trong `MauiProgram.cs`, bỏ gọi `Schedule()` ở `App.xaml.cs` `OnStart`; bỏ 4 quyền Android không còn cần:
+`UPDATE_PACKAGES_WITHOUT_USER_ACTION`, `REQUEST_INSTALL_PACKAGES`, `POST_NOTIFICATIONS` (chỉ dùng cho thông báo cài xong bản cập nhật),
+`RECEIVE_BOOT_COMPLETED`. Giữ nguyên `INTERNET` + `ACCESS_NETWORK_STATE` (Play Billing + AdMob vẫn cần).
+
+**Màn Cài đặt (`SettingsViewModel.cs` + `SettingsPage.xaml`):**
+- Mục "CẬP NHẬT" (switch tự động, ô nhập URL, nút "Kiểm tra ngay") xoá hẳn, thay bằng mục **"PHIÊN BẢN"** chỉ hiện một dòng
+  `VersionText` (`Phiên bản {version} (bản dựng {build})`) -- không có gì để khách bấm hay hiểu nhầm.
+- Trang "Thông tin ứng dụng" (`AboutPage.xaml.cs`) đã tự đọc `AppInfo.Current.VersionString`/`BuildString` từ trước, không cần sửa gì thêm --
+  tự khớp với Cài đặt mỗi khi `ApplicationDisplayVersion`/`ApplicationVersion` trong csproj đổi.
+- Thêm khối "Bản Pro có gì:" dưới nút Mua Pro / Khôi phục giao dịch (chỉ hiện khi còn bản miễn phí, `IsVisible="{Binding IsFree}"`): xuất PDF
+  không giới hạn (bản free 5 lượt, theo `LicenseState.FreeExportLimit`), hết quảng cáo, mua một lần dùng vĩnh viễn, ủng hộ tác giả.
+
+**Phiên bản:** `DocScanner.csproj` `ApplicationDisplayVersion` 1.1 -> **1.2**, `ApplicationVersion` (versionCode) 2 -> **3**.
+
+**Ký Release / AAB (lần đầu thiết lập):** tạo keystore PKCS12 bằng JDK 21 keytool (`Source/DocScanner/release/docscanner-upload.keystore`,
+alias `docscanner-upload`, RSA 2048, hạn 30 năm). Mật khẩu + hướng dẫn sao lưu trong `Source/DocScanner/release/KEYSTORE-README.md`. Cấu hình
+ký KHÔNG đặt thẳng trong `DocScanner.csproj` (file này nằm trong git) mà tách ra `Source/DocScanner/release/Signing.props`, chỉ import khi tồn
+tại và ở cấu hình Release; toàn bộ thư mục `Source/DocScanner/release/` đã thêm vào `.gitignore`. Đây là **upload key** cho Google Play App
+Signing (không phải khoá ký thật của app trên Play) -- owner chọn Play App Signing khi tạo app lần đầu (mặc định), mất keystore này chỉ cần
+liên hệ hỗ trợ Play xin đổi upload key mới, không mất app.
+
+**Owner cần làm:** sao lưu thư mục `Source/DocScanner/release/` (đọc `KEYSTORE-README.md`) ra một nơi ngoài máy này ngay khi có thể.
+
+**Kết quả build/test/cài máy (cùng đêm):**
+- Build Release lần đầu (obj mặc định) vướng lỗi khoá file tạm thời (`MSB3061`, Visual Studio đang mở project); build lần hai vô tình override
+  cả `BaseIntermediateOutputPath` để né khoá làm lộ ra một vấn đề CÓ SẴN từ trước (không liên quan việc tối nay): thư mục `obj` mặc định của
+  `ImageCore.Shared` có nhiều bản `AssemblyInfo.cs` cũ nằm rải trong `obj/v3`, `obj/v4` từ những lần build trước bằng đường dẫn `obj` khác nhau,
+  bị gom nhầm vào lần biên dịch (trùng attribute, không build được). Sửa bằng cách chỉ override `OutDir` (đúng cách CLAUDE.md đã ghi), không đụng
+  `BaseIntermediateOutputPath` -- build qua, không cần dọn `obj/v3`/`obj/v4` (để nguyên, không ảnh hưởng build bình thường).
+- `dotnet test Source/DocScanner.Core.Tests` 188 PASS, `dotnet test Source/ImageCore.Shared.Tests` 135 PASS (Release).
+- `dotnet build ... -c Release` qua, APK ký bằng keystore thật (`apksigner verify` xác nhận `CN=Nguyen Huu Quynh, OU=Doc Scanner`).
+- Lần cài đầu bị `INSTALL_FAILED_UPDATE_INCOMPATIBLE` (bản cũ trên máy ký bằng khoá debug tự động trước đó, khác khoá thật mới) -- **không tự ý
+  gỡ cài đặt cũ** vì sẽ xoá tài liệu owner đang test (kể cả tài liệu T1); dừng lại chờ owner. Owner tự gỡ app trên máy, báo lại; cài bản ký khoá
+  thật thành công ngay sau đó. Máy hiện versionCode=3, versionName=1.2, đúng khoá thật.
+- `dotnet publish ... -p:AndroidPackageFormat=aab` ra `Source/DocScanner/release/DocScanner-1.2-versionCode3.aab` (50,5 MB), `jarsigner -verify`
+  xác nhận "jar verified", đúng chứng thư thật. **File này owner tải lên Play Console.**
+- Owner cần tự mở lại tài liệu T1 trang 2 xem còn gợn sóng không (mục 5q) -- tài liệu cũ đã mất khi gỡ cài đặt, chỉ xác nhận được với tài liệu
+  quét lại từ đầu trên bản mới này.
+
 ## 6. Việc còn lại (theo thứ tự nên làm)
 
 ### Bước 9 -- Hoàn thiện

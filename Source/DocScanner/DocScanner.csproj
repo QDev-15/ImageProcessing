@@ -28,19 +28,20 @@
 		<!-- App Identifier -->
 		<ApplicationId>btk.docscanner</ApplicationId>
 
-		<!-- Versions -->
-		<ApplicationDisplayVersion>1.1</ApplicationDisplayVersion>
-		<ApplicationVersion>2</ApplicationVersion>
+		<!-- Versions. Bump ApplicationVersion (Android versionCode) on every build going to a device or to Play;
+		     ApplicationDisplayVersion (versionName) is the human-readable one shown in Settings / About / Play Store. -->
+		<ApplicationDisplayVersion>1.2</ApplicationDisplayVersion>
+		<ApplicationVersion>3</ApplicationVersion>
 
 		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">26.0</SupportedOSPlatformVersion>
 
 		<!-- AdMob App ID, substituted into Platforms/Android/AndroidManifest.xml's ${admobAppId} token (a
 		     malformed / placeholder value here crashes the app at startup, before any C# runs: the SDK
-		     checks it in a ContentProvider that attaches ahead of MauiProgram). Set to Google's own,
-		     publicly documented test App ID for now (always valid, never serves a real ad). TODO before a
-		     Google Play release: replace with the real App ID from your AdMob console (Apps > Doc Scanner >
-		     App settings); AdsConfig.cs has the matching ad unit IDs to fill in at the same time. -->
-		<AndroidManifestPlaceholders>admobAppId=ca-app-pub-3940256099942544~3347511713</AndroidManifestPlaceholders>
+		     checks it in a ContentProvider that attaches ahead of MauiProgram). This is the real App ID from
+		     the AdMob console (owner filled it in, 2026-09-29): AdsConfig.cs has the matching real ad unit
+		     IDs, so real ads now serve in every build (AdsConfig.HasRealIds == true) — be careful not to tap
+		     ads on a test device unless it is registered as a Test device in the AdMob console. -->
+		<AndroidManifestPlaceholders>admobAppId=ca-app-pub-5182523644830048~7154978937</AndroidManifestPlaceholders>
 	</PropertyGroup>
 
 	<!-- Release: every assembly compiled ahead of time with LLVM. Mono JIT / plain AOT code is slow for the image loops
@@ -58,6 +59,12 @@
 		<AndroidEnableProfiledAot>false</AndroidEnableProfiledAot>
 		<EnableLLVM>true</EnableLLVM>
 	</PropertyGroup>
+
+	<!-- Release signing (Google Play upload key): keystore + passwords are NOT in this file (this file is
+	     tracked by git). They live in release/Signing.props, gitignored — see release/KEYSTORE-README.md.
+	     A Release build without that file falls back to the debug key (fine for local device testing; an
+	     AAB built that way must not be uploaded to Play, only one built with the real key). -->
+	<Import Project="release\Signing.props" Condition="'$(Configuration)' == 'Release' AND Exists('release\Signing.props')" />
 
 	<ItemGroup>
 		<!-- App Icon -->

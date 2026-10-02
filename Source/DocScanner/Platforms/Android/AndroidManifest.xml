@@ -15,16 +15,11 @@
 	<!-- Camera capture. Gallery import goes through the system photo picker, which needs no storage permission. -->
 	<uses-permission android:name="android.permission.CAMERA" />
 
-	<!-- Self-update (AndroidAppUpdater), Google Play Billing (bản Pro) and AdMob (quảng cáo bản miễn phí):
-	     pages and photos themselves never leave the phone, nothing else uses the network. -->
+	<!-- Google Play Billing (bản Pro) and AdMob (quảng cáo bản miễn phí): pages and photos themselves never
+	     leave the phone, nothing else uses the network. Updates are handled by Google Play itself (app is
+	     distributed there), not by the app. -->
 	<uses-permission android:name="android.permission.INTERNET" />
 	<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-	<uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
-	<!-- Android 12+: lets the app update itself without the install confirmation once it is the installer of record
-	     (without it the nightly update stops at a confirmation nobody sees). -->
-	<uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION" />
-	<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-	<uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 	<uses-feature android:name="android.hardware.camera" android:required="false" />
 	<uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
 
