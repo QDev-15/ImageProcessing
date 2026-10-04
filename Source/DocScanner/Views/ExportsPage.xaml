@@ -9,7 +9,7 @@
     Title="PDF đã xuất"
     BackgroundColor="{AppThemeBinding Light=#F5F7FA, Dark=#121212}">
 
-    <Grid RowDefinitions="Auto,*">
+    <Grid RowDefinitions="Auto,*,Auto">
         <Label Text="{Binding Summary}" Margin="16,8,16,6" FontSize="12"
                TextColor="{AppThemeBinding Light=#666666, Dark=#AAAAAA}" />
 
@@ -62,5 +62,7 @@
                 </CollectionView.ItemTemplate>
             </CollectionView>
         </RefreshView>
+
+        <views:AdBannerView Grid.Row="2" />
     </Grid>
 </ContentPage>

@@ -106,6 +106,17 @@ public partial class SignatureViewModel(SignatureLibrary library, PageEditServic
 		return info;
 	}
 
+	/// <summary>Saves a signature picked from an existing picture on the device (a photo of a signature on
+	/// paper, or an already-cut-out signature image) - same ink-mask storage as a drawn one.</summary>
+	public SignatureInfo SaveFromImage(RgbImage source)
+	{
+		GrayImage mask = SignatureImageImport.ToMask(source);
+		SignatureInfo info = library.Add(mask, InkRgb);
+		Saved.Insert(0, Choice(info));
+		SavedCount = Saved.Count;
+		return info;
+	}
+
 	/// <summary>Stores the signatures on the page (the page is rendered again with them).</summary>
 	public void Commit(IReadOnlyList<PageStamp> stamps)
 	{

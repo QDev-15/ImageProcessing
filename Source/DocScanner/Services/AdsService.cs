@@ -13,9 +13,9 @@ namespace DocScanner.Services;
 /// </summary>
 public interface IAdsService
 {
-    /// <summary>False once Pro is bought (or restored) -- bind the Home banner's IsVisible to this.
-    /// Never true while an interstitial from <see cref="RegisterExport"/> could still be on screen; the
-    /// banner and the interstitial never compete for the same moment because export screens have no banner.</summary>
+    /// <summary>False once Pro is bought (or restored) -- every page's <see cref="Views.AdBannerView"/> binds
+    /// to this. An interstitial from <see cref="RegisterExport"/> is a separate full-screen ad (its own native
+    /// activity), so it never visually competes with whatever banner the page underneath happens to show.</summary>
     bool ShowAds { get; }
 
     /// <summary>Raised whenever <see cref="ShowAds"/> may have changed (i.e. the license changed).</summary>

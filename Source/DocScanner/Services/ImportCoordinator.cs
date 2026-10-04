@@ -8,8 +8,8 @@ namespace DocScanner.Services;
 /// The target document is created lazily, only after the user actually picked something, so backing out of a picker
 /// never leaves an empty document behind.
 /// </summary>
-public sealed class ImportCoordinator(BackgroundImporter importer, IPhotoPicker picker, IPhotoCapture camera,
-	IDocumentCamera scanner, PermissionService permissions)
+public sealed class ImportCoordinator(BackgroundImporter importer, IPhotoPicker picker, IPdfPicker pdfPicker,
+	IPhotoCapture camera, IDocumentCamera scanner, PermissionService permissions)
 {
 	private bool _picking;
 
@@ -29,6 +29,32 @@ public sealed class ImportCoordinator(BackgroundImporter importer, IPhotoPicker 
 		catch (Exception ex)
 		{
 			await ReportAsync("Không mở được thư viện ảnh", ex);
+			return null;
+		}
+		finally
+		{
+			_picking = false;
+		}
+	}
+
+	/// <summary>Picks one PDF and splits it into pages (one photo per PDF page), same background-copy flow as
+	/// the gallery: picking only rasterizes, each page's JPEG is then handed to BackgroundImporter like any
+	/// other photo, which is what runs crop detection / lets the user adjust the page etc.</summary>
+	public async Task<DocumentRecord?> FromPdfAsync(Func<DocumentRecord> document)
+	{
+		if (_picking) return null;
+		_picking = true;
+		try
+		{
+			IReadOnlyList<ImportSource> sources = await pdfPicker.PickAsync();
+			if (sources.Count == 0) return null;
+			DocumentRecord doc = document();
+			importer.Start(doc.Id, sources);
+			return doc;
+		}
+		catch (Exception ex)
+		{
+			await ReportAsync("Không đọc được file PDF", ex);
 			return null;
 		}
 		finally

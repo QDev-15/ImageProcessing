@@ -13,7 +13,7 @@ namespace DocScanner.ViewModels;
 /// press also drags the selection onto a folder. Moving never reorders anything: documents are listed by creation time.
 /// </summary>
 public partial class HomeViewModel(DocumentStore store, ImportCoordinator importer, BackgroundImporter imports, PageIngestQueue queue,
-	ExportCoordinator exports, IAdsService ads)
+	ExportCoordinator exports)
 	: ObservableObject, IQueryAttributable
 {
 	private static bool _resumed;
@@ -21,11 +21,6 @@ public partial class HomeViewModel(DocumentStore store, ImportCoordinator import
 	private DocumentItem? _dragged;
 
 	public ObservableCollection<HomeItem> Items { get; } = [];
-
-	/// <summary>The bottom banner (free tier only). Bound directly to <see cref="IAdsService.ShowAds"/>
-	/// via a property so it updates the moment Pro is bought, without a manual refresh.</summary>
-	[ObservableProperty]
-	private bool showAds = ads.ShowAds;
 
 	[ObservableProperty]
 	private string title = "Doc Scanner";
@@ -64,17 +59,13 @@ public partial class HomeViewModel(DocumentStore store, ImportCoordinator import
 	{
 		queue.PageUpdated += OnPageUpdated;
 		imports.Changed += OnImportChanged;
-		ads.Changed += OnAdsChanged;
 	}
 
 	public void Detach()
 	{
 		queue.PageUpdated -= OnPageUpdated;
 		imports.Changed -= OnImportChanged;
-		ads.Changed -= OnAdsChanged;
 	}
-
-	private void OnAdsChanged() => MainThread.BeginInvokeOnMainThread(() => ShowAds = ads.ShowAds);
 
 	private void OnPageUpdated(PageUpdate update) => RefreshLater(update.DocId);
 
@@ -170,6 +161,9 @@ public partial class HomeViewModel(DocumentStore store, ImportCoordinator import
 
 	[RelayCommand]
 	private Task CaptureAsync() => ImportIntoNewDocumentAsync(importer.FromCameraAsync);
+
+	[RelayCommand]
+	private Task PickPdfAsync() => ImportIntoNewDocumentAsync(importer.FromPdfAsync);
 
 	/// <summary>Pick, then go straight into the new document (created in the folder being shown).</summary>
 	private async Task ImportIntoNewDocumentAsync(Func<Func<DocumentRecord>, Task<DocumentRecord?>> pick)

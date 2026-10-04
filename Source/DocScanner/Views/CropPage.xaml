@@ -18,7 +18,7 @@
         </ToolbarItem>
     </ContentPage.ToolbarItems>
 
-    <Grid RowDefinitions="Auto,*,Auto">
+    <Grid RowDefinitions="Auto,*,Auto,Auto">
 
         <!-- ‹ status › : page turning like a photo viewer (a swipe that starts outside the outline does the same).
              Fixed height: a longer message must not resize the editor while a finger is on it. -->
@@ -63,6 +63,8 @@
             </Button>
         </Grid>
 
-        <views:ExportOverlay Grid.RowSpan="3" />
+        <views:AdBannerView Grid.Row="3" />
+
+        <views:ExportOverlay Grid.RowSpan="4" />
     </Grid>
 </ContentPage>

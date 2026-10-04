@@ -29,6 +29,9 @@ internal sealed class OutlineOverlayView : View
 	private int _frameW = 3, _frameH = 4;
 	private double[]? _target;  // normalized corners
 	private double[]? _shown;
+	/// <summary>"2 trang" mode: draw the detected outline as two side-by-side quads (split at the midline) instead
+	/// of one, so it is visually obvious before the shot that each side becomes its own page.</summary>
+	public bool TwoPage { get; set; }
 	private float _alpha;       // 0..1, fades with the outline
 	private bool _ready;        // green: held still / about to be captured
 	private long _flashStart = -1;
@@ -105,22 +108,31 @@ internal sealed class OutlineOverlayView : View
 
 		if (_shown != null && _alpha > 0.01f)
 		{
-			_path.Reset();
-			for (int i = 0; i < 4; i++)
-			{
-				float x = r.Left + (float)_shown[2 * i] * r.Width(), y = r.Top + (float)_shown[2 * i + 1] * r.Height();
-				if (i == 0) _path.MoveTo(x, y); else _path.LineTo(x, y);
-			}
-			_path.Close();
+			(float X, float Y) P(int i) => (r.Left + (float)_shown[2 * i] * r.Width(), r.Top + (float)_shown[2 * i + 1] * r.Height());
+			(float X, float Y) Mid((float X, float Y) a, (float X, float Y) b) => ((a.X + b.X) / 2, (a.Y + b.Y) / 2);
+
 			Color line = _ready ? Color.Argb(255, 76, 175, 80) : Color.Argb(255, 66, 133, 244);
 			_fill.Color = _ready ? Color.Argb((int)(70 * _alpha), 76, 175, 80) : Color.Argb((int)(55 * _alpha), 26, 95, 214);
 			_stroke.Color = Color.Argb((int)(255 * _alpha), line.R, line.G, line.B);
 			_corner.Color = Color.Argb((int)(255 * _alpha), 255, 255, 255);
-			canvas.DrawPath(_path, _fill);
-			canvas.DrawPath(_path, _stroke);
-			for (int i = 0; i < 4; i++)
-				canvas.DrawCircle(r.Left + (float)_shown[2 * i] * r.Width(), r.Top + (float)_shown[2 * i + 1] * r.Height(),
-					5 * _density, _corner);
+
+			(float X, float Y) tl = P(0), tr = P(1), br = P(2), bl = P(3);
+			if (TwoPage)
+			{
+				(float X, float Y) midTop = Mid(tl, tr), midBottom = Mid(bl, br);
+				DrawQuad(canvas, [tl, midTop, midBottom, bl]);
+				DrawQuad(canvas, [midTop, tr, br, midBottom]);
+				// The split line itself, a touch brighter so it reads as "cut here" rather than a third outline.
+				canvas.DrawLine(midTop.X, midTop.Y, midBottom.X, midBottom.Y, _stroke);
+				foreach ((float X, float Y) c in (ReadOnlySpan<(float, float)>)[tl, tr, br, bl, midTop, midBottom])
+					canvas.DrawCircle(c.X, c.Y, 5 * _density, _corner);
+			}
+			else
+			{
+				DrawQuad(canvas, [tl, tr, br, bl]);
+				foreach ((float X, float Y) c in (ReadOnlySpan<(float, float)>)[tl, tr, br, bl])
+					canvas.DrawCircle(c.X, c.Y, 5 * _density, _corner);
+			}
 		}
 
 		long now = Android.OS.SystemClock.UptimeMillis();
@@ -149,6 +161,18 @@ internal sealed class OutlineOverlayView : View
 		}
 
 		if (animating) PostInvalidateOnAnimation();
+	}
+
+	private void DrawQuad(Canvas canvas, ReadOnlySpan<(float X, float Y)> points)
+	{
+		_path.Reset();
+		for (int i = 0; i < points.Length; i++)
+		{
+			if (i == 0) _path.MoveTo(points[i].X, points[i].Y); else _path.LineTo(points[i].X, points[i].Y);
+		}
+		_path.Close();
+		canvas.DrawPath(_path, _fill);
+		canvas.DrawPath(_path, _stroke);
 	}
 }
 

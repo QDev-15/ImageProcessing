@@ -5,7 +5,6 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
     xmlns:vm="clr-namespace:DocScanner.ViewModels"
     xmlns:views="clr-namespace:DocScanner.Views"
-    xmlns:admob="clr-namespace:Plugin.AdMob;assembly=Plugin.AdMob"
     x:DataType="vm:HomeViewModel"
     Title="{Binding Title}"
     BackgroundColor="{AppThemeBinding Light=#F5F7FA, Dark=#121212}">
@@ -20,6 +19,12 @@
         <ToolbarItem Text="Thư mục mới" Command="{Binding NewFolderCommand}" Order="Primary">
             <ToolbarItem.IconImageSource>
                 <FontImageSource FontFamily="Icons" Glyph="{x:Static views:Icons.NewFolder}" Size="24"
+                                 Color="{AppThemeBinding Light=#37404D, Dark=#E0E0E0}" />
+            </ToolbarItem.IconImageSource>
+        </ToolbarItem>
+        <ToolbarItem Text="Nhập PDF" Command="{Binding PickPdfCommand}" Order="Primary">
+            <ToolbarItem.IconImageSource>
+                <FontImageSource FontFamily="Icons" Glyph="{x:Static views:Icons.Pdf}" Size="24"
                                  Color="{AppThemeBinding Light=#37404D, Dark=#E0E0E0}" />
             </ToolbarItem.IconImageSource>
         </ToolbarItem>
@@ -114,11 +119,8 @@
 
     <Grid RowDefinitions="Auto,Auto,*,Auto,Auto,Auto">
 
-        <!-- Free tier only: hidden the instant Pro is bought (HomeViewModel.ShowAds, IAdsService). The very
-             bottom-most strip, flush with the screen edge (no padding, no rounded elements near it), below
-             the Chụp / Nhập ảnh / PDF đã xuất bar: the usual placement for a banner ad. -->
-        <admob:BannerAd Grid.Row="5" IsVisible="{Binding ShowAds}" AdSize="SmartBanner"
-                         BackgroundColor="{AppThemeBinding Light=#F5F7FA, Dark=#121212}" />
+        <!-- The very bottom-most strip, flush with the screen edge, below the Chụp / Nhập ảnh / PDF đã xuất bar. -->
+        <views:AdBannerView Grid.Row="5" />
 
         <!-- Selection mode, in place of the bottom bar (the list must not move while a document is being dragged):
              count, select all, move to a folder, delete, done. -->

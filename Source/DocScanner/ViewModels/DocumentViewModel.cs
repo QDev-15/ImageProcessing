@@ -222,6 +222,9 @@ public partial class DocumentViewModel(DocumentStore store, ImportCoordinator im
 	[RelayCommand]
 	private Task AddFromCameraAsync() => AddAsync(importer.FromCameraAsync);
 
+	[RelayCommand]
+	private Task AddFromPdfAsync() => AddAsync(importer.FromPdfAsync);
+
 	/// <summary>Picks and returns: the photos are copied in the background and appear one by one.</summary>
 	private async Task AddAsync(Func<Func<DocumentRecord>, Task<DocumentRecord?>> pick)
 	{

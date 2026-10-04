@@ -18,7 +18,7 @@
         </ToolbarItem>
     </ContentPage.ToolbarItems>
 
-    <Grid RowDefinitions="*,Auto">
+    <Grid RowDefinitions="*,Auto,Auto">
 
         <!-- One page, rendered sharp for zooming: pinch / double tap to zoom, drag when zoomed, swipe for the other pages. -->
         <Grid IsClippedToBounds="True">
@@ -37,5 +37,7 @@
                 <views:ToolButton.CommandParameter><x:Int32>1</x:Int32></views:ToolButton.CommandParameter>
             </views:ToolButton>
         </Grid>
+
+        <views:AdBannerView Grid.Row="2" BackgroundColor="#101010" />
     </Grid>
 </ContentPage>

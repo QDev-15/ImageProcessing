@@ -44,9 +44,14 @@ public sealed class DocumentCameraActivity : AppCompatActivity
 	/// <summary>Long edge of the frames given to the detector (its live setting: a few frames a second on a phone).</summary>
 	private const int AnalysisEdge = DocumentEdgeDetector.LiveAnalysisEdge;
 
+	/// <summary>Whole sheet (default), or an open book spread auto-split into two page photos right after capture
+	/// (<see cref="BookSplit"/>) - each half then runs through the normal single-page pipeline independently, so
+	/// the crease between the two pages never has to be corrected by one perspective transform.</summary>
+	private enum BookMode { OnePage, TwoPage }
+
 	private PreviewView _preview = null!;
 	private OutlineOverlayView _overlay = null!;
-	private TextView _hint = null!, _count = null!, _auto = null!, _torch = null!, _done = null!;
+	private TextView _hint = null!, _count = null!, _auto = null!, _torch = null!, _done = null!, _onePage = null!, _twoPage = null!;
 	private ImageView _thumb = null!;
 	private ShutterButton _shutter = null!;
 	private Typeface? _icons;
@@ -59,7 +64,8 @@ public sealed class DocumentCameraActivity : AppCompatActivity
 	private readonly List<string> _photos = [];
 	private readonly CaptureStabilizer _stabilizer = new();
 	private readonly DocumentEdgeDetector _detector = DocumentEdgeDetector.Live();
-	private bool _autoCapture = true, _torchOn, _capturing, _closing, _finishWhenSaved;
+	private bool _autoCapture = true, _torchOn, _capturing, _processing, _closing, _finishWhenSaved;
+	private BookMode _bookMode = BookMode.OnePage;
 	private Quad? _lastOutline;
 	private double[]? _lastSignature;
 
@@ -79,6 +85,7 @@ public sealed class DocumentCameraActivity : AppCompatActivity
 		SetContentView(BuildLayout());
 		OnBackPressedDispatcher.AddCallback(this, new BackCallback(this));
 		UpdateAutoChip();
+		UpdatePageModeChips();
 		UpdateCount();
 
 		_deliverFrame = new Java.Lang.Runnable(() =>
@@ -138,6 +145,17 @@ public sealed class DocumentCameraActivity : AppCompatActivity
 		_auto.Click += (_, _) => { _autoCapture = !_autoCapture; Microsoft.Maui.Storage.Preferences.Default.Set(AutoPreference, _autoCapture); _stabilizer.Reset(); UpdateAutoChip(); };
 		top.AddView(_auto, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WrapContent, ViewGroup.LayoutParams.WrapContent) { LeftMargin = Dp(8) });
 		root.AddView(top, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MatchParent, Dp(56)));
+
+		// Page count: one sheet, or an open book spread (auto-split into two pages after capture).
+		var pageRow = new LinearLayout(this) { Orientation = Android.Widget.Orientation.Horizontal };
+		pageRow.SetGravity(GravityFlags.Center);
+		_onePage = ModeChip("1 trang");
+		_onePage.Click += (_, _) => SetBookMode(BookMode.OnePage);
+		pageRow.AddView(_onePage, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WrapContent, ViewGroup.LayoutParams.WrapContent) { RightMargin = Dp(8) });
+		_twoPage = ModeChip("2 trang (sách mở)");
+		_twoPage.Click += (_, _) => SetBookMode(BookMode.TwoPage);
+		pageRow.AddView(_twoPage, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WrapContent, ViewGroup.LayoutParams.WrapContent));
+		root.AddView(pageRow, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MatchParent, ViewGroup.LayoutParams.WrapContent) { BottomMargin = Dp(6) });
 
 		// Picture: preview, outline, hint.
 		var middle = new FrameLayout(this);
@@ -227,6 +245,37 @@ public sealed class DocumentCameraActivity : AppCompatActivity
 		if (!_autoCapture) _shutter.Progress = 0;
 	}
 
+	private TextView ModeChip(string text)
+	{
+		var b = new TextView(this) { Gravity = GravityFlags.Center, Text = text };
+		b.SetTextSize(ComplexUnitType.Sp, 12);
+		b.SetPadding(Dp(12), Dp(5), Dp(12), Dp(5));
+		return b;
+	}
+
+	private void SetBookMode(BookMode mode)
+	{
+		if (_bookMode == mode) return;
+		_bookMode = mode;
+		_stabilizer.Reset();
+		_overlay.TwoPage = mode == BookMode.TwoPage;
+		UpdatePageModeChips();
+		if (!_capturing) _hint.Text = DefaultHint();
+	}
+
+	private void UpdatePageModeChips()
+	{
+		void Style(TextView chip, bool active)
+		{
+			chip.SetTextColor(active ? Color.White : Color.Argb(255, 200, 200, 200));
+			chip.Background = Rounded(active ? Color.Argb(255, 26, 95, 214) : Color.Argb(255, 60, 60, 60), 14);
+		}
+		Style(_onePage, _bookMode == BookMode.OnePage);
+		Style(_twoPage, _bookMode == BookMode.TwoPage);
+	}
+
+	private string DefaultHint() => _bookMode == BookMode.TwoPage ? "Đưa camera vào cả 2 trang sách" : "Đưa camera vào tờ giấy";
+
 	private void UpdateCount()
 	{
 		bool any = _photos.Count > 0;
@@ -268,7 +317,7 @@ public sealed class DocumentCameraActivity : AppCompatActivity
 		_provider.UnbindAll();
 		_camera = _provider.BindToLifecycle(this, CameraSelector.DefaultBackCamera!, preview, analysis, _capture);
 		_torch.Visibility = _camera.CameraInfo.HasFlashUnit ? ViewStates.Visible : ViewStates.Invisible;
-		_hint.Text = "Đưa camera vào tờ giấy";
+		_hint.Text = DefaultHint();
 	}
 
 	private void ToggleTorch()
@@ -361,6 +410,21 @@ public sealed class DocumentCameraActivity : AppCompatActivity
 
 	private sealed record FrameResult(QuadDetection Detection, double[] Signature, int Width, int Height, double Ms);
 
+	/// <summary>Wide enough to plausibly be two pages side by side rather than one: two A4 sheets together are
+	/// ~1.41:1 (width:height); a single page alone is ~0.71:1. 1.1 sits well below the true spread ratio but
+	/// above anything a single page could produce even photographed at a slight angle.</summary>
+	private const double SpreadMinAspect = 1.1;
+
+	private static bool LooksLikeSpread(Quad q)
+	{
+		double top = Dist(q.TopLeft, q.TopRight), bottom = Dist(q.BottomLeft, q.BottomRight);
+		double left = Dist(q.TopLeft, q.BottomLeft), right = Dist(q.TopRight, q.BottomRight);
+		double width = (top + bottom) / 2, height = (left + right) / 2;
+		return height > 1e-6 && width / height >= SpreadMinAspect;
+	}
+
+	private static double Dist(PointD a, PointD b) => Math.Sqrt((a.X - b.X) * (a.X - b.X) + (a.Y - b.Y) * (a.Y - b.Y));
+
 	private readonly Handler _uiHandler = new(Looper.MainLooper!);
 	private Java.Lang.Runnable _deliverFrame = null!;
 	private FrameResult? _latestFrame;
@@ -383,26 +447,34 @@ public sealed class DocumentCameraActivity : AppCompatActivity
 		_overlay.SetFrame(width, height);
 		if (_capturing) return;
 
-		StabilizerState state = _stabilizer.Update(SystemClock.ElapsedRealtime() / 1000.0, outline, detection.Confidence, signature);
+		// "2 trang": the detector still just finds "a quad" (unchanged) - sometimes that is the whole spread,
+		// sometimes (the camera only sees one of the two pages clearly, or glare/shadow favours one side) it is
+		// a single page. Splitting a single-page quad down the middle produces two meaningless narrow strips, so
+		// in this mode a single-page-shaped quad is treated as "not ready yet", same as finding nothing: the
+		// stabilizer never reaches Capture for it, and the hint asks the user to back up.
+		bool tooNarrowForSpread = _bookMode == BookMode.TwoPage && outline is { } o && !LooksLikeSpread(o);
+		Quad? forStabilizer = tooNarrowForSpread ? null : outline;
+
+		StabilizerState state = _stabilizer.Update(SystemClock.ElapsedRealtime() / 1000.0, forStabilizer, detection.Confidence, signature);
 		bool ready = _autoCapture && state.Cue is CaptureCue.Holding or CaptureCue.Capture && state.Progress > 0;
 		_overlay.SetOutline(outline, ready);
 		_shutter.Progress = _autoCapture && state.Cue == CaptureCue.Holding ? (float)state.Progress : 0;
-		_hint.Text = state.Cue switch
+		_hint.Text = tooNarrowForSpread ? "Lùi máy ra để thấy cả 2 trang sách" : state.Cue switch
 		{
-			CaptureCue.Searching when outline == null => "Đưa camera vào tờ giấy",
+			CaptureCue.Searching when outline == null => DefaultHint(),
 			CaptureCue.TooFar => "Đưa camera lại gần hơn",
 			CaptureCue.OutOfFrame => "Lùi máy ra để thấy cả tờ giấy",
 			CaptureCue.Captured => "Đã chụp · đặt trang tiếp theo",
 			_ when !_autoCapture => "Nhấn nút để chụp",
 			CaptureCue.Holding or CaptureCue.Capture => "Giữ yên máy...",
-			_ => "Đưa camera vào tờ giấy",
+			_ => DefaultHint(),
 		};
-		if (_autoCapture && state.Cue == CaptureCue.Capture) TakePicture();
+		if (_autoCapture && !tooNarrowForSpread && state.Cue == CaptureCue.Capture) TakePicture();
 	}
 
 	private void TakePicture()
 	{
-		if (_capture == null || _capturing || _closing) return;
+		if (_capture == null || _capturing || _processing || _closing) return;
 		_capturing = true;
 		_shutter.Busy = true;
 		_shutter.Progress = 0;
@@ -422,27 +494,73 @@ public sealed class DocumentCameraActivity : AppCompatActivity
 		_capturing = false;
 		_shutter.Busy = false;
 		if (_closing) { TryDelete(path); return; }
+
+		if (_bookMode == BookMode.TwoPage)
+		{
+			_processing = true;
+			_hint.Text = "Đang tách 2 trang...";
+			string folder = System.IO.Path.GetDirectoryName(path)!;
+			Task.Run(() =>
+			{
+				string? left = null, right = null;
+				Exception? error = null;
+				try { (left, right) = BookSplit.SplitInHalf(path, folder); TryDelete(path); }
+				catch (Exception ex) { error = ex; }
+
+				// _processing must drop (and _photos gain its entries) in the same UI-thread callback: Finish()
+				// checks _processing and _photos.Count together, so no window exists where it could see neither.
+				RunOnUiThread(() =>
+				{
+					_processing = false;
+					if (_closing)
+					{
+						if (left != null) TryDelete(left);
+						if (right != null) TryDelete(right);
+						else TryDelete(path);
+						return;
+					}
+					if (error != null)
+					{
+						Log.Warn("DocScanPerf", "book split failed: " + error.Message);
+						AddPhoto(path); // keep the shot rather than lose it: one page, same as "1 trang"
+						return;
+					}
+					AddPhoto(left!);
+					AddPhoto(right!);
+				});
+			});
+			return;
+		}
+
+		AddPhoto(path);
+	}
+
+	/// <summary>Adds one captured (or split) page: count, thumbnail, "Xong" state.</summary>
+	private void AddPhoto(string path)
+	{
 		_photos.Add(path);
 		UpdateCount();
 		if (_finishWhenSaved) { Finish(keep: true); return; }
 		_hint.Text = "Đã chụp · đặt trang tiếp theo";
-		// A small copy for the corner thumbnail, decoded off the UI thread.
-		Task.Run(() =>
+		Task.Run(() => LoadThumb(path));
+	}
+
+	/// <summary>A small copy of the latest page for the corner thumbnail, decoded off the UI thread.</summary>
+	private void LoadThumb(string path)
+	{
+		var o = new BitmapFactory.Options { InSampleSize = 16 };
+		Bitmap? small = BitmapFactory.DecodeFile(path, o);
+		if (small == null) return;
+		int rotation = new AndroidX.ExifInterface.Media.ExifInterface(path).RotationDegrees;
+		if (rotation != 0)
 		{
-			var o = new BitmapFactory.Options { InSampleSize = 16 };
-			Bitmap? small = BitmapFactory.DecodeFile(path, o);
-			if (small == null) return;
-			int rotation = new AndroidX.ExifInterface.Media.ExifInterface(path).RotationDegrees;
-			if (rotation != 0)
-			{
-				var m = new Matrix();
-				m.PostRotate(rotation);
-				Bitmap turned = Bitmap.CreateBitmap(small, 0, 0, small.Width, small.Height, m, true);
-				small.Recycle();
-				small = turned;
-			}
-			RunOnUiThread(() => { if (!_closing) _thumb.SetImageBitmap(small); });
-		});
+			var m = new Matrix();
+			m.PostRotate(rotation);
+			Bitmap turned = Bitmap.CreateBitmap(small, 0, 0, small.Width, small.Height, m, true);
+			small.Recycle();
+			small = turned;
+		}
+		RunOnUiThread(() => { if (!_closing) _thumb.SetImageBitmap(small); });
 	}
 
 	private void OnCaptureFailed(string path, string message)
@@ -480,7 +598,8 @@ public sealed class DocumentCameraActivity : AppCompatActivity
 	private void Finish(bool keep)
 	{
 		if (_closing) return;
-		if (keep && _capturing) { _finishWhenSaved = true; return; } // the picture being taken is not saved yet: wait for it
+		// The picture being taken, or a spread still being split into its two pages, is not in _photos yet: wait for it.
+		if (keep && (_capturing || _processing)) { _finishWhenSaved = true; return; }
 		_closing = true;
 		var data = new Intent();
 		if (keep && _photos.Count > 0)

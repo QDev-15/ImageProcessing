@@ -15,9 +15,9 @@
 	<!-- Camera capture. Gallery import goes through the system photo picker, which needs no storage permission. -->
 	<uses-permission android:name="android.permission.CAMERA" />
 
-	<!-- Google Play Billing (bản Pro) and AdMob (quảng cáo bản miễn phí): pages and photos themselves never
-	     leave the phone, nothing else uses the network. Updates are handled by Google Play itself (app is
-	     distributed there), not by the app. -->
+	<!-- Google Play Billing (bản Pro), AdMob (quảng cáo bản miễn phí), and Play In-App Update (bắt buộc cập
+	     nhật lên bản mới nhất, Services/AndroidAppUpdate.cs): pages and photos themselves never leave the
+	     phone. The update check/download itself is entirely Play's own backend, not a server of ours. -->
 	<uses-permission android:name="android.permission.INTERNET" />
 	<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 	<uses-feature android:name="android.hardware.camera" android:required="false" />

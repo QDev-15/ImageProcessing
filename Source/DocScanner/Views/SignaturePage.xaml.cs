@@ -34,6 +34,34 @@ public partial class SignaturePage : ContentPage
 		Pad.Ink = InkColor();
 	}
 
+	/// <summary>Long edge for a signature picked from a picture: same ceiling as a drawn one
+	/// (<see cref="SignatureInk.DefaultMaxEdge"/>), sharp enough printed a third of a page wide at 300 DPI.</summary>
+	private const int PickedSignatureMaxEdge = SignatureInk.DefaultMaxEdge;
+
+	private async void OnPickImage(object? sender, EventArgs e)
+	{
+		try
+		{
+			FileResult? picked = await MediaPicker.Default.PickPhotoAsync();
+			if (picked == null) return; // backed out of the picker
+
+			using Stream stream = await picked.OpenReadAsync();
+			string tempPath = Path.Combine(FileSystem.CacheDirectory, $"signature_pick_{Guid.NewGuid():N}.jpg");
+			await using (FileStream file = File.Create(tempPath))
+				await stream.CopyToAsync(file);
+
+			RgbImage source = await _images.LoadRgbAsync(tempPath, PickedSignatureMaxEdge, default);
+			File.Delete(tempPath);
+
+			SignatureInfo info = _viewModel.SaveFromImage(source);
+			await AddAsync(info);
+		}
+		catch (Exception ex)
+		{
+			await DisplayAlertAsync("Không dùng được ảnh này", ex.Message, "OK");
+		}
+	}
+
 	private Color InkColor() => Color.FromUint(0xFF000000 | _viewModel.InkRgb);
 
 	private void OnViewModelChanged(object? sender, PropertyChangedEventArgs e)

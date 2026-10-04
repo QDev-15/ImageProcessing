@@ -58,12 +58,16 @@ public class LicenseStateTests
         Assert.True(fresh.CanExport);
     }
 
+    /// <summary>Free exporting is unlimited (ExportCoordinator.ExportAsync no longer checks CanExport; only
+    /// AdsPolicy's every-5th-export interstitial remains), so the summary must never show a remaining count -
+    /// only whether Pro is bought, regardless of how many exports were recorded.</summary>
     [Fact]
-    public void Summary_text_reflects_pro_trial_and_exhausted_states()
+    public void Summary_text_only_ever_distinguishes_pro_from_free()
     {
-        Assert.Contains("Pro", TrialPolicy.Evaluate(true, 0).SummaryText);
-        Assert.Contains("còn", TrialPolicy.Evaluate(false, 1).SummaryText);
-        Assert.Contains($"{TrialPolicy.FreeExportLimit - 1}/{TrialPolicy.FreeExportLimit}", TrialPolicy.Evaluate(false, 1).SummaryText);
-        Assert.DoesNotContain("còn", TrialPolicy.Evaluate(false, TrialPolicy.FreeExportLimit).SummaryText);
+        Assert.Equal("Đã nâng cấp Pro", TrialPolicy.Evaluate(true, 0).SummaryText);
+        Assert.Equal("Đã nâng cấp Pro", TrialPolicy.Evaluate(true, TrialPolicy.FreeExportLimit + 50).SummaryText);
+        Assert.Equal(TrialPolicy.Evaluate(false, 0).SummaryText, TrialPolicy.Evaluate(false, 1).SummaryText);
+        Assert.Equal(TrialPolicy.Evaluate(false, 0).SummaryText, TrialPolicy.Evaluate(false, TrialPolicy.FreeExportLimit + 50).SummaryText);
+        Assert.DoesNotContain("còn", TrialPolicy.Evaluate(false, 1).SummaryText);
     }
 }

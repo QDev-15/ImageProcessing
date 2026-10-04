@@ -18,7 +18,7 @@
         </ToolbarItem>
     </ContentPage.ToolbarItems>
 
-    <Grid RowDefinitions="*,Auto,Auto">
+    <Grid RowDefinitions="*,Auto,Auto,Auto">
 
         <!-- The page and its signatures: tap to select, drag to move, corner handle to resize, × to remove. -->
         <views:StampEditor x:Name="Editor" />
@@ -42,6 +42,22 @@
                             <Label Text="{x:Static views:Icons.Add}" FontFamily="Icons" FontSize="20" HorizontalOptions="Center"
                                    TextColor="{StaticResource Primary}" />
                             <Label Text="Vẽ chữ ký" FontSize="11" HorizontalOptions="Center" TextColor="{StaticResource Primary}" />
+                        </VerticalStackLayout>
+                    </Border>
+                    <!-- New signature from a picture already on the phone (a photo of a signed paper, or a
+                         ready-made signature image) -->
+                    <Border WidthRequest="96" HeightRequest="60" StrokeThickness="1.5" StrokeDashArray="4,3"
+                            Stroke="{StaticResource Primary}" BackgroundColor="Transparent">
+                        <Border.StrokeShape>
+                            <RoundRectangle CornerRadius="8" />
+                        </Border.StrokeShape>
+                        <Border.GestureRecognizers>
+                            <TapGestureRecognizer Tapped="OnPickImage" />
+                        </Border.GestureRecognizers>
+                        <VerticalStackLayout HorizontalOptions="Center" VerticalOptions="Center" Spacing="0" InputTransparent="True">
+                            <Label Text="{x:Static views:Icons.Gallery}" FontFamily="Icons" FontSize="20" HorizontalOptions="Center"
+                                   TextColor="{StaticResource Primary}" />
+                            <Label Text="Chọn ảnh" FontSize="11" HorizontalOptions="Center" TextColor="{StaticResource Primary}" />
                         </VerticalStackLayout>
                     </Border>
                     <HorizontalStackLayout BindableLayout.ItemsSource="{Binding Saved}" Spacing="8">
@@ -78,8 +94,10 @@
             <views:ToolButton x:Name="DoneButton" Grid.Column="2" Icon="{x:Static views:Icons.Check}" Text="Xong" IsActive="True" />
         </Grid>
 
+        <views:AdBannerView Grid.Row="3" />
+
         <!-- Drawing pad -->
-        <Grid Grid.RowSpan="3" IsVisible="{Binding IsDrawing}" BackgroundColor="#99000000">
+        <Grid Grid.RowSpan="4" IsVisible="{Binding IsDrawing}" BackgroundColor="#99000000">
             <Border Margin="14" VerticalOptions="Center" Padding="14,12" StrokeThickness="0"
                     BackgroundColor="{AppThemeBinding Light=White, Dark=#1C1C1E}">
                 <Border.StrokeShape>

@@ -500,3 +500,167 @@
   liệu owner đang test trên máy, dừng lại chờ owner. Owner tự gỡ app, báo lại; cài bản khoá thật thành công (máy hiện versionCode=3/versionName=1.2).
   Xuất AAB `Source/DocScanner/release/DocScanner-1.2-versionCode3.aab` (50,5 MB, `jarsigner -verify` xác nhận hợp lệ) -- file owner tải lên Play.
   Chi tiết đầy đủ: MOBILE-STATUS.md mục 5r.
+
+### Quảng cáo toàn màn hình, nhập PDF, chữ ký từ ảnh có sẵn (đợt 2026-10-04)
+- Owner đã tự đổi mô hình kiếm tiền trước khi giao việc này: bỏ paywall, xuất PDF lần thứ 5 mới bật quảng cáo 1 lần (`AdsPolicy.ExportsPerInterstitial = 5`,
+  code này owner tự sửa, không phải tôi).
+- **Banner quảng cáo toàn bộ trang** (trước chỉ ở Home): `Views/AdBannerView.xaml(.cs)` -- ContentView tự lấy `IAdsService` qua
+  `IPlatformApplication.Current.Services` (không cần ViewModel nào biết tới quảng cáo), tự ẩn/hiện theo `ShowAds`. Gắn vào cả 10 trang (trừ
+  `SplashPage`): Home, Document, Crop, Result, Exports, Signature, Settings, About, PdfViewer, Viewer. Không có "màn Camera" hay "màn Import"
+  dạng trang MAUI để loại trừ riêng -- camera là Activity Android gốc, nhập ảnh là system photo picker, cả hai che kín màn hình nên banner của
+  trang bên dưới vốn không hiện ra được trong lúc đó; `AdBannerView` phủ mọi trang còn lại là đã đúng "trừ khi mở camera/import ảnh" theo nghĩa thực tế.
+  `HomeViewModel` bỏ hẳn `ShowAds`/`ads.Changed` (không cần nữa, ContentView tự lo). Sửa lại comment `IAdsService.ShowAds` (cũ nói sai "export
+  screens have no banner") và dòng quyền riêng tư lỗi thời trong AboutPage còn nhắc "tự cập nhật" đã bị gỡ bỏ từ đợt 2026-09-29.
+- **Nhập PDF, tách trang vào batch**: `IPdfPicker`/`AndroidPdfPicker` (Platforms/Android) -- `ACTION_GET_CONTENT` chọn 1 file PDF, rồi dùng
+  `Android.Graphics.Pdf.PdfRenderer` có sẵn trong Android (giống hệt cách `PdfPages` đã dùng để xem PDF, không thư viện, không rủi ro bằng sáng
+  chế) vẽ từng trang ra JPEG trong cache (3508 px cạnh dài = A4 300 DPI, khớp mức "Cao" khi xuất PDF). Mỗi trang PDF trở thành một `ImportSource`
+  bình thường, đưa thẳng qua `BackgroundImporter`/`ImportService` y hệt ảnh chụp/thư viện -- không viết pipeline riêng, nên crop tự động, đen
+  trắng, quản lý trang... đều hoạt động với trang nhập từ PDF như mọi trang khác. Nút "Nhập PDF" ở toolbar Home (tài liệu mới) và Document
+  (thêm vào tài liệu đang mở), lệnh `ImportCoordinator.FromPdfAsync` giống hệt `FromGalleryAsync`/`FromCameraAsync`.
+- **Chọn chữ ký có sẵn trong máy**: `DocScanner.Core.Signatures.SignatureImageImport.ToMask(RgbImage)` -- chuyển ảnh chụp/ảnh chữ ký thành mask
+  mực 0=giấy/255=mực, dùng lại `Binarizer.OtsuThreshold` (thuật toán tự viết sẵn có, không thêm rủi ro license/bằng sáng chế), ngưỡng mềm (ramp)
+  chỉ ở phía trên threshold để giữ đúng quy ước "<=threshold là mực" của `Binarizer.Threshold`, tránh mất nét với ảnh ít nhiễu (bắt được bằng unit
+  test tự viết, xem bên dưới). `SignatureViewModel.SaveFromImage` lưu qua đúng `SignatureLibrary.Add` như chữ ký vẽ tay. Nút "Chọn ảnh" (thẻ nét
+  đứt, cạnh "Vẽ chữ ký") trong `SignaturePage`, code-behind `OnPickImage` dùng `MediaPicker.Default.PickPhotoAsync()` (API cũ còn cảnh báo
+  Obsolete, gợi ý đổi `PickPhotosAsync` -- chưa đổi, không ảnh hưởng chức năng).
+- Test: `DocScanner.Core.Tests` 189 PASS (thêm `A_picked_photo_becomes_an_ink_mask_dark_pixels_become_ink`; phát hiện ngay bug đầu tiên của
+  `ToMask` -- công thức mềm hai phía làm ảnh nhị phân sạch/không nhiễu bị mất gần hết mực vì ngưỡng Otsu trùng đúng giá trị mực, sửa lại công
+  thức rồi test mới pass). `dotnet build DocScanner.csproj -f net10.0-android`: BUILD SUCCEEDED, 0 lỗi (34 warning, toàn bộ có từ trước + 1
+  warning Obsolete mới nêu trên).
+- **Owner cần kiểm tra tay** (chưa có máy thật/máy ảo trong phiên làm việc này): banner hiện đúng trên từng trang kể trên; nhập PDF (nhất là PDF
+  nhiều trang, PDF scan nặng, PDF có mật khẩu -- `PdfRenderer` sẽ ném lỗi, hiện đã bắt bằng try/catch báo "Không đọc được file PDF" nhưng chưa thử
+  thật); chọn ảnh chữ ký từ thư viện (ảnh ít tương phản, nền không trắng tinh, ảnh đã có nền trong suốt).
+- Chưa làm (ngoài phạm vi yêu cầu, chỉ ghi nhận): dọn dẹp cache `pdfimport_*.jpg`/`signature_pick_*.jpg` nếu app bị kill giữa chừng trước khi
+  `FileOptions.DeleteOnClose` kịp chạy (rò rỉ vài trăm KB/lần lỗi, không tích luỹ lớn vì tên file có GUID nên không đụng lẫn nhau; dọn theo tuổi
+  file lúc khởi động là việc hợp lý cho đợt sau nếu owner thấy cache phình to).
+
+#### Phương án tự động cập nhật / bắt buộc cập nhật (đưa ra, CHƯA triển khai -- owner chọn hướng rồi làm tiếp)
+Bối cảnh: đợt 2026-09-29 đã **chủ động gỡ bỏ hẳn** bộ tự cập nhật tự viết (`AndroidAppUpdater`/`UpdateJobService`...) vì `UnsupportedReason` đã tự
+tắt nó khi cài từ Play (mọi khách hàng thật), nên giữ lại chỉ là nợ kỹ thuật không ai dùng tới. Ba phương án cho yêu cầu lần này:
+
+1. **Dựa vào tự động cập nhật của Google Play (khuyên dùng, không cần viết code)**: Play tự cập nhật app lên bản mới khi có Wi-Fi + sạc (mặc định
+   BẬT với đa số người dùng, họ tự tắt được trong cài đặt Play Store của máy họ). Không cần động vào code DocScanner. Nhược điểm: không ép buộc
+   được -- người dùng tắt tự động cập nhật, hoặc không mở Play Store lâu ngày, vẫn dùng bản cũ vô thời hạn; không có cách nào từ phía app "giục"
+   họ cập nhật.
+2. **"Nên cập nhật" mềm, dùng Play In-App Update API (Flexible flow)**: thêm gói `Xamarin.Google.Android.Play.AppUpdate` (Apache-2.0, chính chủ
+   Google, KHÔNG phải tự viết lại updater như bản đã gỡ) gọi `AppUpdateManager.StartUpdateFlowForResult` kiểu Flexible -- Play tự tải bản mới
+   nền, xong hiện thanh "Đã có bản mới, bấm để cài lại" ở cuối màn hình, người dùng bấm lúc nào tuỳ ý, không chặn dùng app. Cần: app đã đăng ký
+   theo dõi bản cập nhật trên Play Console (production track), đo được `UpdateAvailability`/`stalenessDays` để tự quyết lúc nào nhắc.
+3. **Bắt buộc cập nhật mới dùng tiếp, dùng Play In-App Update API (Immediate flow)**: cùng gói như trên nhưng gọi kiểu Immediate -- Play hiện màn
+   toàn màn hình "Cần cập nhật để tiếp tục", chặn thao tác cho tới khi cài xong bản mới; `AppUpdateManager` báo `UpdateAvailability` +
+   `IsUpdateTypeAllowed(Immediate)` để app tự quyết khi nào bắt buộc (ví dụ: bản hiện tại cũ hơn X ngày, hoặc owner đánh dấu "bản này có lỗi
+   nghiêm trọng, ép cập nhật" qua một cờ nhỏ, ví dụ Remote Config/metadata JSON tĩnh host ở đâu đó -- quay lại đúng câu hỏi "chưa biết tải lên
+   đâu" mà đợt 2026-09-29 đã né bằng cách gỡ bỏ cả tính năng; nếu chọn phương án 3 thì CẦN giải quyết lại chỗ này, ví dụ dùng chính Play Console
+   "staged rollout"/"in-app update priority" (đặt priority 0-5 cho mỗi bản, không cần hạ tầng riêng) thay vì tự host file cấu hình).
+- **Khuyến nghị**: phương án 2 (Flexible) cho trải nghiệm tốt nhất với chi phí thấp nhất (không hạ tầng riêng, dùng đúng API Google thiết kế cho
+  việc này); phương án 3 (Immediate) chỉ nên bật cho các bản sửa lỗi nghiêm trọng/bảo mật, dùng `UpdatePriority` đặt trong Play Console (0-5, app
+  đọc qua `AppUpdateInfo.UpdatePriority()`) để tự quyết Flexible hay Immediate theo từng bản, không cần máy chủ cấu hình riêng.
+- **Owner chọn hướng 3, áp dụng cho MỌI bản (không phân biệt ưu tiên, không dùng `UpdatePriority`)** -- đã triển khai cùng đợt, xem mục ngay dưới.
+
+### Bắt buộc cập nhật qua Play In-App Update, không server riêng (đợt 2026-10-04, tiếp ngay sau mục trên)
+- `Platforms/Android/AndroidAppUpdate.cs` (`AndroidAppUpdate.CheckAndForce(Activity)`): gọi `AppUpdateManagerFactory.Create(activity)` ->
+  `GetAppUpdateInfo()` (Java Task, await qua `.AsAsync<AppUpdateInfo>()` của `Android.Gms.Extensions`) -> nếu `UpdateAvailability() ==
+  UpdateAvailable` và `IsUpdateTypeAllowed(AppUpdateType.Immediate)`, hoặc đang `DeveloperTriggeredUpdateInProgress` (lần trước người dùng thoát
+  giữa chừng) -> `StartUpdateFlowForResult(..., AppUpdateOptions.NewBuilder(AppUpdateType.Immediate).Build(), requestCode)`. Toàn bộ UI chặn
+  toàn màn hình, tải, cài, khởi động lại app đều do chính Play lo -- không có cấu hình/server nào của app cả, không dùng `UpdatePriority` (owner
+  yêu cầu áp dụng cho mọi bản như nhau).
+- Gọi ở `MainActivity.OnResume()` (đúng khuyến nghị chính thức của Google: bắt được cả trường hợp lần trước người dùng thoát giữa chừng lúc đang
+  tải). Hệ quả đã ghi rõ trong comment: vì camera trong app / photo picker / chọn PDF cũng dùng `StartActivityForResult`, MỌI lần quay lại
+  `MainActivity` (kể cả từ các picker đó, không chỉ chuyển app) đều kiểm tra lại -- nếu có bản mới sẽ chặn lại bằng màn Immediate, kể cả đang
+  giữa chừng nhập ảnh. Đây là chủ ý theo đúng yêu cầu "bắt buộc", không phải lỗi.
+- Gói thêm: `Xamarin.Google.Android.Play.App.Update` 2.0.1 (Apache-2.0, chính chủ Google -- không phải tự viết lại updater như bản đã gỡ đợt
+  2026-09-29), tự kéo theo `Xamarin.GooglePlayServices.Tasks` 118.4.0 (đã có sẵn do Plugin.AdMob/Plugin.InAppBilling dùng chung). Không cần thêm
+  quyền Android nào (INTERNET/ACCESS_NETWORK_STATE đã có sẵn cho AdMob/Billing). Đã cập nhật mục "BẢN QUYỀN" trong AboutPage.xaml.
+- **Cách xác định đúng API**: NuGet C# binding cho `com.google.android.play:app-update` không có doc mẫu C# rõ ràng (tìm trên web chỉ ra đúng
+  tên gói, không ra chữ ký hàm). Thay vì đoán, đã tải gói về rồi đọc thẳng metadata của chính file .dll (viết một tool nhỏ dùng
+  `System.Reflection.Metadata`/`PEReader`, không cần load assembly thật nên không vướng thiếu `Mono.Android`) để liệt kê chính xác namespace,
+  tên lớp, chữ ký hàm, giá trị hằng số (`AppUpdateType.Immediate = 1`, `UpdateAvailability.UpdateAvailable = 2`...) trước khi viết code -- tránh
+  build-lỗi-sửa-lặp-lại nhiều vòng với một API bên ngoài không quen.
+- Build `DocScanner.csproj -f net10.0-android`: BUILD SUCCEEDED, 0 lỗi.
+- **Owner cần kiểm tra tay** (không mô phỏng được đầy đủ bằng build/unit test): toàn bộ luồng này chỉ thật sự kiểm chứng được khi có **2 bản đã
+  đăng lên Play** (bản cũ cài trên máy, bản mới đã lên track nào đó) -- Play Console có hướng dẫn test bằng "Internal app sharing" hoặc track
+  Internal testing. Chưa thử trên máy thật/máy ảo trong phiên này.
+
+### Điều tra "chữ gợn sóng" trên máy thật + quét sách 2 trang (đợt 2026-10-04 tiếp, máy Note 10+ kết nối trực tiếp)
+- Owner cắm máy thật nhưng `adb devices` không thấy -- Windows nhận USB nhưng toàn bộ interface Samsung (`SAMSUNG Android ADB Interface`...)
+  ở trạng thái driver "Unknown". Sửa KHÔNG cần tải driver ngoài: `Disable-PnpDevice` rồi `Enable-PnpDevice` (PowerShell) cho các thiết bị đó ép
+  Windows tìm lại driver đã có sẵn trong máy -- xong là `adb devices` thấy ngay (`RF8M81MKLTA`, `SM_N975F`). Ghi nhớ: đừng vội tải driver bên
+  thứ ba (các link tìm được đều là mirror, không phải trang chính chủ Samsung) khi chưa thử cách này trước.
+- Máy cài bản Release cũ (versionCode 3 / 1.2, từ đợt 2026-09-29) -- **không debug được** (`run-as` báo "package not debuggable"), nên không
+  chép trực tiếp `files/documents/...` ra được; nút "Xuất PDF" cũng bị chặn ("Đã hết lượt xuất PDF miễn phí", bản này còn giới hạn 5 lần, từ
+  TRƯỚC cả lúc owner tự bỏ paywall). Đã dùng cách khác để "nhìn" màn hình: `adb shell screencap` lấy ảnh, `adb shell uiautomator dump` lấy
+  đúng toạ độ nút bấm (toạ độ đoán bằng mắt từ ảnh chụp sai một lần, bấm nhầm mở camera trong app -- thoát ngay bằng Back, không chụp ảnh nào;
+  từ đó luôn dùng toạ độ từ `uiautomator dump`, không đoán nữa). Mẹo adb trong Git Bash: phải đặt `MSYS_NO_PATHCONV=1` TRONG CÙNG một lệnh
+  Bash với lệnh `adb` (biến `export` ở lệnh Bash trước không giữ lại được sang lệnh sau, mỗi lần gọi tool Bash là một shell mới).
+- Trang owner để sẵn (văn bản pháp luật, trang "17", có chú thích tay): phóng to kỹ thì phát hiện **không phải lỗi thuật toán** -- cái trông
+  giống gợn sóng khi xem ảnh nhỏ thực ra là **nét bút tay** (gạch chéo, khoanh tròn, gạch dưới) của người review đè lên nhiều dòng liên tiếp;
+  từng dòng chữ in vẫn thẳng tắp. Ghi lại để tránh "sửa" nhầm một thứ không phải lỗi.
+- Owner chỉ ra đúng ảnh 6-9 (chụp thêm, sách giáo khoa đang mở) mới là ví dụ thật: ảnh 9 cố tình chụp 2 trang sách trong 1 ảnh. Nguyên nhân
+  đúng như owner tự chẩn đoán: **sách mở có nếp gấp ở gáy** -- loại biến dạng khác hẳn "trang giấy phẳng bị cong/nghiêng" mà `PageBends` (chỉ bẻ
+  cong 4 CẠNH) và `ContentAligner` (chỉ xoay đều TỪNG HÀNG quanh tâm trang) được thiết kế để sửa; cả hai không có khái niệm "một nếp gấp dọc
+  ở giữa ảnh", nên không sửa được -- không phải lỗi code, mà là loại biến dạng nằm ngoài phạm vi 2 lớp sửa hiện có.
+
+#### Quét sách 1 trang / 2 trang (tính năng mới, owner yêu cầu trực tiếp)
+- Yêu cầu: mở camera trong app có chọn "1 trang" hay "2 trang"; chọn "2 trang" thì tự quét thành 2 ảnh, mỗi ảnh 1 trang.
+- `Platforms/Android/Camera/BookSplit.cs` (mới): tách ảnh gốc thành 2 nửa chồng mép 8% mỗi bên (58% bề rộng/nửa) NGAY SAU khi chụp, lưu
+  thành 2 file JPEG riêng (dựng thẳng theo EXIF trước khi cắt, nên 2 nửa không cần tag EXIF xoay nữa) -- rồi mỗi nửa đi qua ĐÚNG pipeline nhập
+  ảnh một-trang có sẵn (tự dò mép, cắt phối cảnh, đen trắng...) không đổi gì cả, vì giờ mỗi file chỉ còn 1 trang sách + viền dư quanh gáy.
+  Quyết định có chủ đích: cắt THẲNG theo cột ảnh (không dò gáy sách bằng thuật toán), đơn giản và đủ dùng vì bộ dò mép đã có sẵn tự lo phần còn
+  lại cho từng nửa; không nắn cong riêng từng nửa ở bước này (owner chỉ yêu cầu "tách làm 2 ảnh", chưa yêu cầu nắn cong gáy sách -- nếu nửa
+  trang vẫn còn hơi cong gần gáy sau khi tách, đó là việc có thể làm tiếp đợt sau, không phải lỗi của bản này).
+- `DocumentCameraActivity.cs`: thêm 2 nút "1 trang" / "2 trang (sách mở)" ngay dưới thanh trên cùng (kiểu chip giống nút "Tự chụp"). Logic
+  dò mép sống (`DocumentEdgeDetector.Live`, `CaptureStabilizer`) giữ nguyên hoàn toàn -- không cần biết đang ở chế độ nào, vì nó chỉ tìm "một
+  tứ giác" và sách mở cũng là một tứ giác (chỉ khác tỉ lệ cạnh). Khi chụp xong ở chế độ "2 trang": `OnSaved` gọi `BookSplit.SplitInHalf` trên
+  luồng nền, xong thêm CẢ HAI file vào `_photos` qua `AddPhoto` (hàm tách ra từ code thumbnail cũ, dùng chung cho cả hai chế độ); lỗi tách ảnh
+  (hiếm) thì giữ nguyên ảnh gốc làm 1 trang, không mất ảnh đã chụp. `AndroidDocumentCamera`/`ImportCoordinator` phía sau không cần đổi gì --
+  vốn đã nhận `_photos` là danh sách bao nhiêu ảnh cũng được.
+- Build `DocScanner.csproj -f net10.0-android`: BUILD SUCCEEDED, 0 lỗi.
+- Owner đồng ý gỡ bản cũ (mất tài liệu test cũ, gồm ảnh sách 6-9) để cài bản mới: `adb uninstall btk.docscanner` rồi
+  `dotnet build DocScanner.csproj -f net10.0-android -t:Run` -- cài + chạy thành công trên Note 10+ (versionCode=4, versionName=1.3, danh sách
+  tài liệu trống như dự kiến sau khi gỡ).
+- Xuất AAB: `dotnet publish DocScanner.csproj -f net10.0-android -c Release -p:AndroidPackageFormat=aab` -- BUILD SUCCEEDED, ký đúng upload key
+  thật (`jarsigner -verify` -> "jar verified", các cảnh báo self-signed/no-timestamp giống hệt đợt 2026-09-29, không phải lỗi). File:
+  `Source/DocScanner/release/DocScanner-1.3-versionCode4.aab` (51,3 MB) -- owner tải lên Play Console. Số phiên bản 1.3/4 đã có sẵn trong
+  csproj từ trước đợt này (chưa từng đăng lên Play ở version này), không cần tăng thêm.
+
+### Owner test trực tiếp: khung xem trước còn tách "1 trang làm 2 mảnh hẹp" (đợt 2026-10-04 tiếp)
+- Owner thử trên máy bằng bản vừa cài: xác nhận kết quả tách trang ĐÚNG (trang 46/47 tách sạch, đã phóng to kiểm chứng), nhưng khung xem
+  trước khi bật "2 trang" **đôi khi chỉ khoanh được 1 trang** (bộ dò `DocumentEdgeDetector.Live()` không đổi gì, có lúc khoá vào đúng 1 trang
+  thay vì cả khổ sách) -- lúc đó code vẫn chia đôi khung 1-trang đó ra 2 mảnh hẹp vô nghĩa (chính là 2 "trang" lạ, hẹp dọc trong tài liệu test
+  owner vô tình tạo ra qua auto-chụp bắn liên tục lúc test).
+- Sửa: `DocumentCameraActivity.LooksLikeSpread(Quad)` -- so tỉ lệ rộng:cao của khung dò được (trung bình cạnh trên/dưới chia trung bình cạnh
+  trái/phải) với `SpreadMinAspect = 1.1` (1 trang đơn ~0,71:1, cả khổ sách ~1,41:1 -- 1,1 nằm an toàn dưới spread thật nhưng trên bất kỳ trang
+  đơn nào dù chụp hơi nghiêng). Ở chế độ "2 trang", khung không đạt tỉ lệ này bị coi như "chưa sẵn sàng" (giống chưa dò được gì): không tính
+  vào bộ ổn định (`CaptureStabilizer`) nên không bao giờ tự chụp, khung vẫn hiện (màu xanh dương, chưa xanh lá) kèm gợi ý "Lùi máy ra để thấy
+  cả 2 trang sách". Chụp tay (bấm nút chụp) vẫn không bị chặn -- quyết định có chủ đích: tôn trọng lựa chọn rõ ràng của người dùng, chỉ chặn
+  đường tự động dễ gây lỗi âm thầm.
+- Kiểm chứng trực tiếp trên Note 10+: chĩa vào đúng 1 trang ở cả 2 bản (trước/sau sửa) -- bản cũ tự chụp + chia đôi thành 2 mảnh hẹp; bản mới
+  giữ khung xanh dương, không tự chụp, đợi tới khi lùi ra đủ xa thấy cả 2 trang mới chuyển xanh lá và tự chụp đúng cặp trang.
+- Dọn dẹp: 3 tài liệu test (18:07/18:28/18:33, tổng 21 trang rác do auto-chụp bắn liên tục trong lúc debug qua `adb input tap` mù trên màn hình
+  đang động -- `uiautomator dump` không đọc được UI đang animate nên phải đoán toạ độ, có 2 lần đoán sai: lỡ mở camera hệ thống và trình chọn
+  file, không hại gì, thoát bằng Back) -- đã xoá qua Home > ⋮ > Xoá, CHỈ giữ lại đúng tài liệu gốc của owner (17:20, 11 trang).
+
+### Màn Cài đặt vẫn mô tả mô hình trả phí cũ "giới hạn 5 lần" (đợt 2026-10-04 tiếp, owner tự phát hiện)
+- Owner: phần mua Pro trong Cài đặt vẫn nói "còn 5/5 lượt xuất PDF miễn phí" / Pro có "xuất không giới hạn (miễn phí chỉ 5 lần)" -- SAI so với
+  model thật hiện tại (owner tự sửa trước đợt làm việc hôm nay: bỏ chặn, miễn phí xuất không giới hạn, chỉ hiện quảng cáo xen kẽ sau mỗi 5 lần).
+- Xác nhận trong code: `ExportCoordinator.ExportAsync` dòng chặn `if (!license.State.CanExport && !await OfferUpgradeAsync())` đã bị owner COMMENT
+  OUT, nhưng `license.RecordExport()` (dòng đếm `ExportsUsed`) vẫn chạy mỗi lần xuất -- nghĩa là bộ đếm cũ (`LicenseState`/`TrialPolicy`,
+  `ExportsRemaining`/`FreeExportLimit=5`) vẫn cộng dồn vô nghĩa phía sau, không còn ai dùng để chặn, nhưng `SummaryText` (hiển thị ở Cài đặt) vẫn
+  tính theo bộ đếm đó nên hiện sai (và sau 5 lần xuất thật sẽ hiện "Đã dùng hết lượt" dù app không hề chặn gì).
+- Sửa phạm vi hẹp (đúng yêu cầu owner -- chỉ phần hiển thị, KHÔNG động vào logic chặn đã bị owner tự tắt, tôn trọng quyết định của owner):
+  `LicenseState.SummaryText` (DocScanner.Core/Licensing/LicenseState.cs) bỏ hẳn nhánh đếm "còn X/5", giờ chỉ còn 2 trạng thái: "Đã nâng cấp Pro"
+  / "Đang dùng bản miễn phí (có quảng cáo)", không phụ thuộc `ExportsUsed` nữa. `SettingsPage.xaml` mục "Bản Pro có gì": bỏ dòng
+  "Xuất PDF không giới hạn (miễn phí chỉ 5 lần)" (sai -- miễn phí ĐÃ không giới hạn), gộp thành "Không còn quảng cáo (bản miễn phí có banner ở
+  mọi màn hình và quảng cáo xen kẽ sau mỗi 5 lần xuất PDF)" -- đúng 2 cơ chế quảng cáo đã làm đợt trước trong cùng ngày.
+- Test: `LicenseTests.cs` -- sửa `Summary_text_reflects_pro_trial_and_exhausted_states` (test cũ dựa đúng vào format "còn X/Y" giờ sai) thành
+  `Summary_text_only_ever_distinguishes_pro_from_free`, xác nhận SummaryText không đổi dù `ExportsUsed` là 0, 1, hay vượt xa giới hạn cũ.
+  `DocScanner.Core.Tests`: 189/189 PASS.
+
+### Build cuối đợt + cài máy thật (đợt 2026-10-04, owner yêu cầu "build bản thật lên cho tôi và tạo file .aab")
+- Build lại AAB (ghi đè `Source/DocScanner/release/DocScanner-1.3-versionCode4.aab`, 50,8 MB, `jarsigner -verify` -> "jar verified") và APK
+  Release riêng để cài máy (`dotnet publish ... -p:AndroidPackageFormat=apk`, ký cùng upload key -- khác khoá debug nên phải `adb uninstall`
+  bản Debug đang cài rồi `adb install` bản Release mới, không thể cài đè trực tiếp).
+- Đã cài thành công lên Note 10+ (`adb install` -> Success), xác nhận đúng versionCode=4/versionName=1.3 qua `dumpsys package`. Máy tự khoá
+  màn hình (lock screen có mật khẩu, không phải màn hình chờ AOD) ngay sau đó -- KHÔNG có mã mở khoá nên dừng lại, không chụp màn hình Cài đặt
+  xác nhận trực quan được; độ tin cậy của bản sửa dựa trên 189 unit test PASS (gồm test `SummaryText` mới) + build/install thành công, chưa có
+  xác nhận bằng mắt trên máy. **Owner cần tự mở khoá máy và vào Cài đặt xem lại nếu muốn xác nhận trực quan.**

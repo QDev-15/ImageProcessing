@@ -46,7 +46,7 @@
         </Style>
     </ContentPage.Resources>
 
-    <Grid RowDefinitions="Auto,*,Auto,Auto">
+    <Grid RowDefinitions="Auto,*,Auto,Auto,Auto">
 
         <!-- ‹ status › -->
         <Grid Grid.Row="0" ColumnDefinitions="44,*,44" HeightRequest="36">
@@ -201,6 +201,8 @@
                               Command="{Binding ToggleAspectCommand}" />
         </Grid>
 
-        <views:ExportOverlay Grid.RowSpan="4" />
+        <views:AdBannerView Grid.Row="4" />
+
+        <views:ExportOverlay Grid.RowSpan="5" />
     </Grid>
 </ContentPage>

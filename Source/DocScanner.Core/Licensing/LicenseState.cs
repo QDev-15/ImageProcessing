@@ -15,12 +15,10 @@ public sealed record LicenseState(bool IsPro, int ExportsUsed, int FreeExportLim
     /// <summary>Whether an export may proceed without buying Pro.</summary>
     public bool CanExport => IsPro || ExportsRemaining > 0;
 
-    /// <summary>Short line for the Settings screen / Home banner.</summary>
-    public string SummaryText => IsPro
-        ? "Đã nâng cấp Pro"
-        : ExportsRemaining > 0
-            ? $"Bản dùng thử: còn {ExportsRemaining}/{FreeExportLimit} lượt xuất PDF miễn phí"
-            : "Đã dùng hết lượt xuất PDF miễn phí";
+    /// <summary>Short line for the Settings screen / Home banner. Free is unlimited (no export count-down
+    /// anymore - see ExportCoordinator.ExportAsync: the trial block is disabled, only the every-5th-export
+    /// interstitial from AdsPolicy remains), so this only ever distinguishes Pro from free, never a remaining count.</summary>
+    public string SummaryText => IsPro ? "Đã nâng cấp Pro" : "Đang dùng bản miễn phí (có quảng cáo)";
 }
 
 /// <summary>

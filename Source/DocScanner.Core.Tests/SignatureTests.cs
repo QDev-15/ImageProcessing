@@ -76,6 +76,24 @@ public class SignatureTests
     }
 
     [Fact]
+    public void A_picked_photo_becomes_an_ink_mask_dark_pixels_become_ink()
+    {
+        var page = new RgbImage(100, 60);
+        Array.Fill(page.Data, (byte)240); // light paper
+        for (int y = 20; y < 40; y++)     // a dark "ink" block in the middle
+            for (int x = 30; x < 70; x++)
+            {
+                int i = (y * 100 + x) * 3;
+                page.Data[i] = page.Data[i + 1] = page.Data[i + 2] = 20;
+            }
+
+        GrayImage mask = SignatureImageImport.ToMask(page);
+        Assert.Equal((100, 60), (mask.Width, mask.Height));
+        Assert.True(mask.Data[30 * 100 + 50] > 200); // inside the dark block: ink
+        Assert.True(mask.Data[5 * 100 + 5] < 20);    // paper corner: no ink
+    }
+
+    [Fact]
     public void The_library_keeps_signatures_across_restarts()
     {
         using var root = new TempRoot();

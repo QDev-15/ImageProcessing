@@ -10,6 +10,12 @@
     BackgroundColor="{AppThemeBinding Light=#F5F7FA, Dark=#121212}">
 
     <ContentPage.ToolbarItems>
+        <ToolbarItem Text="Nhập PDF" Command="{Binding AddFromPdfCommand}" Order="Primary">
+            <ToolbarItem.IconImageSource>
+                <FontImageSource FontFamily="Icons" Glyph="{x:Static views:Icons.Pdf}" Size="22"
+                                 Color="{AppThemeBinding Light=#37404D, Dark=#E0E0E0}" />
+            </ToolbarItem.IconImageSource>
+        </ToolbarItem>
         <ToolbarItem Text="Đổi tên" Command="{Binding RenameCommand}" Order="Primary">
             <ToolbarItem.IconImageSource>
                 <FontImageSource FontFamily="Icons" Glyph="{x:Static views:Icons.Rename}" Size="22"
@@ -18,7 +24,7 @@
         </ToolbarItem>
     </ContentPage.ToolbarItems>
 
-    <Grid RowDefinitions="Auto,Auto,*,Auto,Auto">
+    <Grid RowDefinitions="Auto,Auto,*,Auto,Auto,Auto">
 
         <!-- What tapping a page does: Xem (viewer, zoom) or Sửa (editor). A two-segment switch. -->
         <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Padding="16,8,12,0">
@@ -229,6 +235,8 @@
             <views:ToolButton Grid.Column="3" Icon="{x:Static views:Icons.Pdf}" Text="Xuất PDF" Command="{Binding ExportPdfCommand}" IsActive="True" />
         </Grid>
 
-        <views:ExportOverlay Grid.RowSpan="5" />
+        <views:AdBannerView Grid.Row="5" />
+
+        <views:ExportOverlay Grid.RowSpan="6" />
     </Grid>
 </ContentPage>

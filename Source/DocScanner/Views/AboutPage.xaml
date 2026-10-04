@@ -26,6 +26,7 @@
         </Style>
     </ContentPage.Resources>
 
+    <Grid RowDefinitions="*,Auto">
     <ScrollView>
         <VerticalStackLayout Padding="0,0,0,28">
 
@@ -77,7 +78,7 @@
             <Label Text="QUYỀN RIÊNG TƯ" Style="{StaticResource Section}" />
             <VerticalStackLayout Style="{StaticResource Card}">
                 <Label Style="{StaticResource Body}"
-                       Text="Ảnh, tài liệu, chữ ký và PDF chỉ được lưu trên điện thoại này và không được gửi đi đâu, trừ khi chính bạn chọn Chia sẻ. Ứng dụng chỉ dùng mạng để kiểm tra và tải bản cập nhật từ địa chỉ trong Cài đặt; không có quảng cáo, không thu thập dữ liệu sử dụng." />
+                       Text="Ảnh, tài liệu, chữ ký và PDF chỉ được lưu trên điện thoại này và không được gửi đi đâu, trừ khi chính bạn chọn Chia sẻ. Ứng dụng dùng mạng cho quảng cáo (bản miễn phí), xác thực mua Pro, và kiểm tra/bắt buộc cập nhật qua Google Play; không thu thập dữ liệu sử dụng." />
             </VerticalStackLayout>
 
             <Label Text="BẢN QUYỀN" Style="{StaticResource Section}" />
@@ -85,8 +86,11 @@
                 <Label Text="© 2026 Nguyễn Hữu Quỳnh. Mọi quyền được bảo lưu." FontSize="14" FontFamily="OpenSansSemibold" />
                 <Label Style="{StaticResource Body}" Text="Các thuật toán xử lý ảnh (nhận diện tờ giấy, nắn phối cảnh, đen trắng, làm nét, chữ ký) do tác giả tự viết. Ứng dụng có dùng các thành phần mã nguồn mở sau, theo giấy phép của chúng:" />
                 <Label Style="{StaticResource Body}"
-                       Text="• .NET, .NET MAUI (MIT) · Microsoft&#10;• CommunityToolkit.Mvvm (MIT) · .NET Foundation&#10;• AndroidX CameraX và các thư viện AndroidX (Apache-2.0) · Google, binding .NET (MIT) · Microsoft&#10;• Material Icons (Apache-2.0) · Google&#10;• Open Sans (SIL Open Font License 1.1) · Google Fonts&#10;• Bộ hiển thị PDF: PdfRenderer có sẵn trong Android" />
+                       Text="• .NET, .NET MAUI (MIT) · Microsoft&#10;• CommunityToolkit.Mvvm (MIT) · .NET Foundation&#10;• AndroidX CameraX và các thư viện AndroidX (Apache-2.0) · Google, binding .NET (MIT) · Microsoft&#10;• Material Icons (Apache-2.0) · Google&#10;• Open Sans (SIL Open Font License 1.1) · Google Fonts&#10;• Bộ hiển thị PDF: PdfRenderer có sẵn trong Android&#10;• Play In-App Update, Play Billing, Play services Tasks (Apache-2.0) · Google, binding .NET (MIT) · Microsoft" />
             </VerticalStackLayout>
         </VerticalStackLayout>
     </ScrollView>
+
+    <views:AdBannerView Grid.Row="1" />
+    </Grid>
 </ContentPage>

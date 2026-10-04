@@ -31,6 +31,7 @@
         </Style>
     </ContentPage.Resources>
 
+    <Grid RowDefinitions="*,Auto">
     <ScrollView>
         <VerticalStackLayout Padding="0,0,0,24">
 
@@ -50,8 +51,7 @@
                                    Color="{StaticResource Primary}" />
                 <VerticalStackLayout Spacing="6" IsVisible="{Binding IsFree}" Margin="0,4,0,0">
                     <Label Text="Bản Pro có gì:" Style="{StaticResource Name}" FontSize="13" FontFamily="OpenSansSemibold" />
-                    <Label Style="{StaticResource Hint}" Text="• Xuất PDF không giới hạn số lần (bản miễn phí chỉ được 5 lần)" />
-                    <Label Style="{StaticResource Hint}" Text="• Không còn quảng cáo, dùng và xuất tài liệu liền mạch" />
+                    <Label Style="{StaticResource Hint}" Text="• Không còn quảng cáo (bản miễn phí có banner ở mọi màn hình và quảng cáo xen kẽ sau mỗi 5 lần xuất PDF)" />
                     <Label Style="{StaticResource Hint}" Text="• Mua một lần, dùng vĩnh viễn, không phải trả phí theo tháng" />
                     <Label Style="{StaticResource Hint}" Text="• Ủng hộ tác giả tiếp tục phát triển ứng dụng" />
                 </VerticalStackLayout>
@@ -106,4 +106,7 @@
             </VerticalStackLayout>
         </VerticalStackLayout>
     </ScrollView>
+
+    <views:AdBannerView Grid.Row="1" />
+    </Grid>
 </ContentPage>
