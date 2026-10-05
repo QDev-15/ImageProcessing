@@ -125,20 +125,76 @@ public sealed class DocumentStore(string root)
         lock (_gate) return FoldersLocked().FirstOrDefault(f => f.Id == id);
     }
 
-    public FolderRecord CreateFolder(string name)
+    /// <summary><paramref name="parentFolderId"/> null creates a top-level folder; otherwise it must already
+    /// exist (silently treated as null -- top level -- if not, rather than creating a folder no one can ever
+    /// reach by navigating).</summary>
+    public FolderRecord CreateFolder(string name, string? parentFolderId = null)
     {
-        var folder = new FolderRecord
-        {
-            Id = Guid.NewGuid().ToString("N"),
-            Name = string.IsNullOrWhiteSpace(name) ? "Thư mục mới" : name.Trim(),
-            CreatedUtc = DateTime.UtcNow,
-        };
         lock (_gate)
         {
+            if (parentFolderId != null && FoldersLocked().All(f => f.Id != parentFolderId)) parentFolderId = null;
+            var folder = new FolderRecord
+            {
+                Id = Guid.NewGuid().ToString("N"),
+                Name = string.IsNullOrWhiteSpace(name) ? "Thư mục mới" : name.Trim(),
+                ParentFolderId = parentFolderId,
+                CreatedUtc = DateTime.UtcNow,
+            };
             FoldersLocked().Add(folder);
             SaveFoldersLocked();
+            return folder;
         }
-        return folder;
+    }
+
+    /// <summary>Direct sub-folders of <paramref name="parentFolderId"/> (null = top level), by name.</summary>
+    public IReadOnlyList<FolderRecord> ChildFolders(string? parentFolderId)
+    {
+        lock (_gate)
+            return [.. FoldersLocked().Where(f => f.ParentFolderId == parentFolderId).OrderBy(f => f.Name, StringComparer.CurrentCultureIgnoreCase)];
+    }
+
+    /// <summary>This folder's own chain of ancestors, nearest first, as far up as it goes (empty for a
+    /// top-level folder). Used for breadcrumbs and to keep <see cref="MoveFolder"/> from creating a cycle.</summary>
+    public IReadOnlyList<FolderRecord> Ancestors(string folderId)
+    {
+        lock (_gate)
+        {
+            List<FolderRecord> all = FoldersLocked();
+            var chain = new List<FolderRecord>();
+            var seen = new HashSet<string> { folderId }; // guards against a cycle already on disk
+            string? current = all.FirstOrDefault(f => f.Id == folderId)?.ParentFolderId;
+            while (current != null && seen.Add(current))
+            {
+                FolderRecord? f = all.FirstOrDefault(x => x.Id == current);
+                if (f == null) break;
+                chain.Add(f);
+                current = f.ParentFolderId;
+            }
+            return chain;
+        }
+    }
+
+    /// <summary>Moves a folder under a different parent (null = top level). Refuses -- returns false, changes
+    /// nothing -- a move into itself or into one of its own descendants, which would otherwise disconnect that
+    /// whole branch from the root and make it unreachable.</summary>
+    public bool MoveFolder(string folderId, string? newParentFolderId)
+    {
+        if (folderId == newParentFolderId) return false;
+        lock (_gate)
+        {
+            List<FolderRecord> all = FoldersLocked();
+            FolderRecord? folder = all.FirstOrDefault(f => f.Id == folderId);
+            if (folder == null) return false;
+            if (newParentFolderId != null)
+            {
+                if (all.All(f => f.Id != newParentFolderId)) return false;
+                for (string? id = newParentFolderId; id != null; id = all.FirstOrDefault(f => f.Id == id)?.ParentFolderId)
+                    if (id == folderId) return false; // newParentFolderId is folderId itself or one of its descendants
+            }
+            folder.ParentFolderId = newParentFolderId;
+            SaveFoldersLocked();
+            return true;
+        }
     }
 
     public bool RenameFolder(string id, string name)
@@ -154,15 +210,22 @@ public sealed class DocumentStore(string root)
         }
     }
 
-    /// <summary>Removes a folder; its documents go back to the top level (nothing is deleted with it).</summary>
+    /// <summary>Removes a folder; nothing inside it is deleted. Documents and sub-folders that were directly in
+    /// it move up to ITS OWN parent (top level for a top-level folder) -- so deleting one level of a nested tree
+    /// only collapses that one level, it does not scatter everything all the way back to the top.</summary>
     public bool DeleteFolder(string id)
     {
+        string? parent;
         lock (_gate)
         {
-            if (FoldersLocked().RemoveAll(f => f.Id == id) == 0) return false;
+            FolderRecord? folder = FoldersLocked().FirstOrDefault(f => f.Id == id);
+            if (folder == null) return false;
+            parent = folder.ParentFolderId;
+            FoldersLocked().RemoveAll(f => f.Id == id);
+            foreach (FolderRecord child in FoldersLocked().Where(f => f.ParentFolderId == id)) child.ParentFolderId = parent;
             SaveFoldersLocked();
         }
-        foreach (DocumentRecord d in List().Where(d => d.FolderId == id)) Update(d.Id, x => x.FolderId = null);
+        foreach (DocumentRecord d in List().Where(d => d.FolderId == id)) Update(d.Id, x => x.FolderId = parent);
         return true;
     }
 

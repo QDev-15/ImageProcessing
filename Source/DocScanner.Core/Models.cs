@@ -269,10 +269,17 @@ public sealed class DocumentRecord
 }
 
 /// <summary>A folder on the main screen: documents are filed into it (one level, no folders inside folders).</summary>
+/// <summary>A folder may sit inside another (<see cref="ParentFolderId"/>, null = top level) -- any depth, no
+/// limit. <see cref="DocumentStore"/> is what enforces the two invariants that keep this safe: a folder can
+/// never become its own ancestor (<see cref="DocumentStore.MoveFolder"/>), and deleting one promotes whatever
+/// was directly inside it -- sub-folders and documents alike -- to ITS OWN parent rather than orphaning or
+/// deleting them (<see cref="DocumentStore.DeleteFolder"/>), the same "nothing inside is ever destroyed" rule
+/// documents themselves already get.</summary>
 public sealed class FolderRecord
 {
     public string Id { get; set; } = "";
     public string Name { get; set; } = "";
+    public string? ParentFolderId { get; set; }
     public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
 }
 

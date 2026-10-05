@@ -63,7 +63,7 @@
             </Button>
         </Grid>
 
-        <views:AdBannerSurface Grid.Row="3" HeightRequest="50" />
+        <views:AdBannerSurface Grid.Row="3" />
 
         <views:ExportOverlay Grid.RowSpan="4" />
     </Grid>

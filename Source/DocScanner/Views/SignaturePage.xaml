@@ -96,7 +96,7 @@
             <views:ToolButton x:Name="DoneButton" Grid.Column="2" Icon="{x:Static views:Icons.Check}" Text="Xong" IsActive="True" />
         </Grid>
 
-        <views:AdBannerSurface Grid.Row="3" HeightRequest="50" />
+        <views:AdBannerSurface Grid.Row="3" />
 
         <!-- Drawing pad -->
         <Grid Grid.RowSpan="4" IsVisible="{Binding IsDrawing}" BackgroundColor="#99000000">

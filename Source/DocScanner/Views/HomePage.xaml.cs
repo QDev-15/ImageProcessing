@@ -45,6 +45,31 @@ public partial class HomePage : ContentPage
 		_viewModel.Detach();
 	}
 
-	/// <summary>Back leaves selection mode / search before leaving the screen.</summary>
-	protected override bool OnBackButtonPressed() => _viewModel.HandleBack() || base.OnBackButtonPressed();
+	private DateTime _lastBackPress = DateTime.MinValue;
+
+	/// <summary>Back leaves selection mode / search first. Inside a folder, returning false here is what lets
+	/// Shell pop back out of it (same as the header's own back arrow, <see cref="HomeViewModel.GoBackCommand"/>)
+	/// -- <c>base.OnBackButtonPressed()</c> is NOT that signal, it unconditionally returns false itself and does
+	/// no popping of its own; a first attempt at "press Back again to exit" called it as a fallback believing it
+	/// WAS the pop, so every press -- including deep inside a folder -- got swallowed by the exit-confirmation
+	/// toast instead, and a folder could no longer be left at all (owner report, 2026-10-05). Only once neither
+	/// applies AND there is no folder to pop out of is this the true top level, where a single Back used to exit
+	/// the app outright (too easy to hit by accident, e.g. an edge swipe while scrolling) -- that case alone now
+	/// needs a second press within 2 s.</summary>
+	protected override bool OnBackButtonPressed()
+	{
+		if (_viewModel.HandleBack()) return true;
+		if (_viewModel.InFolder) return false; // let Shell pop back out of the folder, exactly as before
+		return ConfirmExit();
+	}
+
+	private bool ConfirmExit()
+	{
+		DateTime now = DateTime.UtcNow;
+		if (now - _lastBackPress < TimeSpan.FromSeconds(2)) return false; // second press in time: let it exit for real
+		_lastBackPress = now;
+		if (Platform.CurrentActivity is { } activity)
+			Android.Widget.Toast.MakeText(activity, "Nhấn Back lần nữa để thoát", Android.Widget.ToastLength.Short)!.Show();
+		return true; // consume this press
+	}
 }

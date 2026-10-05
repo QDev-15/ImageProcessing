@@ -17,11 +17,13 @@ public abstract partial class HomeItem : ObservableObject
 /// <summary>A folder row: tap to open it, drop documents on it to file them there, â‹® for rename / delete.</summary>
 public sealed class FolderItem : HomeItem
 {
-	public FolderItem(FolderRecord record, int count, Action<FolderItem> open, Action<FolderItem> menu, Action<FolderItem> drop)
+	/// <param name="subfolders">Direct sub-folders, shown alongside the document count so a folder that holds
+	/// only sub-folders (no documents of its own) does not read as empty.</param>
+	public FolderItem(FolderRecord record, int count, int subfolders, Action<FolderItem> open, Action<FolderItem> menu, Action<FolderItem> drop)
 	{
 		Record = record;
 		Name = record.Name;
-		Subtitle = $"{count} tài liệu";
+		Subtitle = subfolders == 0 ? $"{count} tài liệu" : $"{subfolders} thư mục con, {count} tài liệu";
 		OpenCommand = new Command(() => open(this));
 		MenuCommand = new Command(() => menu(this));
 		DropCommand = new Command(() => drop(this));

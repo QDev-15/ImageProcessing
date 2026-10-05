@@ -76,6 +76,6 @@
             </CollectionView>
         </RefreshView>
 
-        <views:AdBannerSurface Grid.Row="3" HeightRequest="50" />
+        <views:AdBannerSurface Grid.Row="3" />
     </Grid>
 </ContentPage>

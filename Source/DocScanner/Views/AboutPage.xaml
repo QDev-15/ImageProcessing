@@ -92,6 +92,6 @@
         </VerticalStackLayout>
     </ScrollView>
 
-    <views:AdBannerSurface Grid.Row="1" HeightRequest="50" />
+    <views:AdBannerSurface Grid.Row="1" />
     </Grid>
 </ContentPage>

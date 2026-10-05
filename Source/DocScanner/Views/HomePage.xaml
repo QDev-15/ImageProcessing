@@ -247,7 +247,7 @@
             <views:ToolButton Grid.Column="2" Icon="{x:Static views:Icons.Pdf}" Text="PDF đã xuất" Command="{Binding OpenExportsCommand}" />
         </Grid>
 
-        <views:AdBannerSurface Grid.Row="5" HeightRequest="50" />
+        <views:AdBannerSurface Grid.Row="5" />
 
         <views:ExportOverlay Grid.RowSpan="6" />
     </Grid>

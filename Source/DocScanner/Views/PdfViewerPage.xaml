@@ -7,7 +7,7 @@
     xmlns:views="clr-namespace:DocScanner.Views"
     x:DataType="vm:PdfViewerViewModel"
     Title="{Binding Title}"
-    BackgroundColor="#101010">
+   >
 
     <ContentPage.ToolbarItems>
         <ToolbarItem Text="Khác" Command="{Binding MoreCommand}" Order="Primary">
@@ -34,6 +34,6 @@
             </Border>
         </Grid>
 
-        <views:AdBannerSurface Grid.Row="1" HeightRequest="50" BackgroundColor="#101010" />
+        <views:AdBannerSurface Grid.Row="1" />
     </Grid>
 </ContentPage>

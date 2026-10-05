@@ -13,14 +13,27 @@ namespace DocScanner.Services;
 /// </summary>
 public interface IAdsService
 {
-    /// <summary>False once Pro is bought (or restored) -- the one persistent banner <c>MainActivity</c> creates
-    /// (2026-10-05: moved out of every page, see its doc comment) binds to this. An interstitial from
+    /// <summary>False once Pro is bought (or restored). Every page's <c>AdBannerSurface</c>
+    /// (<see cref="DocScanner.Views.AdBannerSurface"/>) binds its own <c>IsVisible</c> to
+    /// <c>ShowAds &amp;&amp; IsBannerLoaded</c> directly -- see that class. An interstitial from
     /// <see cref="RegisterExport"/> is a separate full-screen ad (its own native activity), so it never visually
     /// competes with whatever the banner underneath happens to show.</summary>
     bool ShowAds { get; }
 
-    /// <summary>Raised whenever <see cref="ShowAds"/> may have changed (i.e. the license changed).</summary>
+    /// <summary>True only while the shared banner actually has a creative on screen right now -- false before
+    /// the first load, while a periodic refresh is in flight, and whenever the last load/refresh attempt failed
+    /// (no network, no fill, ...). The ONE source of truth for whether the banner's strip should take up any
+    /// space at all; see <see cref="DocScanner.Views.AdBannerSurface"/>.</summary>
+    bool IsBannerLoaded { get; }
+
+    /// <summary>Raised whenever <see cref="ShowAds"/> or <see cref="IsBannerLoaded"/> may have changed.</summary>
     event Action? Changed;
+
+    /// <summary>Called by the platform banner ad listener (<c>AdBannerSurfaceHandler</c>, Android) on every
+    /// <c>OnAdLoaded</c> / <c>OnAdFailedToLoad</c>, including automatic refreshes -- the only writer of
+    /// <see cref="IsBannerLoaded"/>. No-op if the value did not actually change (avoids firing
+    /// <see cref="Changed"/>, and so re-measuring every live banner, on an unrelated refresh tick).</summary>
+    void ReportBannerLoaded(bool loaded);
 
     /// <summary>Call once, right after a PDF export finishes -- success only; a cancelled or failed export
     /// must not advance the cycle, same rule as <see cref="ILicenseService.RecordExport"/>. Shows an
@@ -46,7 +59,16 @@ public sealed class AdsService : IAdsService
 
     public bool ShowAds => !_license.State.IsPro;
 
+    public bool IsBannerLoaded { get; private set; }
+
     public event Action? Changed;
+
+    public void ReportBannerLoaded(bool loaded)
+    {
+        if (IsBannerLoaded == loaded) return;
+        IsBannerLoaded = loaded;
+        Changed?.Invoke();
+    }
 
     public void RegisterExport()
     {

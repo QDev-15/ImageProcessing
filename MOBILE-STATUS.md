@@ -1,7 +1,7 @@
 # Doc Scanner (app mobile) -- trạng thái dự án và việc còn lại
 
-Cập nhật lần cuối: 2026-09-29 tối (Quảng cáo AdMob -- mục 5p, sửa crash + vị trí banner + đo tốc độ trên máy thật). **Có checklist làm tiếp
-ngay cuối mục 5p** -- đọc file này rồi đọc checklist đó đầu tiên khi làm tiếp. Chi tiết kỹ thuật từng bước nằm ở mục "App mobile" trong
+Cập nhật lần cuối: 2026-10-05 (mục 5q: banner co đúng cả 2 chiều bằng `IsVisible`, Back không còn chặn thoát thư mục, thư mục lồng nhau nhiều
+cấp). Checklist AdMob còn dang dở ở cuối mục 5p. Chi tiết kỹ thuật từng bước nằm ở mục "App mobile" trong
 [CLAUDE.md](CLAUDE.md).
 
 ## 1. Tóm tắt
@@ -448,9 +448,13 @@ một lần. Test hồi quy dùng đúng 10 khung thật (`PageShapeTests.The_ow
 
 **Màn chính** (`HomePage` / `HomeViewModel`, route `folder` dùng lại cùng màn cho bên trong thư mục):
 - Tìm kiếm (biểu tượng kính lúp): theo tên, **không phân biệt dấu** ("hop dong" ra "Hợp đồng", `Core/TextSearch`), tìm trong mọi thư mục.
-- Thư mục (`DocumentRecord.FolderId`, `folders.json`, `DocumentStore.CreateFolder / RenameFolder / DeleteFolder / MoveToFolder`): một cấp; **thư mục
-  đứng trước**, theo tên; tài liệu theo thời gian tạo (mới nhất trước) nên chuyển qua lại **không đổi thứ tự**. Xoá thư mục = tài liệu ra ngoài,
-  không mất. Chụp / nhập ảnh khi đang ở trong thư mục thì tài liệu mới nằm trong thư mục đó.
+- Thư mục (`DocumentRecord.FolderId`, `folders.json`, `DocumentStore.CreateFolder / ChildFolders / Ancestors / MoveFolder / RenameFolder /
+  DeleteFolder / MoveToFolder`): **lồng nhau nhiều cấp** (`FolderRecord.ParentFolderId`, đổi từ "một cấp" lúc đầu -- owner yêu cầu 05/10, xem mục
+  5q). **Thư mục đứng trước**, theo tên, ở đúng cấp đang xem; tài liệu theo thời gian tạo (mới nhất trước) nên chuyển qua lại **không đổi thứ tự**.
+  Tiêu đề màn hình là đường dẫn đầy đủ ("2026 / Quý 1"). Xoá thư mục = tài liệu VÀ thư mục con bên trong chuyển lên **đúng cha của thư mục bị xoá**
+  (không nhảy thẳng ra ngoài cùng), không gì mất. `MoveFolder` chặn di chuyển một thư mục vào chính nó hoặc vào con/cháu của nó (sẽ làm đứt nhánh,
+  không truy cập được nữa) -- có test `Moving_a_folder_into_itself_or_its_own_descendant_is_refused`. Chụp / nhập ảnh khi đang ở trong thư mục thì
+  tài liệu mới nằm trong thư mục đó (ở đúng cấp đang xem, không phải cấp cao nhất).
 - Menu ⋮ tài liệu: Đổi tên, Xuất PDF, Chọn nhiều, **Tạo thư mục mới và chuyển vào**, **Chuyển vào thư mục...**, (Chuyển ra ngoài), Xoá.
   Menu ⋮ thư mục: Đổi tên, Xoá thư mục. Nút "Thư mục mới" trên thanh tiêu đề.
 - **Chọn nhiều**: nhấn giữ một tài liệu (hoặc ⋮ > Chọn nhiều) -> ô tích; chạm để chọn / bỏ; thanh đáy đổi thành "Đã chọn n · Tất cả · Chuyển · Xoá";
@@ -856,6 +860,67 @@ liên hệ hỗ trợ Play xin đổi upload key mới, không mất app.
   xác nhận "jar verified", đúng chứng thư thật. **File này owner tải lên Play Console.**
 - Owner cần tự mở lại tài liệu T1 trang 2 xem còn gợn sóng không (mục 5q) -- tài liệu cũ đã mất khi gỡ cài đặt, chỉ xác nhận được với tài liệu
   quét lại từ đầu trên bản mới này.
+
+## 5q. Banner co đúng cả 2 chiều, Back không còn chặn thoát thư mục, thư mục lồng nhau nhiều cấp (đợt 2026-10-05)
+
+Ba việc owner báo trong cùng một buổi test trên máy thật, sau mục 5p.
+
+### Banner để lại khoảng trống khi mất mạng
+
+Cách co khung banner về 0 ở mục 5p (`GetDesiredSize` trả `(0,0)` + `InvalidateMeasure()` thủ công trong Handler) chỉ đáng tin ở chiều **từ 0
+phình ra** (đã xác nhận bằng ảnh chụp màn hình thật lúc 5p). Owner test đúng kịch bản: có mạng, quảng cáo hiện bình thường -> tắt mạng -> quảng cáo
+mất nhưng khoảng trống vẫn còn -- tức chiều **co lại** không đáng tin, một lỗi quen thuộc của layout engine khi một hàng Auto đã từng được đo ở
+kích thước lớn.
+
+**Đổi sang cách chắc chắn hơn**: bỏ hẳn `GetDesiredSize` tuỳ biến, dùng `IsVisible` chuẩn của MAUI (đúng cơ chế mà chính app này đang dùng để
+ẩn/hiện thanh chọn nhiều, thanh dưới cùng...) -- Grid tự bỏ qua đo + xếp hình phần tử ẩn ở CẢ HAI chiều, không phải cơ chế riêng cho mỗi control này.
+
+- `IAdsService` thêm `IsBannerLoaded` (đúng/sai có quảng cáo thật đang hiển thị) và `ReportBannerLoaded(bool)` (chỉ `AdBannerSurfaceHandler` gọi,
+  từ `OnAdLoaded` / `OnAdFailedToLoad`, kể cả lúc tự làm mới định kỳ).
+- `AdBannerSurfaceHandler` giờ chỉ lo tạo / chuyển chủ sở hữu `AdView` dùng chung giữa các trang; không còn giữ trạng thái `_loaded` / `_active`
+  riêng, không còn đo kích thước tuỳ biến.
+- `AdBannerSurface` (control dùng ở cả 10 trang) tự nghe `IAdsService.Changed` và tự đặt `IsVisible = ShowAds && IsBannerLoaded` -- các trang XAML
+  không cần đổi gì (`<views:AdBannerSurface />`, không `HeightRequest`).
+- Đã build Debug qua, **chưa kiểm lại trên máy thật kịch bản mất mạng** (owner báo xong thì chuyển ngay sang việc thư mục) -- cần owner thử lại:
+  có mạng quảng cáo hiện, tắt mạng rồi đợi một lúc (chờ lần tự làm mới định kỳ thất bại) xem khoảng trống có biến mất không.
+
+### Back ở màn chính chặn luôn việc thoát thư mục
+
+Lỗi tự gây ra ngay sau khi làm xong "Back 2 lần mới thoát" (mục này cũng ở 2026-10-05, trước hai việc trên): hiểu sai `base.OnBackButtonPressed()`
+-- tưởng nó tự thoát ra khỏi thư mục (trả `true`) nên dùng làm điều kiện trung gian, nhưng thực ra nó **luôn trả `false`**, không tự làm gì cả. Kết
+quả: mọi lần bấm Back, kể cả đang ở sâu trong thư mục, đều rơi vào nhánh "bấm lần nữa để thoát" của tôi, nuốt mất lượt bấm lẽ ra phải để Shell tự
+thoát ra khỏi thư mục -- owner báo "vào folder Tes rồi không back được về".
+
+**Sửa**: `HomePage.xaml.cs` kiểm tra thẳng `HomeViewModel.InFolder` -- đang trong thư mục (bất kể cấp mấy) thì trả `false` ngay, để Shell tự pop
+đúng như trước khi có tính năng "Back 2 lần"; chỉ áp dụng "bấm lần nữa để thoát" khi thật sự đã ở cấp cao nhất. Đã build + cài lại, xác nhận bằng
+`adb`: vào thư mục rồi bấm Back thật (không phải 2 lần) ra đúng ngay lập tức.
+
+### Thư mục lồng nhau nhiều cấp
+
+Tác dụng phụ của lỗi Back ở trên: owner thử tạo thư mục trong khi đang ở trong thư mục "Tes", thấy "không tạo được" -- vì nút "Thư mục mới" lúc đó
+vẫn tạo được thư mục thật, nhưng tạo **ở ngoài cùng** (kiến trúc cũ chỉ 1 cấp, `NewFolderAsync` không biết gì về thư mục cha), nên không hiện ra ở
+đâu cả. Sửa lần đầu (ẩn nút khi đang trong thư mục) **không phải điều owner muốn** -- hỏi lại thì owner chọn làm thật tính năng thư mục con nhiều
+cấp.
+
+**Kiến trúc**:
+- `FolderRecord.ParentFolderId` (`string?`, null = cấp cao nhất) -- `DocScanner.Core/Models.cs`.
+- `DocumentStore`: `CreateFolder(name, parentFolderId)` (cha không tồn tại thì tự rơi về cấp cao nhất, không tạo thư mục không ai vào được);
+  `ChildFolders(parentId)` (thư mục con trực tiếp, theo tên); `Ancestors(folderId)` (chuỗi cha, gần nhất trước -- dùng cho tiêu đề dạng đường dẫn
+  và chống vòng lặp); `MoveFolder(id, newParentId)` (từ chối di chuyển một thư mục vào chính nó hoặc vào con/cháu của nó -- sẽ làm đứt nhánh đó
+  khỏi gốc, không còn truy cập được); `DeleteFolder` giờ đưa thư mục con + tài liệu bên trong lên **đúng cha của thư mục bị xoá** (trước đây luôn
+  đưa thẳng ra ngoài cùng, giờ chỉ "ra ngoài cùng" nếu thư mục bị xoá vốn đã ở cấp cao nhất).
+- `HomeViewModel`: liệt kê thư mục con của cấp đang xem (`store.ChildFolders(_folderId)`) thay vì chỉ ở cấp cao nhất; tìm kiếm giờ tìm **toàn bộ
+  cây** (mọi thư mục khớp tên, mọi tài liệu khớp tên, bất kể đang ở cấp nào) thay vì chỉ tìm trong cấp hiện tại; tiêu đề màn hình là đường dẫn đầy
+  đủ nối bằng " / "; "Thư mục mới" và "Tạo thư mục mới và chuyển vào" tạo thư mục con của cấp đang xem; menu "Chuyển vào thư mục..." liệt kê theo
+  đường dẫn đầy đủ (phân biệt hai thư mục trùng tên ở hai nhánh khác nhau); dòng phụ của thư mục hiện thêm "N thư mục con" nếu có, để một thư mục
+  chỉ chứa thư mục con (không có tài liệu trực tiếp) không trông như rỗng.
+- Test: `DocScanner.Core.Tests/FolderTests.cs` thêm 7 test (lồng nhiều cấp + liệt kê theo cấp, cha không tồn tại thì rơi về cấp cao nhất, xoá
+  thư mục lồng đưa con lên đúng cha, xoá thư mục cấp cao nhất đưa con lên cấp cao nhất, di chuyển thư mục sang cha khác, chặn di chuyển vào
+  chính nó / con / cháu, chặn di chuyển vào cha không tồn tại) -- **196/196 test `DocScanner.Core.Tests` PASS**, không sửa test nào cũ.
+- **Chưa làm**: giao diện kéo-thả hoặc menu để di chuyển một THƯ MỤC (không phải tài liệu) sang cha khác -- `MoveFolder` đã có và có test, chỉ
+  chưa có chỗ bấm trong app; để sau nếu owner cần.
+- Đã build Debug qua, **đang cài lên máy thật để owner kiểm tra** lúc ghi mục này -- tạo thư mục trong thư mục, thư mục trong thư mục đó nữa (ít
+  nhất 3 cấp), xoá một thư mục giữa chừng xem con của nó có đúng lên đúng 1 cấp không, tìm kiếm từ cấp sâu xem có ra kết quả ở cấp khác không.
 
 ## 6. Việc còn lại (theo thứ tự nên làm)
 

@@ -235,7 +235,7 @@
             <views:ToolButton Grid.Column="3" Icon="{x:Static views:Icons.Pdf}" Text="Xuất PDF" Command="{Binding ExportPdfCommand}" IsActive="True" />
         </Grid>
 
-        <views:AdBannerSurface Grid.Row="5" HeightRequest="50" />
+        <views:AdBannerSurface Grid.Row="5" />
 
         <views:ExportOverlay Grid.RowSpan="6" />
     </Grid>

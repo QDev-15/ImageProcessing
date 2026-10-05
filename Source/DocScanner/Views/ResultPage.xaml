@@ -201,7 +201,7 @@
                               Command="{Binding ToggleAspectCommand}" />
         </Grid>
 
-        <views:AdBannerSurface Grid.Row="4" HeightRequest="50" />
+        <views:AdBannerSurface Grid.Row="4" />
 
         <views:ExportOverlay Grid.RowSpan="5" />
     </Grid>

@@ -7,7 +7,7 @@
     xmlns:views="clr-namespace:DocScanner.Views"
     x:DataType="vm:ViewerViewModel"
     Title="{Binding Title}"
-    BackgroundColor="#101010">
+   >
 
     <ContentPage.ToolbarItems>
         <ToolbarItem Text="Chia sẻ" Command="{Binding ShareCommand}" Order="Primary">
@@ -45,7 +45,7 @@
             </views:ToolButton>
         </Grid>
 
-        <views:AdBannerSurface Grid.Row="2" HeightRequest="50" BackgroundColor="#101010" />
+        <views:AdBannerSurface Grid.Row="2" />
 
         <views:ExportOverlay Grid.RowSpan="3" />
     </Grid>

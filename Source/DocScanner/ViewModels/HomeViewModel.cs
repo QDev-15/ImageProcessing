@@ -97,21 +97,23 @@ public partial class HomeViewModel(DocumentStore store, ImportCoordinator import
 		Perf.Log($"startup: {docs.Count} documents listed");
 
 		FolderRecord? current = _folderId == null ? null : folders.FirstOrDefault(f => f.Id == _folderId);
-		Title = current?.Name ?? "Doc Scanner";
+		Title = current == null ? "Doc Scanner"
+			: string.Join(" / ", store.Ancestors(current.Id).Reverse().Select(f => f.Name).Append(current.Name));
 		string query = SearchText.Trim();
 		bool searching = query.Length > 0;
 
 		var selected = Items.OfType<DocumentItem>().Where(i => i.IsSelected).Select(i => i.Record.Id).ToHashSet();
 		Items.Clear();
-		if (_folderId == null || searching)
-		{
-			// Folders first; while searching, only the matching ones (and only at the top level).
-			if (_folderId == null)
-				foreach (FolderRecord f in folders.Where(f => TextSearch.Matches(f.Name, query)))
-					Items.Add(new FolderItem(f, docs.Count(d => d.FolderId == f.Id), OpenFolder, ShowFolderMenu, DropOnFolder));
-		}
+		// Folders first: sub-folders of the current one normally, or -- while searching -- every matching folder
+		// anywhere in the tree (search is global, see this class's own doc comment), not just the current level.
+		IEnumerable<FolderRecord> shownFolders = searching
+			? folders.Where(f => TextSearch.Matches(f.Name, query))
+			: store.ChildFolders(_folderId);
+		foreach (FolderRecord f in shownFolders)
+			Items.Add(new FolderItem(f, docs.Count(d => d.FolderId == f.Id), folders.Count(x => x.ParentFolderId == f.Id),
+				OpenFolder, ShowFolderMenu, DropOnFolder));
 		IEnumerable<DocumentRecord> shown = searching
-			? docs.Where(d => (_folderId == null || d.FolderId == _folderId) && TextSearch.Matches(d.Name, query))
+			? docs.Where(d => TextSearch.Matches(d.Name, query))
 			: docs.Where(d => d.FolderId == _folderId);
 		foreach (DocumentRecord d in shown)
 		{
@@ -277,8 +279,10 @@ public partial class HomeViewModel(DocumentStore store, ImportCoordinator import
 
 	private async Task FolderMenuAsync(FolderItem folder)
 	{
-		const string rename = "Đổi tên thư mục", delete = "Xoá thư mục";
-		string? choice = await Shell.Current.DisplayActionSheetAsync(folder.Name, "Huỷ", delete, rename);
+		const string rename = "Đổi tên thư mục", move = "Chuyển vào thư mục...", moveOut = "Chuyển ra ngoài thư mục", delete = "Xoá thư mục";
+		var actions = new List<string> { rename, move };
+		if (folder.Record.ParentFolderId != null) actions.Add(moveOut);
+		string? choice = await Shell.Current.DisplayActionSheetAsync(folder.Name, "Huỷ", delete, [.. actions]);
 		switch (choice)
 		{
 			case rename:
@@ -286,20 +290,59 @@ public partial class HomeViewModel(DocumentStore store, ImportCoordinator import
 					initialValue: folder.Name, maxLength: 80, keyboard: Keyboard.Text);
 				if (name != null && store.RenameFolder(folder.Record.Id, name)) await RefreshAsync();
 				break;
+			case move:
+				await MoveFolderAsync(folder);
+				break;
+			case moveOut:
+				if (store.MoveFolder(folder.Record.Id, null)) await RefreshAsync();
+				break;
 			case delete:
+				FolderRecord? parent = folder.Record.ParentFolderId == null ? null : store.Folder(folder.Record.ParentFolderId);
+				string destination = parent != null ? $"chuyển ra thư mục \"{parent.Name}\"" : "chuyển ra ngoài cùng";
 				bool ok = await Shell.Current.DisplayAlertAsync("Xoá thư mục",
-					$"Xoá thư mục \"{folder.Name}\"? Các tài liệu bên trong được giữ lại và chuyển ra ngoài.", "Xoá", "Giữ lại");
+					$"Xoá thư mục \"{folder.Name}\"? Tài liệu và thư mục con bên trong được giữ lại, {destination}.", "Xoá", "Giữ lại");
 				if (ok && store.DeleteFolder(folder.Record.Id)) await RefreshAsync();
 				break;
 		}
 	}
 
-	/// <summary>Asks for a folder (an existing one, a new one, or none) and files the documents there.</summary>
+	/// <summary>Full path, root first ("Tes / Hợp đồng"), so folders of the same name under different parents
+	/// are not indistinguishable in a flat picker like <see cref="MoveAsync"/>'s or this one's.</summary>
+	private string FolderPath(FolderRecord f) => string.Join(" / ", store.Ancestors(f.Id).Reverse().Select(a => a.Name).Append(f.Name));
+
+	/// <summary>Asks for a different parent for <paramref name="folder"/> -- any folder anywhere in the tree
+	/// except itself and its own descendants (moving into one of those would disconnect that whole branch from
+	/// the root; <see cref="DocumentStore.MoveFolder"/> would refuse it too, but the picker simply does not
+	/// offer it, so there is nothing to explain when it is missing).</summary>
+	private async Task MoveFolderAsync(FolderItem folder)
+	{
+		const string outside = "Không thư mục (ngoài cùng)";
+		var candidates = store.Folders()
+			.Where(f => f.Id != folder.Record.Id && !store.Ancestors(f.Id).Any(a => a.Id == folder.Record.Id))
+			.ToList();
+		var labels = candidates.ToDictionary(f => f, FolderPath);
+		var choices = labels.Values.OrderBy(s => s, StringComparer.CurrentCultureIgnoreCase).ToList();
+		if (folder.Record.ParentFolderId != null) choices.Add(outside);
+		if (choices.Count == 0)
+		{
+			await Shell.Current.DisplayAlertAsync("Chuyển thư mục", "Không có thư mục nào khác để chuyển vào.", "OK");
+			return;
+		}
+		string? choice = await Shell.Current.DisplayActionSheetAsync($"Chuyển \"{folder.Name}\" vào thư mục", "Huỷ", null, [.. choices]);
+		if (choice == null || choice == "Huỷ") return;
+		string? target = choice == outside ? null : labels.FirstOrDefault(kv => kv.Value == choice).Key?.Id;
+		if (target == null && choice != outside) return;
+		if (store.MoveFolder(folder.Record.Id, target)) await RefreshAsync();
+	}
+
+	/// <summary>Asks for a folder (an existing one anywhere in the tree, a new one under the folder being
+	/// viewed, or none) and files the documents there.</summary>
 	private async Task MoveAsync(IReadOnlyList<string> docIds)
 	{
 		const string create = "+ Thư mục mới...", outside = "Không thư mục (ngoài cùng)";
 		IReadOnlyList<FolderRecord> folders = store.Folders();
-		var choices = folders.Select(f => f.Name).Append(create).ToList();
+		var labels = folders.ToDictionary(f => f, FolderPath);
+		var choices = labels.Values.OrderBy(s => s, StringComparer.CurrentCultureIgnoreCase).Append(create).ToList();
 		if (_folderId != null) choices.Add(outside);
 		string? choice = await Shell.Current.DisplayActionSheetAsync("Chuyển vào thư mục", "Huỷ", null, [.. choices]);
 		if (choice == null || choice == "Huỷ") return;
@@ -308,32 +351,35 @@ public partial class HomeViewModel(DocumentStore store, ImportCoordinator import
 			await MoveIntoNewFolderAsync(docIds);
 			return;
 		}
-		string? target = choice == outside ? null : folders.FirstOrDefault(f => f.Name == choice)?.Id;
+		string? target = choice == outside ? null : labels.FirstOrDefault(kv => kv.Value == choice).Key?.Id;
 		if (target == null && choice != outside) return;
 		store.MoveToFolder(docIds, target);
 		EndSelection();
 		await RefreshAsync();
 	}
 
+	/// <summary>Creates the new folder as a sibling at the level being viewed right now (inside the current
+	/// folder, or at the top level), then moves the documents into it.</summary>
 	private async Task MoveIntoNewFolderAsync(IReadOnlyList<string> docIds)
 	{
 		string? name = await Shell.Current.DisplayPromptAsync("Thư mục mới", "Tên thư mục:", "Tạo", "Huỷ",
 			placeholder: "Ví dụ: Hợp đồng", maxLength: 80, keyboard: Keyboard.Text);
 		if (string.IsNullOrWhiteSpace(name)) return;
-		FolderRecord folder = store.CreateFolder(name);
+		FolderRecord folder = store.CreateFolder(name, _folderId);
 		store.MoveToFolder(docIds, folder.Id);
 		EndSelection();
 		await RefreshAsync();
 	}
 
-	/// <summary>"Thư mục mới" on the toolbar: an empty folder.</summary>
+	/// <summary>"Thư mục mới" on the toolbar: an empty folder, nested under whichever one is being viewed right
+	/// now (null -- the top level -- included; any depth).</summary>
 	[RelayCommand]
 	private async Task NewFolderAsync()
 	{
 		string? name = await Shell.Current.DisplayPromptAsync("Thư mục mới", "Tên thư mục:", "Tạo", "Huỷ",
 			placeholder: "Ví dụ: Hợp đồng", maxLength: 80, keyboard: Keyboard.Text);
 		if (string.IsNullOrWhiteSpace(name)) return;
-		store.CreateFolder(name);
+		store.CreateFolder(name, _folderId);
 		await RefreshAsync();
 	}
 
