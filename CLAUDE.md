@@ -811,3 +811,50 @@ của chúng vẫn dùng bảng xám-xanh cũ. Đã build qua (BUILD SUCCEEDED),
   hiện đúng theme tím mới, tài liệu owner tự tạo (10 trang, ảnh chụp sách giáo khoa) hiện đúng trên màn Tài liệu (nền tối, thẻ bo góc, nút
   Xem/Sửa dạng pill, nút Xuất PDF tô tím). Owner có vẻ đang tự bấm thử trực tiếp trên máy trong lúc tôi thao tác qua adb -- đã dừng lại, không
   tự động hoá thêm thao tác chạm trên máy nữa để tránh chồng lấn với owner; đã dọn 3 ảnh test tự đẩy vào thư viện ảnh trước đó (không cần nữa).
+
+### Xem PDF ra màn đen + quảng cáo "biến mất": cùng một nguyên nhân gốc, sửa bằng Handler thật (đợt 2026-10-05 tiếp)
+Owner báo trên máy thật: "xem pdf đang lỗi" (màn đen, chỉ có viên "Trang 1/10" nổi) và sau đó "quảng cáo của tôi sao lại bị xoá". Cả hai đều do
+cùng một kiểu lỗi: gắn 1 native View thẳng vào cây view của MAUI bằng cách "lấy native container rồi tự AddView" (không qua Handler của MAUI) --
+MAUI không biết tới view đó nên không bao giờ đo/xếp kích thước cho nó đúng, hoặc chính MAUI tự vẽ đè lên mà không hay biết có gì ở dưới.
+
+- **PdfScrollView** (màn xem PDF, dựng ở đợt trước cùng ngày): `PdfViewerPage.xaml.cs` từng lấy `ContentView.Handler.PlatformView` (một
+  `ContentViewGroup` của MAUI) rồi `AddView(pdfScrollView, ...)` thẳng vào đó. Thêm log chẩn đoán (`Android.Util.Log`) rồi xem bằng
+  `adb logcat` trên máy owner: xác nhận `OnSizeChanged` KHÔNG BAO GIỜ chạy, `Width`/`Height` của view luôn là 0 -- `ContentViewGroup` không đo
+  cho "con lạ" mà nó không tự quản lý. Sửa đúng cách: `Views/PdfScrollSurface.cs` (`View` rỗng, chỉ để khai trong XAML) +
+  `Platforms/Android/PdfScrollSurfaceHandler.cs` (`ViewHandler<PdfScrollSurface, PdfScrollView>`, `CreatePlatformView() => new(Context)`) +
+  đăng ký `ConfigureMauiHandlers` trong `MauiProgram.cs` -- giờ MAUI tự đo/xếp layout cho nó như mọi view khác. `PdfViewerPage.xaml` đổi
+  `<ContentView x:Name="Surface" />` thành `<views:PdfScrollSurface x:Name="Surface" />`; code-behind chỉ còn lấy `Surface.Handler.PlatformView
+  as PdfScrollView` (không tự AddView nữa). Owner xác nhận lại trên máy: cuộn được, thấy "Trang 9/10" -- hết màn đen.
+- **Banner quảng cáo** (đợt sửa hiệu năng, cùng ngày trước đó): `MainActivity.cs` từng lấy root view của toàn Activity, bọc vào 1
+  `LinearLayout` tự tạo rồi nhét `AdView` xuống dưới. Hai lỗi chồng lên nhau, tìm bằng log + `AdListener` thêm tạm:
+  1. `decorContent.ChildCount == 0` lúc `OnCreate` chạy (MAUI chưa kịp gắn nội dung vào Activity -- SplashPage còn đang dựng AppShell) khiến
+     toàn bộ hàm bị bỏ qua lặng lẽ, không log, không lỗi -- banner không bao giờ được tạo. Sửa tạm: gọi lại ở `OnResume` (tự lặp lại tới khi
+     thành công) -- nhưng vẫn chưa hết lỗi.
+  2. Dù gắn được, `AdView` đo ra `Height=0` trong `LinearLayout` (đặt cứng theo px từ `AdSize.Banner.GetHeightInPixels()` thì hết 0, nhưng dù
+     đúng kích thước + quảng cáo đã `OnAdLoaded` thành công, banner VẪN không hiện trên máy thật -- vì MAUI tự vẽ đè nội dung của nó lên toàn
+     bộ vùng, không biết (và không tôn trọng) việc nó chỉ còn được cấp một phần màn hình sau khi bị bọc trong LinearLayout của tôi.
+  - Bỏ hẳn cách "bọc root view của Activity", chuyển sang **1 `AdView` dùng chung cho cả app, gắn qua Handler thật** giống PdfScrollView:
+    `Views/AdBannerSurface.cs` + `Platforms/Android/AdBannerSurfaceHandler.cs` (`CreatePlatformView()` trả về CÙNG MỘT instance `AdView` tĩnh
+    (static) cho mọi trang -- nếu đã có, tự gỡ khỏi trang cũ (`RemoveView`) trước khi trang mới nhận; `DisconnectHandler` bỏ trống có chủ đích
+    để không huỷ `AdView` dùng chung chỉ vì 1 trang bị rời đi). Thêm `<views:AdBannerSurface HeightRequest="50" />` vào đúng vị trí cũ trên cả
+    10 trang (Home, Document, Crop, Result, Settings, Signature, Exports, About, Viewer, PdfViewer -- không có Splash), mỗi trang tự co giãn
+    `RowDefinitions`/`Grid.RowSpan` của `ExportOverlay` theo đúng số dòng. Vừa đúng kỹ thuật (MAUI tự đo/vẽ, không đè) vừa giữ đúng mục tiêu ban
+    đầu của đợt sửa hiệu năng (không tạo/tải lại quảng cáo mỗi lần chuyển trang). Owner xác nhận trên máy thật: banner hiện đúng, thấy chữ
+    "Quảng cáo" + nội dung quảng cáo thật.
+- **Owner báo tiếp**: "thi thoảng ... banner đen thui, như không có quảng cáo nào được load" -- đúng vậy: banner cũ luôn `Visibility=Visible`
+  ngay khi tạo, kể cả trước khi `LoadAd` có kết quả, hoặc khi một lần làm mới quảng cáo định kỳ (AdMob tự refresh banner, quan sát log thấy
+  ~mỗi 60-90 giây) bị lỗi/không có quảng cáo. Sửa: `AdBannerSurfaceHandler` thêm `AdListener` (`OnAdLoaded` -> hiện, `OnAdFailedToLoad` -> ẩn),
+  mặc định ẩn (`_loaded = false`) cho tới khi có quảng cáo thật. Owner yêu cầu đúng vậy: "ẩn đi cho đẹp" thay vì để trống/đen. Kiểm tra log
+  `adb logcat` thấy nhiều lần `mediation_fill_result` thành công lặp lại theo chu kỳ, xác nhận cơ chế load/refresh hoạt động đúng; 1 lần chụp
+  màn hình rơi đúng lúc giữa 2 lần tải thấy banner ẩn (đúng hành vi mới, không phải lỗi).
+- **Bài học chung cho cả 2 lỗi**: mọi lần cần nhúng 1 native View thuần (không phải control MAUI có sẵn) vào cây giao diện, PHẢI đi qua
+  `ViewHandler<TVirtualView, TPlatformView>` + `ConfigureMauiHandlers` -- không được "lấy native container rồi tự AddView" dù trông có vẻ đơn
+  giản hơn, vì MAUI sẽ không biết/không tôn trọng view đó trong các lần đo-vẽ của chính nó. `ZoomImageHost`'s "mượn view native" chỉ an toàn vì
+  nó mượn CHÍNH view MAUI đã tạo và đang quản lý (một `Image`), không thêm view lạ vào cây.
+
+### Thêm tìm kiếm cho màn "PDF đã xuất" (đợt 2026-10-05 tiếp, owner yêu cầu)
+`ExportsViewModel` thêm `IsSearching`/`SearchText`/`ToggleSearchCommand` + `EmptyText` theo đúng khuôn mẫu đã có ở `HomeViewModel`
+(`TextSearch.Matches`, không phân biệt hoa/thường/dấu). Giữ nguyên danh sách gốc (`_all`) trong bộ nhớ, lọc lại vào `Files` mỗi khi gõ tìm --
+không đọc lại thư mục exports mỗi lần gõ. `ExportsPage.xaml` thêm `ToolbarItem` kính lúp (trang này vẫn dùng thanh Shell gốc, không như
+HomePage) + `SearchBar` ẩn/hiện theo `IsSearching`. Build qua, chưa có xác nhận hình ảnh trên máy owner (màn hình owner lúc đó bị cửa sổ nổi
+YouTube/Zalo che mất nút "PDF đã xuất").
