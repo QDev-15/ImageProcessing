@@ -4,3 +4,9 @@
 /USC/deployment
 [Pp]ackages/
 [Pp]ublish/
+/artifacts/
+# Visual Studio per-user project state
+*.csproj.user
+
+# Release signing keystore + passwords (see Source/DocScanner/release/KEYSTORE-README.md) — never commit
+Source/DocScanner/release/

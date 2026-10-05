@@ -1,56 +1,115 @@
-# Image Optimizer Tool -- visual test bench
+# Image Optimizer Tool
 
-Standalone .NET 9 WinForms app, **not referenced by or wired into** `UniversalScanClient` /
-`ScanClient-FileOptics`. Open `ImageOptimizerTool.sln` in VS2022 to run/edit `MainForm`
-in the designer.
+App WinForms (.NET 9, Windows x64) để scan / import tài liệu, tự làm sạch ảnh, quản lý trang,
+OCR và xuất **PDF/A-2b tìm kiếm được** hoặc TIFF nhiều trang. Toàn bộ logic nằm trong thư viện
+`ImageCoreService` (không có UI, dùng lại được).
 
-## What it's for
+Mở `Source/ImageProcessing.sln` bằng Visual Studio 2022+ (hoặc `dotnet build`).
 
-Testing whether **JBIG2** (bitonal) and **OpenJPEG's rate-distortion JPEG2000** (color)
-are worth integrating into the main app's export pipeline, which currently uses CCITT
-G4 and CoreJ2K respectively -- see `Goal.md` 2026-09-23/24 for the full background
-(GdPicture comparison, CoreJ2K's rate-control bug, JBIG2's symbol-dictionary advantage).
+## Cấu trúc
 
-## Using the form
+| Thư mục | Vai trò |
+|---|---|
+| `Source/ImageCoreService` | Thư viện lõi: codec, PDF/TIFF, xử lý ảnh, OCR, scan, cài đặt, dự án. |
+| `Source/ImageOptimizerTool` | App WinForms (chỉ là giao diện). |
+| `Source/SmokeTests` | Kiểm tra end-to-end không cần UI: `dotnet run --project Source/SmokeTests` (exit 0 = ALL PASS). |
+| `Source/Bench` | Đo tốc độ import / thumbnail / preview / xuất trên dữ liệu giả: `dotnet run -c Release --project Source/Bench -- pages=40 label=ten`. Kết quả ở `Source/Bench/results/`. |
+| `Installer` | Bộ cài MSI (WiX v5): `powershell -ExecutionPolicy Bypass -File Installer\build-installer.ps1`. Kết quả ở `artifacts\installer\`. |
+| `THIRD-PARTY-NOTICES.md` | License và bằng sáng chế của mọi thành phần bên thứ ba. |
 
-1. **Temp folder** (default `C:\imageTool\Temp`, editable): where imported pages are saved.
-2. **Import Images...** -- pick one or more image files; each is copied into the temp
-   folder and added to the page list.
-3. **Import PDF...** -- pick a PDF; it's split into one PNG per page (via PdfiumViewer,
-   the same library the main app uses for PDF import), saved into the temp folder, and
-   added to the list, in the same order as the source PDF.
-4. Click a page in the list to preview it on the right.
-5. **Export type** (B&W / Color, default B&W) decides which codec **Export PDF...**
-   and **Export TIFF...** use:
-   - **PDF, B&W** -> JBIG2, symbol/text-region mode, one shared symbol dictionary
-     across every page in the document (glyphs repeated across pages are recognized
-     once, not per page).
-   - **PDF, Color** -> JPEG2000 via OpenJPEG (`-r 20`, i.e. targets roughly 1/20th of
-     the raw size -- edit `MainForm.ExportPdfColor` to change the ratio).
-   - **TIFF, B&W** -> CCITT G4 (same codec the main app already uses for TIFF export --
-     TIFF export isn't part of what this tool is evaluating).
-   - **TIFF, Color** -> LZW (lossless, standard TIFF compression).
-6. **Remove Selected** / **Clear All** only affect the in-memory list, not files already
-   written to the temp folder.
+### ImageCoreService
 
-## Command-line options (bypass the GUI)
+| File | Nội dung |
+|---|---|
+| `Imaging/Binarizer.cs` | Trắng đen **Sauvola** (mặc định, thích nghi theo vùng) / **Otsu**. Tự cài đặt, không dùng thư viện ngoài. |
+| `Imaging/DocumentCleanup.cs` | Deskew (projection profile), cắt viền đen, khử đốm, xoay. |
+| `Imaging/PageAnalyzer.cs` | Phát hiện trang trắng; phân loại trang trắng đen / xám / màu. |
+| `Imaging/PageProcessor.cs` | Pipeline cũ ghi lại pixel (bỏ trắng → cắt viền → deskew → xoay). App không còn dùng; giữ cho API / test. |
+| `Imaging/GrayImage.cs` | Buffer 8-bit dùng chung cho các thuật toán. |
+| `Ocr/OcrEngine.cs` | Tesseract 5: OCR tiếng Việt + Anh theo từng từ; OSD phát hiện chiều trang. |
+| `PdfPagePacker.cs` (`PdfBuilder`) | Ghi PDF nhúng nguyên byte đã nén; lớp chữ OCR ẩn (GlyphLessFont); PDF/A-2b + metadata. |
+| `Pdf/PdfIncrementalXmp.cs` | Gắn XMP PDF/A-2b bằng incremental update (PDFsharp luôn ghi đè XMP của nó). |
+| `DocumentExporter.cs` | Xuất PDF / TIFF: chọn codec **từng trang**, OCR, tiến trình, huỷ. |
+| `Export/BatchExporter.cs`, `DocumentSplitter.cs`, `FileNamer.cs` | Tách tài liệu (trang trắng / barcode ZXing), đặt tên file theo mẫu, xuất nhiều file. |
+| `TiffPagePacker.cs` | TIFF nhiều trang, các trang có thể dùng codec khác nhau. |
+| `TwainScanner.cs`, `WiaScanner.cs`, `ScannerService.cs` | Scan TWAIN (NTwain) + WIA dự phòng; huỷ; báo kẹt giấy / double feed / hết giấy. |
+| `Project/PageRecord.cs` | Mô hình trang: `PageRecord` (Id, nguồn, thao tác, trạng thái Pending / Ready / Failed), `PageSource` (file ảnh hoặc **một trang PDF**), `PageOps` (xoay, góc nghiêng, vùng cắt). |
+| `Project/ScanProject.cs` | Dự án (project.xml **v2** + pages\ + cache\), undo/redo, tự lưu phiên; tự nâng cấp dự án v1 (giữ `project.xml.v1.bak`). |
+| `Project/PageRenderer.cs` | Cầu nối duy nhất từ bản ghi trang → ảnh: nạp nguồn (ảnh hoặc render trang PDF ở DPI cần dùng) rồi áp thao tác. |
+| `Project/PageCache.cs` | Ảnh proxy 1600 px + thumbnail lưu trong `cache\` (xoá được, tự tạo lại). |
+| `Project/PageIngestor.cs`, `Imaging/PageAnalysis.cs` | Import / scan nền: trang hiện ngay dạng placeholder, phân tích trên proxy (trắng, cắt, nghiêng, chiều) rồi chỉ **ghi thao tác**, không ghi lại pixel. |
+| `Pdf/PdfPageRenderer.cs` | Render từng trang PDF theo yêu cầu (pdfium). |
+| `Ocr/OcrCache.cs`, `Ocr/BackgroundOcr.cs`, `Ocr/OsdEnginePool.cs` | OCR nền có cache; mỗi luồng một engine OSD. |
+| `Project/PageImporter.cs` | Import ảnh / TIFF nhiều trang (PDF không còn render lúc import). |
+| `Logging/Perf.cs` | Đo thời gian từng bước (dùng bởi `Source/Bench`). |
+| `Settings/AppSettings.cs`, `SettingsStore.cs` | Mọi tuỳ chọn, lưu XML. |
+| `Logging/Log.cs` | Log theo ngày, giữ 30 ngày. |
+| `G4Encoder.cs`, `JpegEncoderSimple.cs` | Codec (CCITT G4 / JPEG, cả hai tự viết / dùng GDI+, không gọi tool ngoài). |
 
-- `ImageOptimizerTool.exe --benchmark` -- the original headless comparison bench:
-  generates synthetic bitonal/color test pages, runs CCITT G4 vs JBIG2 and OpenJPEG at
-  a few compression ratios, writes result PDFs to `Desktop\usc_advanced_codec_compare\`.
-- `ImageOptimizerTool.exe --smoketest` -- exercises every non-UI code path the form's
-  buttons use (multi-page JBIG2 with shared globals, OpenJPEG, PdfBuilder, TiffExporter,
-  and a PDF round-trip through PdfiumViewer) end to end and prints PASS/FAIL. Useful
-  after editing any of the encoder/export classes, without clicking through the UI.
+## Mô hình dự án (từ đợt 2026-09-25, M0-M4)
 
-## Files
+- **Trang = nguồn + thao tác.** File gốc (ảnh, PDF, file scan) nằm trong `pages\` và **không bao giờ bị sửa**.
+  Xoay, cắt viền, deskew là `PageOps` ghi trong `project.xml`; `PageRenderer` áp chúng khi cần. Xoay vì vậy là tức thì.
+- **PDF không render lúc import.** PDF được copy vào dự án một lần; mỗi trang là một nguồn (file + số trang) và chỉ
+  render theo yêu cầu: proxy nhỏ để xem, đúng DPI đích (không vượt DPI thật của trang) khi xuất.
+- **Import / scan nền.** Trang hiện ngay dạng placeholder (`...`), worker phân tích trên proxy rồi chuyển sang sẵn sàng;
+  trang trắng tự bị bỏ, trang lỗi đánh dấu `!`. Kết quả nền không tạo bước undo. Xuất file chờ hết trang đang xử lý.
+- **Danh sách trang ảo** (`VirtualMode`): mở dự án hàng trăm trang vẫn tức thì; thumbnail chỉ tạo cho phần đang nhìn thấy
+  (`ThumbnailLoader`), lưu ở `cache\thumbs`. Xem trước: proxy hiện gần như ngay, ảnh đủ độ phân giải thay vào giữ nguyên zoom / vị trí.
+- **OCR nền** (`BackgroundOcr`): khi rảnh, đọc trước các trang và lưu vào `cache\ocr`; lúc xuất chỉ ghép. Đổi trang / cài đặt
+  thì khoá cache đổi, tự đọc lại.
+- **Định dạng dự án v2** (`project.xml`, `Version="2"`): mỗi `<Page>` có `Id`, `File`, `PdfPage`, `NativeDpi`, `State`,
+  `Rotate`, `Deskew`, `Crop`. Dự án v1 tự nâng cấp khi mở, bản gốc giữ ở `project.xml.v1.bak`; các trang cũ trở thành nguồn
+  không có thao tác (ảnh không đổi).
+- **Kiểm thử giao diện tự động:** đặt biến môi trường `IMAGEOPTIMIZER_DATA` để chạy app với dữ liệu riêng (không đụng
+  `%LocalAppData%`).
 
-- `MainForm.cs` / `.Designer.cs` -- the GUI.
-- `JBig2Encoder.cs` / `OpenJpegEncoder.cs` / `G4Encoder.cs` -- external-process wrappers
-  around the vendored tools in `tools/` (see `tools/README.md` for their provenance).
-- `PdfPagePacker.cs` (`PdfBuilder` class) -- low-level multi-page PDF writer, embeds
-  each codec's bytes verbatim (no re-encoding), same principle as the main app's
-  `PdfSharpPdfAArchiver`.
-- `PdfSplitter.cs` -- PDF -> page images via PdfiumViewer.
-- `TiffExporter.cs` -- multi-page TIFF export via GDI+.
-- `ImageUtils.cs` -- shared bitmap helpers (bitonal threshold, DPI resolution).
+## Cách hoạt động chính
+
+- **Độ phân giải:** DPI lấy từ file / driver; file không có DPI (hoặc mang giá trị mặc định
+  96/72 trên ảnh quá lớn) thì suy ra từ kích thước pixel theo khổ A4 / Letter / Legal. Trang có DPI
+  **cao hơn** DPI của profile scan (mặc định 300) được thu nhỏ về đúng DPI đó **lúc hiển thị đủ
+  độ phân giải và lúc xuất** (tuỳ chọn *Giới hạn DPI theo cài đặt scan*, mặc định bật); file gốc
+  không bị đổi. DPI bằng hoặc thấp hơn thì giữ nguyên, không bao giờ phóng to. Trang PDF được
+  render thẳng ở DPI đó (không vượt DPI thật của ảnh nhúng, tối đa 36 MP / trang).
+- **Xuất file không gọi tiến trình ngoài nào:** CCITT G4 và JPEG đều mã hoá bằng GDI+/code tự viết,
+  trong tiến trình app. Các trang được mã hoá song song (tối đa 4, mỗi luồng một engine Tesseract
+  riêng) và kết quả giữ đúng thứ tự.
+- **Chất lượng:** file gốc giữ nguyên (không mất dữ liệu); mọi chỉnh sửa là thao tác trên bản ghi trang. Chỉ có đúng
+  1 lần nén mất dữ liệu, lúc xuất file. File JPEG gốc chưa chỉnh sửa (không xoay / cắt / thu nhỏ) được nhúng nguyên
+  byte vào PDF.
+- **Codec từng trang** (chế độ màu *Tự động*):
+  - trang trắng đen → **CCITT G4** (JBIG2 đã bỏ hẳn khỏi app, quyết định của owner đợt 2026-09-29 --
+    không muốn theo dõi rủi ro bằng sáng chế / nguồn gốc bản build của thư viện JBIG2 nữa);
+  - trang xám / màu → **JPEG** (JPEG2000 đã bỏ hẳn khỏi app cùng đợt, quyết định của owner
+    2026-09-29 -- đo thật: xuất 40 trang màu bằng JPEG mất 1,5 s, bằng JPEG2000 mất 38,6 s
+    (~25 lần chậm hơn) vì gọi `opj_compress.exe` cho từng trang một; owner chọn tốc độ, chấp nhận
+    file màu/xám to hơn khoảng 2 lần).
+- **Cài đặt:** menu *Cài đặt → Cài đặt... (F9)*. File người dùng:
+  `%LocalAppData%\ImageOptimizerTool\settings.xml`. Lần chạy đầu, file này được tạo từ
+  `Config\settings.default.xml` (có sẵn cạnh exe). File hỏng thì được sao lưu (`.bad-*`) rồi
+  dùng mặc định.
+- **Log:** `%LocalAppData%\ImageOptimizerTool\logs\app-yyyyMMdd.log` (menu *Cài đặt → Mở thư mục log*).
+- **Phiên làm việc:** các trang chưa lưu nằm trong `...\ImageOptimizerTool\Work\session_*` và
+  được tự lưu sau mỗi thay đổi. Nếu app bị tắt đột ngột, lần mở sau app sẽ hỏi có khôi phục không.
+- **Dòng lệnh:** `ImageOptimizerTool.exe a.pdf b.jpg ...` mở app và import luôn các file đó;
+  `--write-default-settings PATH` ghi file cấu hình mặc định.
+
+## Kiểm tra đã chạy (2026-09-25)
+
+- `SmokeTests`: 36 kiểm tra, **ALL PASS**. Bao gồm:
+  - Sauvola trên nền sáng không đều;
+  - deskew ±3°, cắt viền;
+  - trang trắng và phân loại màu;
+  - OCR tiếng Việt, OSD 90° / 180°;
+  - PDF G4 / JPEG / JBIG2 / JPEG2000 mở được bằng pdfium, lớp chữ tìm kiếm được;
+  - JPEG gốc được nhúng nguyên byte; TIFF nhiều trang giữ đúng DPI;
+  - tách tài liệu bằng barcode / trang trắng, mẫu tên file;
+  - undo / lưu / mở dự án; cài đặt XML.
+- **veraPDF 1.30.2** (profile PDF/A-2b): PDF có OCR, PDF JBIG2 + JPEG2000 và PDF có metadata tiếng
+  Việt đều **compliant**.
+- Chạy app thật: import ảnh lệch + có viền đen, trang trắng, JPEG và PDF bằng dòng lệnh → trang
+  trắng bị bỏ, trang lệch được cắt viền và chỉnh nghiêng, thumbnail hiển thị đúng. Form Cài đặt và
+  form Scan hiển thị đúng.
+- Bộ cài MSI build được (57 MB, self-contained). Đã giải nén MSI và kiểm tra đủ file (runtime .NET,
+  DLL native, VC++ runtime, tessdata, tools).

@@ -1,0 +1,57 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AssemblyName>ImageCoreService</AssemblyName>
+    <RootNamespace>ImageCoreService</RootNamespace>
+    <!-- Every native dependency shipped (pdfium, tesseract/leptonica runtime) is used as x64;
+         pin it so AnyCPU never picks the wrong bitness. -->
+    <PlatformTarget>x64</PlatformTarget>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ImageCore.Shared\ImageCore.Shared.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Drawing.Common" Version="9.0.0" />
+    <!-- Same versions already used by the main app (UniversalScanClient/USC/OpenImaging),
+         so size/behavior comparisons are apples-to-apples. -->
+    <PackageReference Include="BitMiracle.LibTiff.NET" Version="2.4.649" />
+    <PackageReference Include="PdfSharp" Version="6.2.4" />
+    <!-- PDF -> page images, same library the main app uses for PDF import (PdfUtils.RenderPages). -->
+    <PackageReference Include="PdfiumViewer" Version="2.13.0" />
+    <!-- PrivateAssets=none: this package delivers pdfium.dll via build assets, which NuGet
+         does NOT flow to referencing projects by default; without this, every consumer
+         of ImageCoreService would have to reference the native package itself. -->
+    <PackageReference Include="PdfiumViewer.Native.x86_64.v8-xfa" Version="2018.4.8.256" PrivateAssets="none" />
+    <!-- Real TWAIN scanning, the same underlying wrapper library the main app's
+         IMIP.Imaging.Capture.dll is itself built on. -->
+    <PackageReference Include="NTwain" Version="4.0.0-beta.4" />
+    <!-- OCR (Apache-2.0). PrivateAssets=none for the same reason as pdfium: the native
+         x64\tesseract50.dll / leptonica are copied by the package's build targets. -->
+    <PackageReference Include="Tesseract" Version="5.2.0" PrivateAssets="none" />
+    <!-- Barcode reading for document separation (Apache-2.0). -->
+    <PackageReference Include="ZXing.Net" Version="0.16.10" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Tesseract language data (tessdata_fast vie/eng + tessdata osd, Apache-2.0). Copied to the
+         output folder (and, via the normal ProjectReference copy-local flow, next to any
+         consuming exe). -->
+    <None Include="tessdata\**" CopyToOutputDirectory="PreserveNewest" LinkBase="tessdata" />
+    <!-- App-local Microsoft VC++ 2015-2022 x64 runtime (redistributable) for tesseract50.dll /
+         leptonica, next to the exe so OCR works on machines without the VC++ redist. -->
+    <None Include="native\vcruntime-x64\*.dll" CopyToOutputDirectory="PreserveNewest" Link="%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Tesseract's "GlyphLessFont" (Apache-2.0): invisible-text font for the OCR layer. -->
+    <EmbeddedResource Include="Resources\pdf.ttf" LogicalName="ImageCoreService.GlyphLessFont.ttf" />
+  </ItemGroup>
+
+</Project>

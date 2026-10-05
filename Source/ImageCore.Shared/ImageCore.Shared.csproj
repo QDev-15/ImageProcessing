@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Pure managed image algorithms (grayscale buffer, Sauvola / Otsu, deskew, border
+       detection, despeckle). No System.Drawing.Common, no native code: shared by the
+       Windows app (ImageCoreService) and the MAUI mobile app. Keep it that way: the
+       only System.Drawing types allowed here are the primitives (Rectangle, Point) that
+       ship in the base framework and exist on Android / iOS too. -->
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AssemblyName>ImageCore.Shared</AssemblyName>
+    <RootNamespace>ImageCoreService</RootNamespace>
+    <!-- Optimized even in Debug: the pixel loops run 5-20x slower unoptimized under the Android debug runtime (measured
+         2026-09-27 on a Note 10+ Debug build: 1-5 s per black-and-white preview), which made every edit feel slow when
+         the app is run from Visual Studio. Set to false only to step through an algorithm. -->
+    <Optimize>true</Optimize>
+  </PropertyGroup>
+
+</Project>

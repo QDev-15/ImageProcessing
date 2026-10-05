@@ -5,6 +5,8 @@ VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ImageOptimizerTool", "ImageOptimizerTool.csproj", "{83824F45-212F-4760-8A4D-D6F73D0ABBC0}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ImageCoreService", "..\ImageCoreService\ImageCoreService.csproj", "{8DB72F39-AFA8-4DFD-997F-FB8FED47FA0E}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -27,6 +29,18 @@ Global
 		{83824F45-212F-4760-8A4D-D6F73D0ABBC0}.Release|x64.Build.0 = Release|Any CPU
 		{83824F45-212F-4760-8A4D-D6F73D0ABBC0}.Release|x86.ActiveCfg = Release|Any CPU
 		{83824F45-212F-4760-8A4D-D6F73D0ABBC0}.Release|x86.Build.0 = Release|Any CPU
+		{8DB72F39-AFA8-4DFD-997F-FB8FED47FA0E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8DB72F39-AFA8-4DFD-997F-FB8FED47FA0E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8DB72F39-AFA8-4DFD-997F-FB8FED47FA0E}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{8DB72F39-AFA8-4DFD-997F-FB8FED47FA0E}.Debug|x64.Build.0 = Debug|Any CPU
+		{8DB72F39-AFA8-4DFD-997F-FB8FED47FA0E}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{8DB72F39-AFA8-4DFD-997F-FB8FED47FA0E}.Debug|x86.Build.0 = Debug|Any CPU
+		{8DB72F39-AFA8-4DFD-997F-FB8FED47FA0E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8DB72F39-AFA8-4DFD-997F-FB8FED47FA0E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{8DB72F39-AFA8-4DFD-997F-FB8FED47FA0E}.Release|x64.ActiveCfg = Release|Any CPU
+		{8DB72F39-AFA8-4DFD-997F-FB8FED47FA0E}.Release|x64.Build.0 = Release|Any CPU
+		{8DB72F39-AFA8-4DFD-997F-FB8FED47FA0E}.Release|x86.ActiveCfg = Release|Any CPU
+		{8DB72F39-AFA8-4DFD-997F-FB8FED47FA0E}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
