@@ -13,31 +13,27 @@
         <ToolbarItem Text="Khác" Command="{Binding MoreCommand}" Order="Primary">
             <ToolbarItem.IconImageSource>
                 <FontImageSource FontFamily="Icons" Glyph="{x:Static views:Icons.Share}" Size="22"
-                                 Color="{AppThemeBinding Light=#37404D, Dark=#E0E0E0}" />
+                                 Color="{AppThemeBinding Light={StaticResource OnSurface}, Dark={StaticResource OnSurfaceDark}}" />
             </ToolbarItem.IconImageSource>
         </ToolbarItem>
     </ContentPage.ToolbarItems>
 
-    <Grid RowDefinitions="*,Auto,Auto">
+    <Grid RowDefinitions="*,Auto">
+        <Grid>
+            <!-- The pages themselves: a continuous, pinch-zoomable scroll (PdfScrollSurface -> PdfScrollView via
+                 PdfScrollSurfaceHandler; it draws and handles touch entirely on its own). -->
+            <views:PdfScrollSurface x:Name="Surface" />
 
-        <!-- One page, rendered sharp for zooming: pinch / double tap to zoom, drag when zoomed, swipe for the other pages. -->
-        <Grid IsClippedToBounds="True">
-            <Image x:Name="Picture" Aspect="AspectFit" />
+            <!-- Small floating page indicator, like a real PDF viewer's; updates as the view scrolls. -->
+            <Border IsVisible="{Binding HasPage}" VerticalOptions="End" HorizontalOptions="Center" Margin="0,0,0,14" Padding="12,4"
+                    StrokeThickness="0" BackgroundColor="#99000000" InputTransparent="True">
+                <Border.StrokeShape>
+                    <RoundRectangle CornerRadius="12" />
+                </Border.StrokeShape>
+                <Label Text="{Binding PageText}" FontSize="12" TextColor="White" />
+            </Border>
         </Grid>
 
-        <Grid Grid.Row="1" ColumnDefinitions="60,*,60" HeightRequest="56" BackgroundColor="{AppThemeBinding Light=White, Dark=#1C1C1E}">
-            <views:ToolButton Icon="{x:Static views:Icons.ChevronLeft}" Text="" IconSize="28" IsEnabled="{Binding CanGoPrevious}"
-                              Command="{Binding GoCommand}">
-                <views:ToolButton.CommandParameter><x:Int32>-1</x:Int32></views:ToolButton.CommandParameter>
-            </views:ToolButton>
-            <Label Grid.Column="1" Text="{Binding PageText}" FontSize="14" HorizontalOptions="Center" VerticalOptions="Center"
-                   TextColor="{AppThemeBinding Light=#37404D, Dark=#E0E0E0}" />
-            <views:ToolButton Grid.Column="2" Icon="{x:Static views:Icons.ChevronRight}" Text="" IconSize="28" IsEnabled="{Binding CanGoNext}"
-                              Command="{Binding GoCommand}">
-                <views:ToolButton.CommandParameter><x:Int32>1</x:Int32></views:ToolButton.CommandParameter>
-            </views:ToolButton>
-        </Grid>
-
-        <views:AdBannerView Grid.Row="2" BackgroundColor="#101010" />
+        <views:AdBannerSurface Grid.Row="1" HeightRequest="50" BackgroundColor="#101010" />
     </Grid>
 </ContentPage>

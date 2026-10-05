@@ -187,7 +187,7 @@ public sealed class DocumentCameraActivity : AppCompatActivity
 		_count = new TextView(this) { Gravity = GravityFlags.Center };
 		_count.SetTextColor(Color.White);
 		_count.SetTextSize(ComplexUnitType.Sp, 12);
-		_count.Background = Rounded(Color.Argb(255, 26, 95, 214), 11);
+		_count.Background = Rounded(Color.Argb(255, 91, 79, 224), 11);
 		_count.SetMinWidth(Dp(22));
 		thumbBox.AddView(_count, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WrapContent, Dp(22), GravityFlags.Top | GravityFlags.Right));
 		thumbBox.Click += (_, _) => Finish(keep: true);
@@ -201,7 +201,7 @@ public sealed class DocumentCameraActivity : AppCompatActivity
 		_done.SetTextColor(Color.White);
 		_done.SetTextSize(ComplexUnitType.Sp, 15);
 		_done.SetPadding(Dp(18), Dp(10), Dp(18), Dp(10));
-		_done.Background = Rounded(Color.Argb(255, 26, 95, 214), 22);
+		_done.Background = Rounded(Color.Argb(255, 91, 79, 224), 22);
 		_done.Click += (_, _) => Finish(keep: true);
 		bottom.AddView(_done, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WrapContent, ViewGroup.LayoutParams.WrapContent,
 			GravityFlags.CenterVertical | GravityFlags.Right));
@@ -241,7 +241,7 @@ public sealed class DocumentCameraActivity : AppCompatActivity
 	{
 		_auto.Text = _autoCapture ? "Tự chụp: Bật" : "Tự chụp: Tắt";
 		_auto.SetTextColor(_autoCapture ? Color.White : Color.Argb(255, 200, 200, 200));
-		_auto.Background = _autoCapture ? Rounded(Color.Argb(255, 26, 95, 214), 16) : Rounded(Color.Argb(255, 60, 60, 60), 16);
+		_auto.Background = _autoCapture ? Rounded(Color.Argb(255, 91, 79, 224), 16) : Rounded(Color.Argb(255, 60, 60, 60), 16);
 		if (!_autoCapture) _shutter.Progress = 0;
 	}
 
@@ -268,7 +268,7 @@ public sealed class DocumentCameraActivity : AppCompatActivity
 		void Style(TextView chip, bool active)
 		{
 			chip.SetTextColor(active ? Color.White : Color.Argb(255, 200, 200, 200));
-			chip.Background = Rounded(active ? Color.Argb(255, 26, 95, 214) : Color.Argb(255, 60, 60, 60), 14);
+			chip.Background = Rounded(active ? Color.Argb(255, 91, 79, 224) : Color.Argb(255, 60, 60, 60), 14);
 		}
 		Style(_onePage, _bookMode == BookMode.OnePage);
 		Style(_twoPage, _bookMode == BookMode.TwoPage);

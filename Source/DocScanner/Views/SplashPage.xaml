@@ -4,14 +4,14 @@
     xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
     xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
     Shell.NavBarIsVisible="False"
-    BackgroundColor="#1A5FD6">
+    BackgroundColor="#5B4FE0">
 
     <Grid RowDefinitions="*,Auto,*,Auto">
         <Grid.Background>
             <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
-                <GradientStop Color="#2F86FF" Offset="0" />
-                <GradientStop Color="#1A5FD6" Offset="0.45" />
-                <GradientStop Color="#0B3FA8" Offset="1" />
+                <GradientStop Color="#8A7FF0" Offset="0" />
+                <GradientStop Color="#5B4FE0" Offset="0.45" />
+                <GradientStop Color="#3A2F99" Offset="1" />
             </LinearGradientBrush>
         </Grid.Background>
 
@@ -24,14 +24,14 @@
             </Grid>
             <Label x:Name="AppName" Text="Doc Scanner" FontSize="30" FontFamily="OpenSansSemibold" TextColor="White"
                    HorizontalOptions="Center" />
-            <Label x:Name="Tagline" Text="Quét tài liệu · nắn thẳng · xuất PDF" FontSize="14" TextColor="#D6E6FF"
+            <Label x:Name="Tagline" Text="Quét tài liệu · nắn thẳng · xuất PDF" FontSize="14" TextColor="#E3DDFA"
                    HorizontalOptions="Center" />
         </VerticalStackLayout>
 
         <VerticalStackLayout Grid.Row="3" Spacing="4" Padding="0,0,0,36" HorizontalOptions="Center">
             <ActivityIndicator IsRunning="True" Color="White" WidthRequest="22" HeightRequest="22" Margin="0,0,0,10" />
-            <Label x:Name="VersionLabel" FontSize="12" TextColor="#BCD3F7" HorizontalOptions="Center" />
-            <Label Text="© 2026 Nguyễn Hữu Quỳnh" FontSize="12" TextColor="#BCD3F7" HorizontalOptions="Center" />
+            <Label x:Name="VersionLabel" FontSize="12" TextColor="#CFC6F2" HorizontalOptions="Center" />
+            <Label Text="© 2026 Nguyễn Hữu Quỳnh" FontSize="12" TextColor="#CFC6F2" HorizontalOptions="Center" />
         </VerticalStackLayout>
     </Grid>
 </ContentPage>

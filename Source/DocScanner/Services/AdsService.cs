@@ -13,9 +13,10 @@ namespace DocScanner.Services;
 /// </summary>
 public interface IAdsService
 {
-    /// <summary>False once Pro is bought (or restored) -- every page's <see cref="Views.AdBannerView"/> binds
-    /// to this. An interstitial from <see cref="RegisterExport"/> is a separate full-screen ad (its own native
-    /// activity), so it never visually competes with whatever banner the page underneath happens to show.</summary>
+    /// <summary>False once Pro is bought (or restored) -- the one persistent banner <c>MainActivity</c> creates
+    /// (2026-10-05: moved out of every page, see its doc comment) binds to this. An interstitial from
+    /// <see cref="RegisterExport"/> is a separate full-screen ad (its own native activity), so it never visually
+    /// competes with whatever the banner underneath happens to show.</summary>
     bool ShowAds { get; }
 
     /// <summary>Raised whenever <see cref="ShowAds"/> may have changed (i.e. the license changed).</summary>

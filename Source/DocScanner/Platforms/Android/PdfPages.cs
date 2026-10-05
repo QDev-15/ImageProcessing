@@ -47,6 +47,22 @@ internal sealed class PdfPages : IDisposable
 		}
 	}
 
+	/// <summary>Page <paramref name="index"/>'s size in PDF points, without rendering it -- used to lay out the
+	/// continuous scroll view (<see cref="PdfScrollView"/>) before any page bitmap is decoded.</summary>
+	public (int Width, int Height) Size(int index)
+	{
+		lock (_lock)
+		{
+			PdfRenderer.Page page = _renderer.OpenPage(index);
+			try { return (page.Width, page.Height); }
+			finally
+			{
+				page.Close();
+				page.Dispose();
+			}
+		}
+	}
+
 	public void Dispose()
 	{
 		lock (_lock)

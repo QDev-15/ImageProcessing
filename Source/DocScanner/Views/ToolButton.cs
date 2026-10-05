@@ -83,8 +83,8 @@ public class ToolButton : ContentView
 	{
 		bool dark = Application.Current?.RequestedTheme == AppTheme.Dark;
 		Color color = IsActive
-			? Color.FromArgb(dark ? "#8AB4FF" : "#1A5FD6")
-			: Color.FromArgb(dark ? "#E0E0E0" : "#37404D");
+			? Color.FromArgb(dark ? "#B7ACFF" : "#5B4FE0") // matches Resources/Styles/Colors.xaml's Primary/PrimaryDark
+			: Color.FromArgb(dark ? "#C9C2EC" : "#8B86A0");
 		_icon.TextColor = color;
 		_caption.TextColor = color;
 		_caption.FontAttributes = IsActive ? FontAttributes.Bold : FontAttributes.None;

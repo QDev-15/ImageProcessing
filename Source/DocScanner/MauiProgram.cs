@@ -36,6 +36,11 @@ public static class MauiProgram
 				fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular");
 				fonts.AddFont("OpenSans-Semibold.ttf", "OpenSansSemibold");
 				fonts.AddFont("MaterialIcons-Regular.ttf", "Icons"); // Material Icons (Apache-2.0): glyphs in Views/Icons.cs
+			})
+			.ConfigureMauiHandlers(handlers =>
+			{
+				handlers.AddHandler<Views.PdfScrollSurface, Views.PdfScrollSurfaceHandler>();
+				handlers.AddHandler<Views.AdBannerSurface, Views.AdBannerSurfaceHandler>();
 			});
 
 		builder.Services.AddSingleton(_ => new DocumentStore(Path.Combine(FileSystem.AppDataDirectory, "documents")));

@@ -5,7 +5,8 @@ using DocScanner.Services;
 
 namespace DocScanner.Views;
 
-/// <summary>The PDF viewer: each page is rendered by the platform (PdfRenderer) at a size worth zooming into.</summary>
+/// <summary>The PDF viewer: a continuous, pinch-zoomable scroll through every page (<c>PdfScrollView</c>), each
+/// page rendered by the platform (PdfRenderer).</summary>
 public partial class PdfViewerPage : ContentPage
 {
 	private readonly PdfViewerViewModel _viewModel;
@@ -15,48 +16,43 @@ public partial class PdfViewerPage : ContentPage
 		InitializeComponent();
 		BindingContext = _viewModel = viewModel;
 #if ANDROID
-		_host = new ZoomImageHost(Picture) { Swipe = delta => _viewModel.GoCommand.Execute(delta) };
 		_viewModel.FileChanged += OnFileChanged;
-		_viewModel.PageRequested += OnPageRequested;
-		Picture.HandlerChanged += (_, _) => { if (_pendingPage >= 0) OnPageRequested(_pendingPage); };
+		Surface.HandlerChanged += OnSurfaceHandlerChanged;
 #endif
 	}
 
 #if ANDROID
-	/// <summary>Long edge a page is rendered at: ~250 DPI for A4, sharp at 3-4x zoom on a phone screen.</summary>
-	private const int PageEdge = 2900;
-
-	private readonly ZoomImageHost _host;
+	private PdfScrollView? _scroll;
 	private PdfPages? _pages;
-	private int _pendingPage = -1;
+	private string? _pendingPath;
+
+	/// <summary>Grabs the native view PdfScrollSurfaceHandler already created and sized -- see PdfScrollSurface's
+	/// doc comment for why this needs a real Handler instead of being added as a plain native child.</summary>
+	private void OnSurfaceHandlerChanged(object? sender, EventArgs e)
+	{
+		if (_scroll != null || Surface.Handler?.PlatformView is not PdfScrollView view) return;
+		_scroll = view;
+		_scroll.PageChanged += (index, count) => _viewModel.ReportVisiblePage(index, count);
+		if (_pendingPath != null) OpenFile(_pendingPath);
+	}
 
 	private void OnFileChanged(string path)
 	{
+		if (_scroll == null) { _pendingPath = path; return; }
+		OpenFile(path);
+	}
+
+	private void OpenFile(string path)
+	{
+		_pendingPath = null;
 		_pages?.Dispose();
 		_pages = null;
-		int count = 0;
-		try
-		{
-			_pages = new PdfPages(path);
-			count = _pages.Count;
-		}
+		try { _pages = new PdfPages(path); }
 		catch (Exception ex)
 		{
 			_ = DisplayAlertAsync("Không mở được PDF", ex.Message, "OK");
 		}
-		_viewModel.SetPageCount(count);
-	}
-
-	private void OnPageRequested(int index)
-	{
-		if (Picture.Handler == null)
-		{
-			_pendingPage = index;
-			return;
-		}
-		_pendingPage = -1;
-		PdfPages? pages = _pages;
-		_host.ShowBitmap(pages == null ? null : () => pages.Render(index, PageEdge));
+		_scroll!.SetPages(_pages);
 	}
 
 	protected override void OnNavigatedFrom(NavigatedFromEventArgs args)
@@ -64,7 +60,7 @@ public partial class PdfViewerPage : ContentPage
 		base.OnNavigatedFrom(args);
 		// Leaving for good (back to the list), not just covered by another page: close the file.
 		if (Navigation.NavigationStack.Contains(this)) return;
-		_host.Clear();
+		_scroll?.Clear();
 		_pages?.Dispose();
 		_pages = null;
 	}

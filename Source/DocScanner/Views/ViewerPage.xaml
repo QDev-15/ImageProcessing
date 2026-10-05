@@ -13,7 +13,7 @@
         <ToolbarItem Text="Chia sẻ" Command="{Binding ShareCommand}" Order="Primary">
             <ToolbarItem.IconImageSource>
                 <FontImageSource FontFamily="Icons" Glyph="{x:Static views:Icons.Share}" Size="22"
-                                 Color="{AppThemeBinding Light=#37404D, Dark=#E0E0E0}" />
+                                 Color="{AppThemeBinding Light={StaticResource OnSurface}, Dark={StaticResource OnSurfaceDark}}" />
             </ToolbarItem.IconImageSource>
         </ToolbarItem>
     </ContentPage.ToolbarItems>
@@ -32,7 +32,7 @@
             </Border>
         </Grid>
 
-        <Grid Grid.Row="1" ColumnDefinitions="*,*,*,*" HeightRequest="60" BackgroundColor="{AppThemeBinding Light=White, Dark=#1C1C1E}">
+        <Grid Grid.Row="1" ColumnDefinitions="*,*,*,*" HeightRequest="60" BackgroundColor="{AppThemeBinding Light={StaticResource CardBackground}, Dark={StaticResource CardBackgroundDark}}">
             <views:ToolButton Icon="{x:Static views:Icons.ChevronLeft}" Text="Trước" IsEnabled="{Binding CanGoPrevious}"
                               Command="{Binding GoCommand}">
                 <views:ToolButton.CommandParameter><x:Int32>-1</x:Int32></views:ToolButton.CommandParameter>
@@ -45,7 +45,7 @@
             </views:ToolButton>
         </Grid>
 
-        <views:AdBannerView Grid.Row="2" BackgroundColor="#101010" />
+        <views:AdBannerSurface Grid.Row="2" HeightRequest="50" BackgroundColor="#101010" />
 
         <views:ExportOverlay Grid.RowSpan="3" />
     </Grid>

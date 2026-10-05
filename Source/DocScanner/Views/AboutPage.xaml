@@ -5,7 +5,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
     xmlns:views="clr-namespace:DocScanner.Views"
     Title="Thông tin ứng dụng"
-    BackgroundColor="{AppThemeBinding Light=#F5F7FA, Dark=#121212}">
+    BackgroundColor="{AppThemeBinding Light={StaticResource Surface}, Dark={StaticResource SurfaceDark}}">
 
     <ContentPage.Resources>
         <Style x:Key="Section" TargetType="Label">
@@ -17,10 +17,10 @@
         <Style x:Key="Body" TargetType="Label">
             <Setter Property="FontSize" Value="13" />
             <Setter Property="LineHeight" Value="1.25" />
-            <Setter Property="TextColor" Value="{AppThemeBinding Light=#374151, Dark=#D1D5DB}" />
+            <Setter Property="TextColor" Value="{AppThemeBinding Light={StaticResource OnSurface}, Dark={StaticResource OnSurfaceDark}}" />
         </Style>
         <Style x:Key="Card" TargetType="VerticalStackLayout">
-            <Setter Property="BackgroundColor" Value="{AppThemeBinding Light=White, Dark=#1C1C1E}" />
+            <Setter Property="BackgroundColor" Value="{AppThemeBinding Light={StaticResource CardBackground}, Dark={StaticResource CardBackgroundDark}}" />
             <Setter Property="Padding" Value="16,12" />
             <Setter Property="Spacing" Value="8" />
         </Style>
@@ -36,9 +36,10 @@
                 <Image Source="scanner_logo.png" WidthRequest="88" HeightRequest="88" HorizontalOptions="Center" />
                 <Label Text="Doc Scanner" FontSize="24" FontFamily="OpenSansSemibold" HorizontalOptions="Center" />
                 <Label x:Name="VersionLabel" FontSize="13" HorizontalOptions="Center"
-                       TextColor="{AppThemeBinding Light=#6B7280, Dark=#9CA3AF}" />
+                       TextColor="{AppThemeBinding Light={StaticResource Muted}, Dark={StaticResource MutedDark}}" />
                 <Label Text="Quét tài liệu bằng điện thoại: nhận diện, nắn thẳng, đen trắng, chữ ký, xuất PDF." FontSize="13"
-                       HorizontalOptions="Center" HorizontalTextAlignment="Center" TextColor="{AppThemeBinding Light=#6B7280, Dark=#9CA3AF}" />
+                       HorizontalOptions="Center" HorizontalTextAlignment="Center"
+                       TextColor="{AppThemeBinding Light={StaticResource Muted}, Dark={StaticResource MutedDark}}" />
             </VerticalStackLayout>
 
             <Label Text="TÁC GIẢ VÀ LIÊN HỆ" Style="{StaticResource Section}" />
@@ -91,6 +92,6 @@
         </VerticalStackLayout>
     </ScrollView>
 
-    <views:AdBannerView Grid.Row="1" />
+    <views:AdBannerSurface Grid.Row="1" HeightRequest="50" />
     </Grid>
 </ContentPage>

@@ -18,7 +18,7 @@ namespace DocScanner.Services;
 /// </summary>
 internal sealed class OutlineOverlayView : View
 {
-	private readonly Paint _fill = new(PaintFlags.AntiAlias) { Color = Color.Argb(60, 26, 95, 214) };
+	private readonly Paint _fill = new(PaintFlags.AntiAlias) { Color = Color.Argb(60, 91, 79, 224) }; // #5B4FE0, matches Colors.xaml's Primary
 	private readonly Paint _stroke = new(PaintFlags.AntiAlias) { StrokeWidth = 0, StrokeJoin = Paint.Join.Round };
 	private readonly Paint _corner = new(PaintFlags.AntiAlias);
 	private readonly Paint _flash = new() { Color = Color.White };
@@ -111,8 +111,8 @@ internal sealed class OutlineOverlayView : View
 			(float X, float Y) P(int i) => (r.Left + (float)_shown[2 * i] * r.Width(), r.Top + (float)_shown[2 * i + 1] * r.Height());
 			(float X, float Y) Mid((float X, float Y) a, (float X, float Y) b) => ((a.X + b.X) / 2, (a.Y + b.Y) / 2);
 
-			Color line = _ready ? Color.Argb(255, 76, 175, 80) : Color.Argb(255, 66, 133, 244);
-			_fill.Color = _ready ? Color.Argb((int)(70 * _alpha), 76, 175, 80) : Color.Argb((int)(55 * _alpha), 26, 95, 214);
+			Color line = _ready ? Color.Argb(255, 76, 175, 80) : Color.Argb(255, 91, 79, 224);
+			_fill.Color = _ready ? Color.Argb((int)(70 * _alpha), 76, 175, 80) : Color.Argb((int)(55 * _alpha), 91, 79, 224);
 			_stroke.Color = Color.Argb((int)(255 * _alpha), line.R, line.G, line.B);
 			_corner.Color = Color.Argb((int)(255 * _alpha), 255, 255, 255);
 

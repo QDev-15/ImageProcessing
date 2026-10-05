@@ -177,13 +177,13 @@ public sealed class StampEditor : GraphicsView, IDrawable
 			}
 			if (i != Selected) continue;
 
-			canvas.StrokeColor = Color.FromArgb("#1A5FD6");
+			canvas.StrokeColor = Color.FromArgb("#5B4FE0"); // matches Resources/Styles/Colors.xaml's Primary
 			canvas.StrokeSize = 1.5f;
 			canvas.StrokeDashPattern = [6, 4];
 			canvas.DrawRectangle(f);
 			canvas.StrokeDashPattern = null;
 			// Resize handle (bottom-right) and delete (top-right).
-			canvas.FillColor = Color.FromArgb("#1A5FD6");
+			canvas.FillColor = Color.FromArgb("#5B4FE0");
 			canvas.FillCircle(f.Right, f.Bottom, HandleRadius);
 			canvas.FillColor = Color.FromArgb("#D32F2F");
 			canvas.FillCircle(f.Right, f.Top, HandleRadius);

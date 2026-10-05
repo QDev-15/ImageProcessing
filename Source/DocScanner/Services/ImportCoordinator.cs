@@ -22,9 +22,7 @@ public sealed class ImportCoordinator(BackgroundImporter importer, IPhotoPicker 
 		{
 			IReadOnlyList<ImportSource> sources = await picker.PickAsync();
 			if (sources.Count == 0) return null;
-			DocumentRecord doc = document();
-			importer.Start(doc.Id, sources);
-			return doc;
+			return await CreateAndStartAsync(document, sources);
 		}
 		catch (Exception ex)
 		{
@@ -48,9 +46,7 @@ public sealed class ImportCoordinator(BackgroundImporter importer, IPhotoPicker 
 		{
 			IReadOnlyList<ImportSource> sources = await pdfPicker.PickAsync();
 			if (sources.Count == 0) return null;
-			DocumentRecord doc = document();
-			importer.Start(doc.Id, sources);
-			return doc;
+			return await CreateAndStartAsync(document, sources);
 		}
 		catch (Exception ex)
 		{
@@ -101,11 +97,21 @@ public sealed class ImportCoordinator(BackgroundImporter importer, IPhotoPicker 
 		}
 		if (photos.Count == 0) return null;
 
-		DocumentRecord doc = document();
 		// The camera leaves its JPEGs in our cache; each is deleted once the document has its own copy.
-		importer.Start(doc.Id, photos.Select(Source).ToArray());
-		return doc;
+		return await CreateAndStartAsync(document, photos.Select(Source).ToArray());
 	}
+
+	/// <summary>Creates the document (or files it into a folder) and writes the placeholder pages, off the UI
+	/// thread: both are synchronous disk writes (DocumentStore.Create / Update), and running them on the
+	/// calling (UI) thread was blocking the tap handler right up until Shell.Current.GoToAsync, before the
+	/// user could see even the "Đang tải..." placeholders the new document is built to show immediately.</summary>
+	private Task<DocumentRecord> CreateAndStartAsync(Func<DocumentRecord> document, IReadOnlyList<ImportSource> sources) =>
+		Task.Run(() =>
+		{
+			DocumentRecord doc = document();
+			importer.Start(doc.Id, sources);
+			return doc;
+		});
 
 	private static ImportSource Source(string path) => new(Path.GetFileName(path), _ => Task.FromResult<Stream>(
 		new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete, 1 << 16, FileOptions.DeleteOnClose)));

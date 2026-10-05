@@ -71,6 +71,11 @@ public partial class DocumentItem : HomeItem
 	[ObservableProperty]
 	private ImageSource? thumb;
 
+	/// <summary>Bare page count, for the pill badge next to the row (Subtitle already folds this into a sentence;
+	/// the badge wants just the number).</summary>
+	[ObservableProperty]
+	private string pageCountText = "";
+
 	/// <param name="pages">Snapshot of the document's pages.</param>
 	/// <param name="firstThumbPath">Where the first page's thumbnail will be, once it exists.</param>
 	/// <param name="import">The document's background import, if any.</param>
@@ -81,6 +86,7 @@ public partial class DocumentItem : HomeItem
 		string activity = import is { Running: true } ? $" · đang nhập {import.Done}/{import.Total}"
 			: busy > 0 ? $" · đang xử lý {busy}" : "";
 		Subtitle = $"{pages.Count} trang{activity} · {date}";
+		PageCountText = pages.Count.ToString();
 
 		Name = Record.Name; // may have been renamed
 		if (firstThumbPath != null && firstThumbPath != _thumbPath && File.Exists(firstThumbPath))

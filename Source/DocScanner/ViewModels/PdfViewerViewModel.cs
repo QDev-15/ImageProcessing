@@ -4,8 +4,9 @@ using DocScanner.Services;
 
 namespace DocScanner.ViewModels;
 
-/// <summary>An exported PDF, one page at a time (zoomable; swipe or ‹ › for the other pages). The pages themselves are
-/// rendered by the platform view (<c>PdfViewerPage</c>).</summary>
+/// <summary>An exported PDF as one continuous, pinch-zoomable scroll through every page (<c>PdfScrollView</c>,
+/// hosted by <c>PdfViewerPage</c>) -- this view model only tracks which page is topmost, for the small page
+/// indicator; the scrolling and zooming themselves are native and never go through data binding.</summary>
 public partial class PdfViewerViewModel(ExportCoordinator exports) : ObservableObject, IQueryAttributable
 {
 	[ObservableProperty]
@@ -15,56 +16,29 @@ public partial class PdfViewerViewModel(ExportCoordinator exports) : ObservableO
 	private string pageText = "";
 
 	[ObservableProperty]
-	private bool canGoPrevious;
-
-	[ObservableProperty]
-	private bool canGoNext;
+	private bool hasPage;
 
 	public string? Path { get; private set; }
-	public int Index { get; private set; }
-	public int PageCount { get; private set; }
 
-	/// <summary>A new file was opened (the view opens its renderer and reports <see cref="SetPageCount"/>).</summary>
+	/// <summary>A new file was opened (the view opens its renderer).</summary>
 	public event Action<string>? FileChanged;
-
-	/// <summary>Show page <see cref="Index"/>.</summary>
-	public event Action<int>? PageRequested;
 
 	public void ApplyQueryAttributes(IDictionary<string, object> query)
 	{
 		if (!query.TryGetValue("path", out object? p) || p is not string path) return;
 		Path = Uri.UnescapeDataString(path);
 		Title = System.IO.Path.GetFileNameWithoutExtension(Path);
-		Index = 0;
+		PageText = "";
+		HasPage = false;
 		FileChanged?.Invoke(Path);
 	}
 
-	public void SetPageCount(int count)
+	/// <summary>The topmost visible page changed (reported by the native scroll view as it scrolls); count = 0
+	/// means the file could not be opened.</summary>
+	public void ReportVisiblePage(int index, int count)
 	{
-		PageCount = count;
-		ShowPage(0);
-	}
-
-	private void ShowPage(int index)
-	{
-		if (PageCount == 0)
-		{
-			PageText = "Không mở được file";
-			CanGoPrevious = CanGoNext = false;
-			return;
-		}
-		Index = Math.Clamp(index, 0, PageCount - 1);
-		PageText = $"Trang {Index + 1}/{PageCount}";
-		CanGoPrevious = Index > 0;
-		CanGoNext = Index < PageCount - 1;
-		PageRequested?.Invoke(Index);
-	}
-
-	[RelayCommand]
-	private void Go(int delta)
-	{
-		int next = Index + delta;
-		if (next >= 0 && next < PageCount) ShowPage(next);
+		HasPage = count > 0;
+		PageText = count > 0 ? $"Trang {index + 1}/{count}" : "Không mở được file";
 	}
 
 	/// <summary>Share / save / open with another app / delete.</summary>

@@ -126,7 +126,13 @@ public partial class DocumentViewModel(DocumentStore store, ImportCoordinator im
 			Reload();
 			return;
 		}
-		foreach (PageItem item in Pages) item.Refresh();
+		// Only the tiles still mid-pipeline: a settled (Ready/Failed) tile only ever changes through OnPageUpdated /
+		// OnImportPageChanged, which already target it directly. Refreshing every tile here too made a big import
+		// O(n) PER TICK (this fires on roughly every photo of the batch) -- the file-exists checks alone turned a
+		// 100-photo import into tens of thousands of them, the opposite of the "it should feel instant" this exists for.
+		foreach (PageItem item in Pages)
+			if (item.Record.State is PageState.Importing or PageState.Pending or PageState.Preview)
+				item.Refresh();
 		for (int i = Pages.Count; i < pages.Count; i++) Add(NewItem(pages[i], i + 1));
 		UpdateProgress();
 	}

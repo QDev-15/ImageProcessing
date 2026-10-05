@@ -257,6 +257,11 @@ public partial class HomeViewModel(DocumentStore store, ImportCoordinator import
 
 	#region Folders
 
+	/// <summary>The header's back arrow (shown only while <see cref="InFolder"/>): same as the hardware back
+	/// button, now that the page draws its own header instead of Shell's (<c>Shell.NavBarIsVisible="False"</c>).</summary>
+	[RelayCommand]
+	private Task GoBackAsync() => Shell.Current.GoToAsync("..");
+
 	private void OpenFolder(FolderItem folder)
 	{
 		if (IsSelecting)

@@ -664,3 +664,150 @@ tắt nó khi cài từ Play (mọi khách hàng thật), nên giữ lại chỉ
   màn hình (lock screen có mật khẩu, không phải màn hình chờ AOD) ngay sau đó -- KHÔNG có mã mở khoá nên dừng lại, không chụp màn hình Cài đặt
   xác nhận trực quan được; độ tin cậy của bản sửa dựa trên 189 unit test PASS (gồm test `SummaryText` mới) + build/install thành công, chưa có
   xác nhận bằng mắt trên máy. **Owner cần tự mở khoá máy và vào Cài đặt xem lại nếu muốn xác nhận trực quan.**
+
+### Sửa 3 nguyên nhân gây lag (đợt 2026-10-05, owner báo "nhập ảnh phải đợi ~1s", "chuyển màn hình hơi chậm")
+Review code (không sửa) trước, tìm 3 nguyên nhân cụ thể; owner chọn hướng cho từng cái rồi mới sửa. **Theo yêu cầu owner, đợt này CHƯA build /
+chạy thử trên máy -- chỉ sửa code, chờ owner tự build.**
+
+1. **Banner quảng cáo bị tạo lại (và load lại ad) ở MỌI lần chuyển màn hình** -- nguyên nhân chính của "chuyển màn hình chậm", vì nó xảy ra ở
+   MỌI điều hướng, không riêng lúc nhập ảnh. Gốc: mọi Page/ViewModel đăng ký `AddTransient` (`MauiProgram.cs`), nên Shell tạo Page mới mỗi lần
+   `GoToAsync`; `AdBannerView` (chứa `Plugin.AdMob.BannerAd`) từng nhúng trong 10/10 trang -> 10/10 trang này tự tạo native `AdView` mới + gọi
+   `LoadAd()` mới mỗi lần ghé qua.
+   - Owner chọn hướng "banner cố định ngoài Shell, ẩn hẳn khi mua Pro". Đã làm: xoá `Views/AdBannerView.xaml(.cs)` và bỏ nó khỏi cả 10 trang XAML
+     (SettingsPage, AboutPage, SignaturePage, DocumentPage, HomePage, ViewerPage, PdfViewerPage, ExportsPage, ResultPage, CropPage -- mỗi trang
+     cũng rút gọn lại `RowDefinitions`/`Grid.RowSpan` của `ExportOverlay` theo đúng số dòng còn lại). Thay bằng **một `AdView` (Google Mobile Ads
+     SDK gốc, namespace `Android.Gms.Ads`, KHÔNG qua wrapper `Plugin.AdMob.BannerAd`) duy nhất**, tạo một lần trong `Platforms/Android/MainActivity.
+     OnCreate`: bọc view gốc MAUI (lấy từ `FindViewById(Android.Resource.Id.Content)` sau `base.OnCreate`) vào một `LinearLayout` dọc, AdView nằm
+     dưới cùng. Vì MAUI chỉ thay nội dung của chính view gốc đó khi Shell/`Window.Page` đổi (kể cả từ SplashPage sang AppShell -- xem `App.xaml.cs`
+     `Window.Page = main`), `AdView` này không bao giờ bị tạo lại hay load lại khi chuyển màn hình nữa.
+   - `AdView.Visibility` theo `IAdsService.ShowAds` (ẩn hẳn + KHÔNG gọi `LoadAd` từ đầu khi đã là Pro lúc khởi động -- không chỉ ẩn UI mà còn đỡ
+     luôn request mạng), cập nhật qua `IAdsService.Changed` giống cách `AdBannerView` cũ làm. `Resume()`/`Pause()`/`Destroy()` gọi đúng theo
+     lifecycle của Activity (`OnResume`/`OnPause`/`OnDestroy`) -- yêu cầu bắt buộc của AdMob SDK cho `AdView` tự quản lý, trước đây `Plugin.AdMob`
+     lo việc này, giờ ta tự lo.
+   - API chính xác của `Android.Gms.Ads.AdView`/`AdSize`/`AdRequest` (namespace này pulled transitively qua gói `Xamarin.GooglePlayServices.
+     Ads.Lite`, do `Plugin.AdMob` kéo theo -- KHÔNG cần thêm `PackageReference` nào) được xác minh bằng cách đọc thẳng PE metadata của file .dll
+     trong `~/.nuget/packages` (tool `System.Reflection.Metadata`/`PEReader` viết tạm trong scratchpad, không load assembly thật nên không vướng
+     thiếu `Mono.Android` -- cùng kỹ thuật đã dùng cho gói Play In-App Update đợt 2026-10-04), KHÔNG đoán theo tài liệu/ví dụ trên mạng: xác nhận
+     đúng `BaseAdView` (lớp cha của `AdView`) có `AdUnitId`/`AdSize` (set), `LoadAd(AdRequest)`, `Resume()`/`Pause()`/`Destroy()`; `AdRequest.
+     Builder().Build()`.
+   - ID quảng cáo test khi `Plugin.AdMob.Configuration.AdConfig.UseTestAdUnitIds == true` (Debug, hoặc Release chưa có ID thật): dùng ID banner
+     test CHÍNH THỨC của Google (`ca-app-pub-3940256099942544/6300978111`, công khai tại developers.google.com/admob/android/test-ads) vì
+     `Plugin.AdMob` không lộ hằng số này ra public API -- trước đây `BannerAd` của `Plugin.AdMob` tự thay bên trong, giờ AdView gốc nên phải tự
+     làm; Release có ID thật (`AdsConfig.HasRealIds`) vẫn dùng `AdsConfig.BannerAdUnitId` như cũ.
+
+2. **2-3 lần ghi `doc.json` đồng bộ trên UI thread, chạy TRƯỚC KHI màn hình mới kịp hiện ra** -- `store.Create()` (+ `store.MoveToFolder` nếu
+   đang trong thư mục) và `BackgroundImporter.Start` -> `ImportService.AddPlaceholders` -> `store.Update()` đều là `File.WriteAllText` +
+   `File.Move` đồng bộ, gọi thẳng trên tiếp diễn UI thread (không `Task.Run`), TRƯỚC `Shell.Current.GoToAsync` -- tức trước khi người dùng thấy
+   bất cứ gì, kể cả khung "Đang tải...". Sửa: `ImportCoordinator.cs` thêm `CreateAndStartAsync` (bọc `document()` + `importer.Start(...)` trong
+   một `Task.Run` duy nhất), dùng ở cả 3 luồng nhập (thư viện, PDF, camera) thay cho gọi trực tiếp. `DocumentStore` đã tự khoá (`lock _gate`) nên
+   chạy off UI thread an toàn, không đổi thứ tự/đúng-sai gì khác.
+
+3. **`DocumentViewModel.Sync()` refresh TOÀN BỘ ô ảnh mỗi khi có 1 sự kiện nhập ảnh, không chỉ ô thay đổi** -- `BackgroundImporter.Changed` nổ
+   ra ~1 lần/ảnh trong batch; `OnImportChanged` gọi `Sync()`, và khi danh sách trang còn là tiền tố (luôn đúng lúc đang nhập thêm), `Sync()` cũ
+   chạy `foreach (PageItem item in Pages) item.Refresh();` cho MỌI trang đã có trước khi thêm trang mới -- O(n) `File.Exists()` mỗi lần batch
+   nhích thêm 1 ảnh, với tài liệu nhiều trang + batch nhiều ảnh thì thành hàng chục nghìn lần gọi không cần thiết. Các trang đã `Ready`/`Failed`
+   chỉ đổi qua `OnPageUpdated`/`OnImportPageChanged`, hai đường này ĐÃ nhắm đúng đúng 1 trang rồi, nên refresh lại ở `Sync()` là dư. Sửa: chỉ
+   refresh trang còn `Importing`/`Pending`/`Preview` (còn trong pipeline), bỏ qua trang đã ổn định -- comment trong code giải thích rõ lý do.
+
+**Chưa làm** (đợt này owner yêu cầu dừng ở mức sửa code): chưa `dotnet build`/`dotnet publish`/cài thử trên máy. Rủi ro còn treo: `AdView` gốc
+mới viết tay (không qua `Plugin.AdMob`) chưa được build để bắt lỗi biên dịch/thiếu using, và hành vi thật trên máy (banner có hiện đúng, có load
+ảnh quảng cáo, có ẩn đúng khi Pro) chưa được xác nhận -- owner cần tự build (`dotnet build DocScanner.csproj -f net10.0-android`) trước khi chạy.
+
+### Xem PDF kiểu cuộn liên tục + zoom, thay cho từng trang + nút ‹ › (đợt 2026-10-05 tiếp)
+Owner: màn xem PDF (`PdfViewerPage`, mở từ "PDF đã xuất") đang xem từng trang một kiểu next/previous, muốn "xem như một trình xem PDF hoàn hảo,
+có thể kéo lên kéo xuống" + "có cả zoom nữa" + "đảm bảo mở cái là xem ngay, có thể xem lazy load". Đã build qua (`dotnet build`, BUILD SUCCEEDED).
+
+- `Platforms/Android/PdfScrollView.cs` (mới): 1 `Android.Views.View` thuần (không qua MAUI `GraphicsView`, vì mỗi khung vẽ ở đây ghép nhiều
+  Bitmap đã giải mã sẵn -- cách phần còn lại của app luôn làm việc này là thẳng lên Canvas/ImageView native, xem `ZoomController`/`ResultPage`;
+  qua `ICanvas` của MAUI sẽ phải bọc mỗi Bitmap thành `IImage` mỗi khung, không lợi gì). Xếp mọi trang theo chiều dọc trong một không gian toạ độ
+  ảo ("content space", đơn vị px ở zoom = 1 = vừa khít chiều rộng khung nhìn, mỗi trang giữ đúng tỉ lệ khung hình riêng của nó, cách nhau 24px);
+  "camera" có `_scale` (zoom) + `_panX/_panY` (toạ độ góc trên-trái khung nhìn trong content space). Vuốt = `GestureDetector.OnScroll` dời
+  pan; thả tay = `OnFling` nạp cho `OverScroller` (vật lý trôi thật, không tự viết công thức); pinch = `ScaleGestureDetector` zoom quanh đúng
+  điểm 2 ngón; double-tap = zoom nhanh 2.5x / về lại vừa khung. Pan ngang chỉ có khi đã zoom quá 1x (mỗi trang vốn đã vừa khít chiều rộng).
+- Bộ nhớ: mỗi trang chỉ giải mã 1 lần (ở `PageEdge = 2900`, giống độ nét bản xem từng-trang cũ), sau đó CHỈ co giãn qua ma trận Canvas khi
+  zoom -- không giải mã lại. Chỉ giữ bitmap của các trang đang chạm khung nhìn (±1 trang mỗi phía, `KeepAroundVisible`); trang ra khỏi vùng đó
+  bị `Recycle()` ngay trong `OnDraw`, nên cuộn qua tài liệu dài không giữ quá vài bitmap ~24 MB cùng lúc.
+- "Mở cái là xem ngay" + lazy load: `PdfPages.Size(index)` (mới, cùng file `PdfPages.cs`) đo kích thước 1 trang (mở/đóng `PdfRenderer.Page`,
+  KHÔNG render) -- rẻ hơn hẳn giải mã. `SetPages` đo kích thước từng trang MỘT, tuần tự, trong 1 `Task.Run`, và `Post` kết quả về UI thread
+  ngay sau mỗi trang (không đợi đo hết cả tài liệu rồi mới dựng layout) -- trang 1 có khung ngay trong vài ms, bắt đầu giải mã bitmap thật của
+  nó ngay, các trang sau nối dần vào layout khi đo xong (mỗi lần chỉ append O(1), không dựng lại từ đầu). Khung đang chờ bitmap hiện ô xám nhạt
+  giữ đúng tỉ lệ (không giật layout khi bitmap về).
+- `Views/PdfViewerPage.xaml(.cs)`: bỏ hẳn `Image x:Name="Picture"` + thanh ‹ Trang X/Y › cũ, thay bằng `<ContentView x:Name="Surface" />` trống
+  -- code-behind lấy `Surface.Handler.PlatformView` (một `ViewGroup`) rồi `AddView` thẳng `PdfScrollView` vào đó, đúng kiểu "mượn view native của
+  MAUI rồi tự quản" mà `ZoomImageHost` đã làm cho màn xem ảnh từng trang. Một viên pill nhỏ "Trang X/Y" nổi ở dưới (giống `ViewerPage`) cập nhật
+  theo trang đang ở đầu khung nhìn (`PdfScrollView.PageChanged`), không còn nút ‹ ›. `PdfViewerViewModel` bỏ hết `Go`/`CanGoPrevious`/
+  `CanGoNext`/`SetPageCount` (điều hướng rời rạc không còn cần), chỉ còn `ReportVisiblePage(index, count)` cho viên pill.
+- Lỗi build gặp và đã sửa: XAML comment chứa `--` bị XML cấm (phải đổi `--`/`;`); `View`/`Paint`/`RectF`/`Color` ambiguous giữa `Android.*` và
+  `Microsoft.Maui.*` (project có global using cả hai) -- sửa bằng `using X = Android.Y.X;`, đúng kiểu file `ZoomController.cs` đã làm sẵn cho
+  `View`; `PostOnAnimation` chỉ nhận `Java.Lang.IRunnable`, không có overload `Action` như `Post` -- cho `PdfScrollView` tự implement
+  `IRunnable.Run()` thay vì bọc lambda mỗi khung.
+- **Owner cần tự thử trên máy** (chỉ mới build qua, chưa cài/chạy): cuộn mượt qua nhiều trang, pinch zoom + double-tap, pan khi đã zoom, mở
+  một PDF nhiều trang xem trang đầu có hiện ngay không.
+
+### Áp theme Material 3 Expressive của owner vào màn Trang chủ (đợt 2026-10-05 tiếp)
+Owner gửi 1 bản thiết kế tự làm (Artifact "Design", https://claude.ai/artifact/Dwztu6kjeiwL2rP2HXjucE, artboard "Material 3 Expressive" 390x844)
+và yêu cầu áp style đó vào app. Bản thiết kế chỉ có 1 màn hình mẫu (Trang chủ); đã làm đúng màn đó theo đúng thiết kế + đưa 2 token màu nền
+(`Primary`, `Secondary`) lên `Resources/Styles/Colors.xaml` để lan sang toàn app (mọi trang đang dùng `{StaticResource Primary}` đổi màu theo,
+không cần sửa từng trang) -- CÁC MÀN KHÁC (Document, Crop, Result, Settings...) CHƯA được dựng lại theo thiết kế này, chỉ đổi màu nhấn; nền/thẻ
+của chúng vẫn dùng bảng xám-xanh cũ. Đã build qua (BUILD SUCCEEDED), CHƯA cài thử trên máy.
+
+- `Resources/Styles/Colors.xaml`: `Primary` `#1A5FD6` -> `#5B4FE0` (tím), `Secondary` `#E3ECFC` -> `#E8E2FB`, `PrimaryDark` (màu nhấn ở Dark
+  mode) `#8AB4FF` -> `#B7ACFF`. `Views/ToolButton.cs` (thanh công cụ dưới của Document/Crop/Result/Signature/Viewer/PdfViewer) đang tô màu
+  cứng trong code (`#1A5FD6`/`#37404D`, không qua `StaticResource`) -- sửa luôn 2 hằng số đó sang tím/xám-tím mới để đồng bộ, vì nếu không sửa
+  thì các thanh công cụ này vẫn xanh cũ dù mọi nơi khác đã đổi.
+- `Views/HomePage.xaml` dựng lại hoàn toàn theo đúng bố cục thiết kế: header riêng của trang (không dùng `ContentPage.ToolbarItems`/thanh Shell
+  nữa, vì thiết kế có nút tròn màu mà toolbar native của Shell không vẽ được) -- `Shell.NavBarIsVisible="False"`, tự vẽ tên tài liệu/thư mục +
+  4 nút tròn (Tìm kiếm, Nhập PDF, Thư mục mới -- tô đặc màu tím như thiết kế, Cài đặt). Vì bỏ thanh Shell nên mất luôn nút back khi đang ở trong
+  thư mục -- đã tự thêm nút back riêng (`HomeViewModel.GoBackCommand`, chỉ hiện khi `InFolder`), nút back cứng của Android/gesture back không bị
+  ảnh hưởng (`HomePage.xaml.cs.OnBackButtonPressed` không đụng tới cơ chế điều hướng, vẫn `Shell.Current.GoToAsync`).
+- Thẻ tài liệu/thư mục: bo góc 18px, nền trắng, đổ bóng nhẹ, ô icon 50x50 bo 14px (tài liệu: ảnh thumbnail thật trên nền tím nhạt -- thiết kế
+  dùng icon chung vì là mockup không có dữ liệu thật, giữ lại thumbnail thật vì hữu ích hơn và đây là app thật có dữ liệu; thư mục: icon màu hổ
+  phách, khác màu tài liệu để phân biệt 2 loại có ý nghĩa thật, không phải tô màu tuỳ ý theo "loại tài liệu" như 5 màu trong bản mockup -- bản
+  mockup không có khái niệm "loại tài liệu" nào trong dữ liệu thật của app, tô 5 màu ngẫu nhiên sẽ là bịa đặt không có cơ sở). Thêm viên tròn số
+  trang cạnh mỗi thẻ tài liệu (`ViewModels/Items.cs`: `DocumentItem.PageCountText`, tách riêng khỏi `Subtitle` vốn đã gộp số trang vào câu).
+  Nút quét (FAB) tròn nổi phía trên thanh dưới vốn đã có sẵn kiểu này từ trước, chỉ thêm bóng màu tím mờ (`Border.Shadow`) cho giống thiết kế.
+  Nút lọc "Tất cả / Thư mục" trong thiết kế KHÔNG đưa vào: đây là bộ lọc hiển thị không có logic tương ứng trong `HomeViewModel` hiện tại
+  (danh sách luôn gộp thư mục + tài liệu), thêm vào sẽ là thêm tính năng mới ngoài yêu cầu "áp style", không phải chỉnh giao diện.
+- Có cân nhắc đổi phông chữ sang 'Plus Jakarta Sans' (phông trong thiết kế) nhưng KHÔNG làm: kho font Google Fonts (`google/fonts` trên
+  GitHub, đã kiểm tra trực tiếp) chỉ có file variable font cho họ chữ này, không có từng file tĩnh theo độ đậm (500/600/700/800) như app đang
+  cần; variable font trên Android qua .NET MAUI không chắc chọn đúng độ đậm ở API 26 (bản thấp nhất app hỗ trợ). Giữ nguyên OpenSansRegular/
+  OpenSansSemibold đang dùng -- hai phông sans-serif này đủ gần nhau về cảm giác, rủi ro thấp hơn nhiều so với tích hợp variable font chưa rõ
+  hành vi. Owner muốn đúng phông thật thì cần tự tải các file .ttf tĩnh (ví dụ từ fonts.google.com, chọn đúng 4 độ đậm) bỏ vào
+  `Resources/Fonts/` rồi báo lại.
+- **Hỏi owner**: có muốn dựng lại các màn còn lại (Document, Crop, Result, Settings, Signature, Exports, About...) theo đúng ngôn ngữ thiết kế
+  này luôn không (bo góc card, nền lavender, icon tile màu...), hay chỉ cần đổi màu nhấn như hiện tại là đủ? Đây là việc lớn (sửa layout nhiều
+  file), nên dừng lại hỏi trước khi làm tiếp thay vì tự quyết và có thể làm sai ý.
+
+### Áp theme tím cho TOÀN BỘ các màn còn lại + xác nhận trên máy thật (đợt 2026-10-05 tiếp, owner: "có chứ. dựng các trang còn lại theo theme này")
+- Thêm 5 token màu mới (sáng + tối) vào `Resources/Styles/Colors.xaml`: `Surface`/`SurfaceDark` (nền trang), `CardBackground`/
+  `CardBackgroundDark` (thẻ/thanh công cụ), `OnSurface`/`OnSurfaceDark` (chữ chính), `Muted`/`MutedDark` (chữ phụ/hint), `Divider`/`DividerDark`
+  (đường kẻ mảnh) -- thay cho hàng chục màu xám-xanh viết cứng (hex) rải rác trong từng file XAML trước đó. `Styles.xaml` (Page/Shell mặc định)
+  cũng đổi sang 2 token này.
+- Sửa toàn bộ 10 trang còn lại (DocumentPage, CropPage, ResultPage, SettingsPage, SignaturePage, ExportsPage, AboutPage, ViewerPage,
+  PdfViewerPage) sang dùng các token trên thay cho hex cứng, **giữ đúng cặp Light/Dark riêng cho từng trang** (bài học từ chính lỗi của bản thân
+  ở `HomePage.xaml` đợt trước: dựng lại hoàn toàn theo mockup nhưng quên mất chế độ tối, chỉ có 1 bộ màu sáng cứng -- đã quay lại sửa luôn
+  `HomePage.xaml` thêm đủ cặp Dark trong đợt này). Những màu KHÔNG đổi (có chủ đích): `ViewerPage`/`PdfViewerPage` nền `#101010` (màn xem ảnh
+  luôn tối kiểu phòng tối, không theo theme sáng/tối của app); màu mực chữ ký (đen/xanh dương/đỏ) trong `SignaturePage` (màu mực thật, không
+  phải màu giao diện); `#E53935` (icon PDF, màu thương hiệu PDF phổ biến); `#D32F2F` (hành động xoá, màu cảnh báo).
+- Quét thêm và sửa các chỗ màu cũ `#1A5FD6` viết cứng trong code C# (không qua resource, nên không tự đổi theo bước trên): `ToolButton.cs`
+  (đã sửa đợt trước), `StampEditor.cs` (viền + tay cầm của chữ ký đang chọn trên trang), `CameraOverlays.cs` (viền/nền khung dò giấy lúc "chưa
+  sẵn sàng" trong camera trong app -- tiện sửa luôn một chỗ không nhất quán có sẵn từ trước: viền và nền khi "chưa sẵn sàng" dùng 2 màu xanh
+  khác nhau, 66,133,244 và 26,95,214, giờ cả hai cùng là tím mới), `DocumentCameraActivity.cs` (4 chỗ: nền số đếm trang, nút "Xong", chip chế
+  độ 1/2 trang, công tắc tự chụp). KHÔNG đổi màu xanh lá / cam / xanh dương trong `QuadEditor.cs` (viền khung khi chỉnh tay) vì đó là mã màu
+  trạng thái có ý nghĩa riêng (xanh lá = tự dò, cam = toàn khung, xanh dương = đã chỉnh tay), không phải màu thương hiệu.
+- App icon + splash: `Resources/AppIcon/appicon.svg` (gradient nền, tự vẽ SVG riêng, không chỉ phụ thuộc `Color=` trong csproj),
+  `Resources/Splash/splash.svg` (2 màu tô đường kẻ/nếp gấp trang trong icon), `DocScanner.csproj` (`MauiIcon`/`MauiSplashScreen` Color=),
+  `Platforms/Android/Resources/values/colors.xml` (colorPrimary/colorPrimaryDark/colorAccent -- chi phối màu thanh trạng thái Android trước khi
+  C# kịp chạy), `Views/SplashPage.xaml` (gradient + màu chữ) -- tất cả đổi từ xanh dương `#1A5FD6` sang tím `#5B4FE0` cho đồng bộ từ lúc mở app.
+- Build qua (`dotnet build`, BUILD SUCCEEDED) sau 2 vòng sửa lỗi: ambiguous `View`/`Paint`/`RectF`/`Color` giữa `Android.*` và `Microsoft.Maui.*`
+  (đã có từ đợt PdfScrollView trước, không liên quan đợt này).
+- **Thử trên máy ảo thất bại**: máy ảo Pixel 7 API 36 (`pixel_7_-_api_36_0`) liên tục crash vài giây sau khi boot xong, kể cả bật
+  `-gpu swiftshader_indirect` (render phần mềm) -- log chỉ ra lỗi liên quan driver đồ hoạ Windows ("A device attached to the system is not
+  functioning" / "Failed to find ColorBuffer"), không phải lỗi của app. Không sửa được trong phiên này (vấn đề môi trường máy owner, không phải
+  code) -- owner cân nhắc cập nhật driver GPU hoặc dùng máy thật để test.
+- **Chuyển sang máy thật theo yêu cầu owner ("build lên máy thật cho tôi xem")**: lần build đầu lỗi `ADB0020 IncompatibleCpuAbiException` (APK
+  build dở cho kiến trúc x86_64 của máy ảo trước đó bị đẩy nhầm sang máy thật arm64, do build/cài liên tiếp nhắm 2 thiết bị khác kiến trúc) --
+  build lại lần 2 (chỉ còn máy thật kết nối) qua trót lọt. Cài + mở app xác nhận bằng ảnh chụp màn hình thật: Trang chủ (chế độ tối của máy)
+  hiện đúng theme tím mới, tài liệu owner tự tạo (10 trang, ảnh chụp sách giáo khoa) hiện đúng trên màn Tài liệu (nền tối, thẻ bo góc, nút
+  Xem/Sửa dạng pill, nút Xuất PDF tô tím). Owner có vẻ đang tự bấm thử trực tiếp trên máy trong lúc tôi thao tác qua adb -- đã dừng lại, không
+  tự động hoá thêm thao tác chạm trên máy nữa để tránh chồng lấn với owner; đã dọn 3 ảnh test tự đẩy vào thư viện ảnh trước đó (không cần nữa).

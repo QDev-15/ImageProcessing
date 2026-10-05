@@ -7,9 +7,14 @@ using DocScanner.Services;
 
 namespace DocScanner.ViewModels;
 
-/// <summary>"PDF đã xuất": every exported PDF, newest first; tap for open / share / save / delete.</summary>
+/// <summary>"PDF đã xuất": every exported PDF, newest first; tap for open / share / save / delete. A search bar
+/// (like the document list's) filters by file name, accents ignored.</summary>
 public partial class ExportsViewModel(ExportLibrary library, ExportCoordinator exports) : ObservableObject
 {
+	/// <summary>Every exported file, unfiltered -- what <see cref="Files"/> is rebuilt from on each refresh or
+	/// search-text change, so searching never re-reads the folder.</summary>
+	private IReadOnlyList<ExportedFile> _all = [];
+
 	public ObservableCollection<ExportItem> Files { get; } = [];
 
 	[ObservableProperty]
@@ -18,15 +23,43 @@ public partial class ExportsViewModel(ExportLibrary library, ExportCoordinator e
 	[ObservableProperty]
 	private bool isRefreshing;
 
+	[ObservableProperty]
+	private bool isSearching;
+
+	[ObservableProperty]
+	private string searchText = "";
+
+	/// <summary>Placeholder text for the list when it is empty, worded for whether that is because nothing has
+	/// been exported yet or because the search does not match anything.</summary>
+	[ObservableProperty]
+	private string emptyText = "";
+
+	partial void OnSearchTextChanged(string value) => ApplyFilter();
+
+	[RelayCommand]
+	private void ToggleSearch()
+	{
+		IsSearching = !IsSearching;
+		if (!IsSearching) SearchText = "";
+	}
+
 	[RelayCommand]
 	public async Task RefreshAsync()
 	{
-		IReadOnlyList<ExportedFile> files = await Task.Run(library.List);
-		Files.Clear();
-		foreach (ExportedFile f in files) Files.Add(new ExportItem(f, ViewAsync, MenuAsync, DeleteAsync));
-		long bytes = files.Sum(f => f.Bytes);
-		Summary = files.Count == 0 ? "" : $"{files.Count} file · {Size(bytes)}";
+		_all = await Task.Run(library.List);
+		ApplyFilter();
 		IsRefreshing = false;
+	}
+
+	private void ApplyFilter()
+	{
+		string query = SearchText.Trim();
+		IEnumerable<ExportedFile> shown = query.Length == 0 ? _all : _all.Where(f => TextSearch.Matches(f.Name, query));
+		Files.Clear();
+		foreach (ExportedFile f in shown) Files.Add(new ExportItem(f, ViewAsync, MenuAsync, DeleteAsync));
+
+		Summary = _all.Count == 0 ? "" : $"{_all.Count} file · {Size(_all.Sum(f => f.Bytes))}";
+		EmptyText = query.Length > 0 ? $"Không có PDF nào khớp \"{query}\"." : "Mở một tài liệu và bấm \"Xuất PDF\" ở thanh dưới.";
 	}
 
 	private static Task ViewAsync(ExportItem item) => ExportCoordinator.ViewAsync(item.File.Path);

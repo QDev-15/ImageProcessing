@@ -7,7 +7,7 @@
     xmlns:views="clr-namespace:DocScanner.Views"
     x:DataType="vm:SignatureViewModel"
     Title="Chữ ký"
-    BackgroundColor="{AppThemeBinding Light=#E9ECF1, Dark=#121212}">
+    BackgroundColor="{AppThemeBinding Light={StaticResource Surface}, Dark={StaticResource SurfaceDark}}">
 
     <ContentPage.ToolbarItems>
         <ToolbarItem Text="Xong" Clicked="OnDone" Order="Primary">
@@ -24,9 +24,9 @@
         <views:StampEditor x:Name="Editor" />
 
         <!-- Saved signatures: tap to put one on the page. -->
-        <Grid Grid.Row="1" RowDefinitions="Auto,Auto" Padding="12,8,12,6" BackgroundColor="{AppThemeBinding Light=White, Dark=#1C1C1E}">
+        <Grid Grid.Row="1" RowDefinitions="Auto,Auto" Padding="12,8,12,6" BackgroundColor="{AppThemeBinding Light={StaticResource CardBackground}, Dark={StaticResource CardBackgroundDark}}">
             <Label Text="Chạm một chữ ký để đặt lên trang · kéo để dời · kéo chấm xanh để đổi cỡ" FontSize="11"
-                   TextColor="{AppThemeBinding Light=#6B7280, Dark=#9CA3AF}" Margin="2,0,0,6" />
+                   TextColor="{AppThemeBinding Light={StaticResource Muted}, Dark={StaticResource MutedDark}}" Margin="2,0,0,6" />
             <ScrollView Grid.Row="1" Orientation="Horizontal" HorizontalScrollBarVisibility="Never">
                 <HorizontalStackLayout Spacing="8">
                     <!-- New signature -->
@@ -64,7 +64,8 @@
                         <BindableLayout.ItemTemplate>
                             <DataTemplate x:DataType="vm:SignatureChoice">
                                 <Grid WidthRequest="124" HeightRequest="60">
-                                    <Border StrokeThickness="1" Stroke="{AppThemeBinding Light=#D6DCE4, Dark=#3A3A3C}" BackgroundColor="White" Padding="6,4">
+                                    <Border StrokeThickness="1" Stroke="{AppThemeBinding Light={StaticResource Divider}, Dark={StaticResource DividerDark}}"
+                                            BackgroundColor="{AppThemeBinding Light={StaticResource CardBackground}, Dark={StaticResource CardBackgroundDark}}" Padding="6,4">
                                         <Border.StrokeShape>
                                             <RoundRectangle CornerRadius="8" />
                                         </Border.StrokeShape>
@@ -74,7 +75,8 @@
                                         <Image Source="{Binding Picture}" Aspect="AspectFit" InputTransparent="True" />
                                     </Border>
                                     <Label Text="{x:Static views:Icons.Close}" FontFamily="Icons" FontSize="14" Padding="4"
-                                           HorizontalOptions="End" VerticalOptions="Start" TextColor="#9CA3AF">
+                                           HorizontalOptions="End" VerticalOptions="Start"
+                                           TextColor="{AppThemeBinding Light={StaticResource Muted}, Dark={StaticResource MutedDark}}">
                                         <Label.GestureRecognizers>
                                             <TapGestureRecognizer Command="{Binding RemoveCommand}" />
                                         </Label.GestureRecognizers>
@@ -87,25 +89,25 @@
             </ScrollView>
         </Grid>
 
-        <Grid Grid.Row="2" ColumnDefinitions="*,*,*" HeightRequest="60" BackgroundColor="{AppThemeBinding Light=White, Dark=#1C1C1E}">
-            <BoxView Grid.ColumnSpan="3" HeightRequest="0.6" VerticalOptions="Start" Color="{AppThemeBinding Light=#E5E7EB, Dark=#2C2C2E}" />
+        <Grid Grid.Row="2" ColumnDefinitions="*,*,*" HeightRequest="60" BackgroundColor="{AppThemeBinding Light={StaticResource CardBackground}, Dark={StaticResource CardBackgroundDark}}">
+            <BoxView Grid.ColumnSpan="3" HeightRequest="0.6" VerticalOptions="Start" Color="{AppThemeBinding Light={StaticResource Divider}, Dark={StaticResource DividerDark}}" />
             <views:ToolButton Icon="{x:Static views:Icons.Signature}" Text="Vẽ chữ ký" Command="{Binding StartDrawingCommand}" />
             <views:ToolButton x:Name="RemoveButton" Grid.Column="1" Icon="{x:Static views:Icons.Delete}" Text="Bỏ chữ ký đang chọn" />
             <views:ToolButton x:Name="DoneButton" Grid.Column="2" Icon="{x:Static views:Icons.Check}" Text="Xong" IsActive="True" />
         </Grid>
 
-        <views:AdBannerView Grid.Row="3" />
+        <views:AdBannerSurface Grid.Row="3" HeightRequest="50" />
 
         <!-- Drawing pad -->
         <Grid Grid.RowSpan="4" IsVisible="{Binding IsDrawing}" BackgroundColor="#99000000">
             <Border Margin="14" VerticalOptions="Center" Padding="14,12" StrokeThickness="0"
-                    BackgroundColor="{AppThemeBinding Light=White, Dark=#1C1C1E}">
+                    BackgroundColor="{AppThemeBinding Light={StaticResource CardBackground}, Dark={StaticResource CardBackgroundDark}}">
                 <Border.StrokeShape>
                     <RoundRectangle CornerRadius="14" />
                 </Border.StrokeShape>
                 <VerticalStackLayout Spacing="10">
                     <Label Text="Ký vào khung bên dưới" FontSize="15" FontFamily="OpenSansSemibold"
-                           TextColor="{AppThemeBinding Light=#1F2937, Dark=#F3F4F6}" />
+                           TextColor="{AppThemeBinding Light={StaticResource OnSurface}, Dark={StaticResource OnSurfaceDark}}" />
                     <Border StrokeThickness="1" Stroke="#D6DCE4" Padding="0" BackgroundColor="White">
                         <Border.StrokeShape>
                             <RoundRectangle CornerRadius="8" />
@@ -153,9 +155,9 @@
                             </Border>
                         </HorizontalStackLayout>
                         <Button x:Name="ClearPadButton" Grid.Column="2" Text="Xoá nét" FontSize="13" Padding="10,0" HeightRequest="38"
-                                BackgroundColor="Transparent" TextColor="{AppThemeBinding Light=#37404D, Dark=#E0E0E0}" />
+                                BackgroundColor="Transparent" TextColor="{AppThemeBinding Light={StaticResource OnSurface}, Dark={StaticResource OnSurfaceDark}}" />
                         <Button Grid.Column="3" Text="Huỷ" FontSize="13" Padding="10,0" HeightRequest="38" Command="{Binding CancelDrawingCommand}"
-                                BackgroundColor="Transparent" TextColor="{AppThemeBinding Light=#37404D, Dark=#E0E0E0}" />
+                                BackgroundColor="Transparent" TextColor="{AppThemeBinding Light={StaticResource OnSurface}, Dark={StaticResource OnSurfaceDark}}" />
                         <Button x:Name="SavePadButton" Grid.Column="4" Text="Lưu" FontSize="13" Padding="16,0" HeightRequest="38"
                                 BackgroundColor="{StaticResource Primary}" TextColor="White" CornerRadius="19" />
                     </Grid>

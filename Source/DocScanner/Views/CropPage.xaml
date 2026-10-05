@@ -7,13 +7,13 @@
     xmlns:views="clr-namespace:DocScanner.Views"
     x:DataType="vm:CropViewModel"
     Title="{Binding Title}"
-    BackgroundColor="{AppThemeBinding Light=#F5F7FA, Dark=#121212}">
+    BackgroundColor="{AppThemeBinding Light={StaticResource Surface}, Dark={StaticResource SurfaceDark}}">
 
     <ContentPage.ToolbarItems>
         <ToolbarItem Text="Xuất PDF" Command="{Binding ExportPdfCommand}" Order="Primary">
             <ToolbarItem.IconImageSource>
                 <FontImageSource FontFamily="Icons" Glyph="{x:Static views:Icons.Pdf}" Size="22"
-                                 Color="{AppThemeBinding Light=#37404D, Dark=#E0E0E0}" />
+                                 Color="{AppThemeBinding Light={StaticResource OnSurface}, Dark={StaticResource OnSurfaceDark}}" />
             </ToolbarItem.IconImageSource>
         </ToolbarItem>
     </ContentPage.ToolbarItems>
@@ -29,7 +29,7 @@
             </views:ToolButton>
             <Label Grid.Column="1" Text="{Binding Status}" HorizontalOptions="Center" VerticalOptions="Center"
                    MaxLines="1" LineBreakMode="TailTruncation" FontSize="12"
-                   TextColor="{AppThemeBinding Light=#6B7280, Dark=#9CA3AF}" />
+                   TextColor="{AppThemeBinding Light={StaticResource Muted}, Dark={StaticResource MutedDark}}" />
             <views:ToolButton Grid.Column="2" Icon="{x:Static views:Icons.ChevronRight}" Text="" IconSize="26" Padding="0"
                               IsEnabled="{Binding CanGoNext}" Command="{Binding GoCommand}">
                 <views:ToolButton.CommandParameter><x:Int32>1</x:Int32></views:ToolButton.CommandParameter>
@@ -49,9 +49,9 @@
 
         <!-- Bottom toolbar: outline tools, then "Tiếp" to the result (filters, adjust, rotate). -->
         <Grid Grid.Row="2" ColumnDefinitions="*,*,*,Auto" HeightRequest="64" Padding="4,0,12,0"
-              BackgroundColor="{AppThemeBinding Light=White, Dark=#1C1C1E}">
+              BackgroundColor="{AppThemeBinding Light={StaticResource CardBackground}, Dark={StaticResource CardBackgroundDark}}">
             <BoxView Grid.ColumnSpan="4" HeightRequest="0.6" VerticalOptions="Start" Margin="-4,0,-12,0"
-                     Color="{AppThemeBinding Light=#E5E7EB, Dark=#2C2C2E}" />
+                     Color="{AppThemeBinding Light={StaticResource Divider}, Dark={StaticResource DividerDark}}" />
             <views:ToolButton Icon="{x:Static views:Icons.Auto}" Text="Tự động" IsEnabled="{Binding CanEdit}" Command="{Binding AutoCommand}" />
             <views:ToolButton Grid.Column="1" Icon="{x:Static views:Icons.CropFree}" Text="Toàn ảnh" IsEnabled="{Binding CanEdit}" Command="{Binding FullImageCommand}" />
             <views:ToolButton Grid.Column="2" Icon="{x:Static views:Icons.RotateRight}" Text="Xoay ảnh" IsEnabled="{Binding CanEdit}" Command="{Binding RotateCommand}" />
@@ -63,7 +63,7 @@
             </Button>
         </Grid>
 
-        <views:AdBannerView Grid.Row="3" />
+        <views:AdBannerSurface Grid.Row="3" HeightRequest="50" />
 
         <views:ExportOverlay Grid.RowSpan="4" />
     </Grid>

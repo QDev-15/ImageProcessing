@@ -7,13 +7,13 @@
     xmlns:views="clr-namespace:DocScanner.Views"
     x:DataType="vm:ResultViewModel"
     Title="{Binding Title}"
-    BackgroundColor="{AppThemeBinding Light=#F5F7FA, Dark=#121212}">
+    BackgroundColor="{AppThemeBinding Light={StaticResource Surface}, Dark={StaticResource SurfaceDark}}">
 
     <ContentPage.ToolbarItems>
         <ToolbarItem Text="Xuất PDF" Command="{Binding ExportPdfCommand}" Order="Primary">
             <ToolbarItem.IconImageSource>
                 <FontImageSource FontFamily="Icons" Glyph="{x:Static views:Icons.Pdf}" Size="22"
-                                 Color="{AppThemeBinding Light=#37404D, Dark=#E0E0E0}" />
+                                 Color="{AppThemeBinding Light={StaticResource OnSurface}, Dark={StaticResource OnSurfaceDark}}" />
             </ToolbarItem.IconImageSource>
         </ToolbarItem>
         <ToolbarItem Text="Xong" Command="{Binding DoneCommand}" Order="Primary">
@@ -29,20 +29,20 @@
         <Style x:Key="FilterCard" TargetType="Border">
             <Setter Property="WidthRequest" Value="84" />
             <Setter Property="StrokeThickness" Value="1.5" />
-            <Setter Property="Stroke" Value="{AppThemeBinding Light=#E2E6EC, Dark=#333333}" />
-            <Setter Property="BackgroundColor" Value="{AppThemeBinding Light=#F7F9FC, Dark=#242426}" />
+            <Setter Property="Stroke" Value="{AppThemeBinding Light={StaticResource Divider}, Dark={StaticResource DividerDark}}" />
+            <Setter Property="BackgroundColor" Value="{AppThemeBinding Light={StaticResource Surface}, Dark=#2A2638}" />
             <Setter Property="StrokeShape" Value="RoundRectangle 10" />
         </Style>
         <Style x:Key="FilterName" TargetType="Label">
             <Setter Property="FontSize" Value="11" />
             <Setter Property="HorizontalOptions" Value="Center" />
-            <Setter Property="TextColor" Value="{AppThemeBinding Light=#37404D, Dark=#E0E0E0}" />
+            <Setter Property="TextColor" Value="{AppThemeBinding Light={StaticResource OnSurface}, Dark={StaticResource OnSurfaceDark}}" />
         </Style>
         <Style x:Key="PanelIcon" TargetType="Label">
             <Setter Property="FontFamily" Value="Icons" />
             <Setter Property="FontSize" Value="20" />
             <Setter Property="VerticalOptions" Value="Center" />
-            <Setter Property="TextColor" Value="{AppThemeBinding Light=#6B7280, Dark=#9CA3AF}" />
+            <Setter Property="TextColor" Value="{AppThemeBinding Light={StaticResource Muted}, Dark={StaticResource MutedDark}}" />
         </Style>
     </ContentPage.Resources>
 
@@ -80,7 +80,7 @@
         </Grid>
 
         <!-- Tool panel (one at a time), above the bottom bar. Locked while the page is not ready. -->
-        <Grid Grid.Row="2" IsEnabled="{Binding CanEdit}" BackgroundColor="{AppThemeBinding Light=White, Dark=#1C1C1E}">
+        <Grid Grid.Row="2" IsEnabled="{Binding CanEdit}" BackgroundColor="{AppThemeBinding Light={StaticResource CardBackground}, Dark={StaticResource CardBackgroundDark}}">
 
             <!-- Filters -->
             <VerticalStackLayout IsVisible="{Binding ShowFilters}" Padding="12,10,12,4" Spacing="4">
@@ -175,7 +175,7 @@
                 </Grid>
                 <Grid ColumnDefinitions="*,Auto" HeightRequest="40" IsVisible="{Binding ShowCleanBackground}">
                     <Label Text="Làm sạch nền (xoá bóng, giấy ngả vàng)" FontSize="12" VerticalOptions="Center"
-                           TextColor="{AppThemeBinding Light=#37404D, Dark=#E0E0E0}" />
+                           TextColor="{AppThemeBinding Light={StaticResource OnSurface}, Dark={StaticResource OnSurfaceDark}}" />
                     <Switch Grid.Column="1" IsToggled="{Binding CleanBackground}" OnColor="{StaticResource Primary}" />
                 </Grid>
             </VerticalStackLayout>
@@ -183,9 +183,9 @@
 
         <!-- Bottom toolbar -->
         <Grid Grid.Row="3" ColumnDefinitions="*,*,*,*,*,*" HeightRequest="60"
-              BackgroundColor="{AppThemeBinding Light=White, Dark=#1C1C1E}">
+              BackgroundColor="{AppThemeBinding Light={StaticResource CardBackground}, Dark={StaticResource CardBackgroundDark}}">
             <BoxView Grid.ColumnSpan="6" HeightRequest="0.6" VerticalOptions="Start"
-                     Color="{AppThemeBinding Light=#E5E7EB, Dark=#2C2C2E}" />
+                     Color="{AppThemeBinding Light={StaticResource Divider}, Dark={StaticResource DividerDark}}" />
             <views:ToolButton Icon="{x:Static views:Icons.Filter}" Text="Bộ lọc" IsActive="{Binding ShowFilters}"
                               Command="{Binding TogglePanelCommand}" CommandParameter="Filters" />
             <views:ToolButton Grid.Column="1" Icon="{x:Static views:Icons.Tune}" Text="Điều chỉnh" IsActive="{Binding ShowAdjust}"
@@ -201,7 +201,7 @@
                               Command="{Binding ToggleAspectCommand}" />
         </Grid>
 
-        <views:AdBannerView Grid.Row="4" />
+        <views:AdBannerSurface Grid.Row="4" HeightRequest="50" />
 
         <views:ExportOverlay Grid.RowSpan="5" />
     </Grid>
